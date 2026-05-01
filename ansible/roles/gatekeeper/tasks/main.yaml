@@ -1,0 +1,58 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+- name: Deploy OPA Gatekeeper using the raw manifest
+  ansible.builtin.command: |
+    kubectl --kubeconfig {{ gem_home }}/bmctl-workspace/{{ cluster_name }}/{{ cluster_name }}-kubeconfig \
+    apply -f https://raw.githubusercontent.com/open-policy-agent/gatekeeper/{{ gatekeeper_version }}/deploy/gatekeeper.yaml
+  register: gatekeeper_deploy
+  changed_when: '"created" in gatekeeper_deploy.stdout or "configured" in gatekeeper_deploy.stdout'
+- name: Wait for Gatekeeper Webhook service to be ready
+  ansible.builtin.command: |
+    kubectl --kubeconfig {{ gem_home }}/bmctl-workspace/{{ cluster_name }}/{{ cluster_name }}-kubeconfig \
+    wait --for=condition=ready pod -n gatekeeper-system -l control-plane=controller-manager --timeout=300s
+  changed_when: false
+- name: Create policies directory on admin workstation
+  ansible.builtin.file:
+    path: "{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/policies"
+    state: directory
+    owner: "{{ gem_user }}"
+    group: "{{ gem_user }}"
+    mode: "0755"
+- name: Copy Gatekeeper policies to admin workstation
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../policies/"
+    dest: "{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/policies/"
+    owner: "{{ gem_user }}"
+    group: "{{ gem_user }}"
+    mode: preserve
+- name: Render dynamic Gatekeeper limitations template
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/../policies/workload-limitations/gdc-limitations.yaml.j2"
+    dest: "{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/policies/workload-limitations/gdc-limitations.yaml"
+    owner: "{{ gem_user }}"
+    group: "{{ gem_user }}"
+    mode: "0644"
+- name: Remove raw template file to prevent kubectl parsing errors
+  ansible.builtin.file:
+    path: "{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/policies/workload-limitations/gdc-limitations.yaml.j2"
+    state: absent
+- name: Apply Gatekeeper policies to cluster
+  ansible.builtin.command: |
+    kubectl --kubeconfig {{ gem_home }}/bmctl-workspace/{{ cluster_name }}/{{ cluster_name }}-kubeconfig \
+    apply -f {{ gem_home }}/bmctl-workspace/{{ cluster_name }}/policies/ --recursive
+  register: gatekeeper_apply_policies
+  retries: 5
+  delay: 5
+  until: gatekeeper_apply_policies.rc == 0
+  changed_when: '"created" in gatekeeper_apply_policies.stdout or "configured" in gatekeeper_apply_policies.stdout'

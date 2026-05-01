@@ -1,0 +1,90 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+- name: Download versioned bmctl binary if missing
+  ansible.builtin.command: >
+    gcloud storage cp gs://anthos-baremetal-release/bmctl/{{ bmctl_version }}/linux-amd64/bmctl /usr/local/sbin/bmctl-{{ bmctl_version }}
+
+  args:
+    creates: "/usr/local/sbin/bmctl-{{ bmctl_version }}"
+  become: true
+- name: Make bmctl executable
+  ansible.builtin.file:
+    path: "/usr/local/sbin/bmctl-{{ bmctl_version }}"
+    mode: "0755"
+  become: true
+- name: Create symlink for active bmctl version
+  ansible.builtin.file:
+    src: "/usr/local/sbin/bmctl-{{ bmctl_version }}"
+    dest: /usr/local/sbin/bmctl
+    state: link
+    force: true
+  become: true
+- name: Create Anthos cluster workspace directory
+  become: true
+  become_user: "{{ gem_user }}"
+  ansible.builtin.file:
+    path: "{{ gem_home }}/bmctl-workspace/{{ cluster_name }}"
+    state: directory
+    owner: "{{ gem_user }}"
+    group: "{{ gem_user }}"
+    mode: "0755"
+- name: Create cluster configuration template in workspace
+  become: true
+  become_user: "{{ gem_user }}"
+  ansible.builtin.template:
+    src: cluster.yaml.j2
+    dest: "{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/{{ cluster_name }}.yaml"
+    mode: "0644"
+- name: Deploy the GDC Hybrid Cluster
+  become: true
+  become_user: "{{ gem_user }}"
+  ansible.builtin.command: "bmctl create cluster -c {{ cluster_name }}"
+  args:
+    chdir: "{{ gem_home }}"
+    creates: "{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/{{ cluster_name }}-kubeconfig"
+  environment:
+    GOOGLE_APPLICATION_CREDENTIALS: "{{ gem_home }}/bm-gcr.json"
+  async: 3600
+  poll: 60
+  register: gdc_deploy_cluster_create
+- name: Display cluster creation output
+  ansible.builtin.debug:
+    var: gdc_deploy_cluster_create.stdout_lines
+  when: gdc_deploy_cluster_create is defined and gdc_deploy_cluster_create.stdout_lines is defined
+- name: Create ClusterRoleBinding for GKE Connect Gateway access
+  become: true
+  become_user: "{{ gem_user }}"
+  ansible.builtin.shell: |
+    set -o pipefail
+    cat <<EOF | kubectl --kubeconfig {{ gem_home }}/bmctl-workspace/{{ cluster_name }}/{{ cluster_name }}-kubeconfig apply -f -
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: gcp-sa-cluster-admin-binding
+    subjects:
+    - kind: User
+      name: {{ gcp_cluster_admin_sa }}
+    roleRef:
+      kind: ClusterRole
+      name: cluster-admin
+      apiGroup: rbac.authorization.k8s.io
+    EOF
+  args:
+    executable: /bin/bash
+  register: gdc_deploy_apply_crb
+  changed_when: '"created" in gdc_deploy_apply_crb.stdout or "configured" in gdc_deploy_apply_crb.stdout'
+  retries: 10
+  delay: 10
+  until: gdc_deploy_apply_crb.rc == 0
+  when: gdc_deploy_cluster_create is not failed

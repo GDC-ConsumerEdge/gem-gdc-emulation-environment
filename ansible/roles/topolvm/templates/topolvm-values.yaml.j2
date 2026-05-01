@@ -1,0 +1,38 @@
+{#
+Copyright 2026 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    https://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+#}
+
+lvmd:
+  managed: true
+  deviceClasses:
+    - name: gdc-storage
+      volume-group: topolvm-vg
+      default: true
+      spare-gb: 10
+
+# Disable the default StorageClass creation so you can define your own
+storageClasses: []
+
+# Disable the pod mutating webhook.
+# By default, TopoLVM injects a fake resource request (topolvm.io/capacity: 1)
+# into any pod requesting a TopoLVM PVC to force the scheduler to place the pod
+# on a node with available TopoLVM capacity. However, in this GDC emulation environment
+# using ABM and containerd, the device plugin fails to advertise this fake capacity
+# to the kubelet, causing all pods to be stuck in Pending (FailedScheduling).
+# Disabling this allows the native WaitForFirstConsumer volume binding mode to
+# handle placement correctly.
+webhook:
+  podMutatingWebhook:
+    enabled: false

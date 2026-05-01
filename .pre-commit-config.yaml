@@ -1,0 +1,81 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+default_language_version:
+  python: python3
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        name: Remove trailing whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+        name: Enforce newline at end of file
+      - id: check-yaml
+        name: YAML Linter
+        files: \.(yaml|yml)$
+        args: [--allow-multiple-documents]
+        exclude: ^ansible/roles/.*/templates/
+      - id: check-added-large-files
+  - repo: https://github.com/google/yamlfmt
+    rev: v0.21.0
+    hooks:
+      - id: yamlfmt
+        exclude: ^ansible/roles/.*/templates/
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.0
+    hooks:
+      - id: gitleaks
+        name: Detect hardcoded secrets
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.105.0
+    hooks:
+      - id: terraform_fmt
+        name: Terraform Formatter
+      - id: terraform_tflint
+        name: Terraform Linter
+      - id: terraform_validate
+        name: Terraform Validate
+  - repo: https://github.com/ansible/ansible-lint
+    rev: v26.4.0
+    hooks:
+      - id: ansible-lint
+        name: Ansible Linter
+        files: ^ansible/.*\.(yaml|yml)$
+        exclude: ^(policies/|tests/)
+        additional_dependencies:
+          - ansible
+        language_version: python3
+  - repo: https://github.com/koalaman/shellcheck-precommit
+    rev: v0.11.0
+    hooks:
+      - id: shellcheck
+        name: Shellcheck Validation
+        files: \.sh$
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v4.4.0
+    hooks:
+      - id: conventional-pre-commit
+        name: Validate conventional commit message
+        stages: [commit-msg]
+        args: [--verbose]
+  - repo: local
+    hooks:
+      - id: addlicense
+        name: Validate License Headers
+        entry: addlicense
+        language: golang
+        additional_dependencies: ['github.com/google/addlicense@latest']
+        args: [-check, -f, LICENSE]
+        types: [text]

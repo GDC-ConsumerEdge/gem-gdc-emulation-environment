@@ -1,0 +1,171 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+- name: Ensure required packages are installed
+  ansible.builtin.apt:
+    name:
+      - acl
+    state: present
+    update_cache: true
+- name: Ensure GEM platform user exists
+  ansible.builtin.user:
+    name: "{{ gem_user }}"
+    state: present
+    shell: /bin/bash
+- name: Configure GOOGLE_APPLICATION_CREDENTIALS for the user
+  ansible.builtin.lineinfile:
+    path: "{{ gem_home }}/.bashrc"
+    line: "export GOOGLE_APPLICATION_CREDENTIALS={{ gem_home }}/bm-gcr.json"
+    create: true
+    owner: "{{ gem_user }}"
+    group: "{{ gem_user }}"
+    mode: "0644"
+- name: Download kubectl version {{ kubectl_version }}
+  ansible.builtin.get_url:
+    url: "https://storage.googleapis.com/kubernetes-release/release/{{ kubectl_version }}/bin/linux/amd64/kubectl"
+    dest: /usr/local/sbin/kubectl
+    mode: "0755"
+- name: Download Helm install script
+  ansible.builtin.get_url:
+    url: https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+    dest: /tmp/get_helm.sh
+    mode: "0700"
+- name: Install Helm
+  ansible.builtin.command: /tmp/get_helm.sh
+  args:
+    creates: /usr/local/bin/helm
+- name: Create baremetal directory
+  ansible.builtin.file:
+    path: "{{ gem_home }}/baremetal"
+    state: directory
+    owner: "{{ gem_user }}"
+    group: "{{ gem_user }}"
+    mode: "0755"
+- name: Download bmctl version {{ bmctl_version }}
+  ansible.builtin.command: >
+    gcloud storage cp gs://anthos-baremetal-release/bmctl/{{ bmctl_version }}/linux-amd64/bmctl /usr/local/sbin/bmctl-{{ bmctl_version }}
+
+  args:
+    creates: /usr/local/sbin/bmctl-{{ bmctl_version }}
+- name: Make bmctl executable
+  ansible.builtin.file:
+    path: /usr/local/sbin/bmctl-{{ bmctl_version }}
+    mode: "0755"
+- name: Symlink bmctl to correct version
+  ansible.builtin.file:
+    src: /usr/local/sbin/bmctl-{{ bmctl_version }}
+    dest: /usr/local/sbin/bmctl
+    state: link
+    force: true
+- name: Check if Docker is installed
+  ansible.builtin.command: which docker
+  register: workstation_docker_check
+  failed_when: false
+  changed_when: false
+- name: Download Docker install script
+  ansible.builtin.get_url:
+    url: https://get.docker.com
+    dest: /tmp/get-docker.sh
+    mode: "0700"
+  when: workstation_docker_check.rc != 0
+- name: Install Docker
+  ansible.builtin.command: sh /tmp/get-docker.sh
+  when: workstation_docker_check.rc != 0
+  changed_when: true
+- name: Add user to docker group
+  ansible.builtin.user:
+    name: "{{ gem_user }}"
+    groups: docker
+    append: true
+- name: Configure Docker daemon MTU for VxLAN overlay
+  ansible.builtin.copy:
+    dest: /etc/docker/daemon.json
+    content: |
+      {
+        "mtu": 1410
+      }
+    mode: "0644"
+  notify: Restart Docker service
+- name: Ensure .ssh directory exists
+  ansible.builtin.file:
+    path: "{{ gem_home }}/.ssh"
+    state: directory
+    owner: "{{ gem_user }}"
+    group: "{{ gem_user }}"
+    mode: "0700"
+- name: Generate SSH keypair for platform user
+  community.crypto.openssh_keypair:
+    path: "{{ gem_home }}/.ssh/id_rsa"
+    type: rsa
+    size: 2048
+    owner: "{{ gem_user }}"
+    group: "{{ gem_user }}"
+- name: Fetch platform user public key from workstation
+  ansible.builtin.fetch:
+    src: "{{ gem_home }}/.ssh/id_rsa.pub"
+    dest: /tmp/ws_id_rsa.pub
+    flat: true
+- name: Check if Anthos Service Account Key exists on workstation
+  ansible.builtin.stat:
+    path: "{{ gem_home }}/bm-gcr.json"
+  register: workstation_ws_sa_key
+- name: Clean up corrupt Anthos Service Account Key on workstation if present
+  ansible.builtin.file:
+    path: "{{ gem_home }}/bm-gcr.json"
+    state: absent
+  when: workstation_ws_sa_key.stat.exists and workstation_ws_sa_key.stat.size == 0
+- name: Generate and copy Anthos Service Account Key
+  block:
+    - name: Generate Anthos Service Account Key dynamically
+      delegate_to: localhost
+      become: false
+      ansible.builtin.command: |
+        gcloud iam service-accounts keys create /tmp/bm-gcr.json \
+        --iam-account=baremetal-gcr@{{ gcp_project_id }}.iam.gserviceaccount.com \
+        --project={{ gcp_project_id }} \
+        --impersonate-service-account=tf-provisioner@{{ gcp_project_id }}.iam.gserviceaccount.com
+      args:
+        creates: /tmp/bm-gcr.json
+      when: not workstation_ws_sa_key.stat.exists or (workstation_ws_sa_key.stat.exists and workstation_ws_sa_key.stat.size == 0)
+    - name: Copy Anthos Service Account Key to workstation
+      ansible.builtin.copy:
+        src: /tmp/bm-gcr.json
+        dest: "{{ gem_home }}/bm-gcr.json"
+        owner: "{{ gem_user }}"
+        group: "{{ gem_user }}"
+        mode: "0600"
+      when: not workstation_ws_sa_key.stat.exists or (workstation_ws_sa_key.stat.exists and workstation_ws_sa_key.stat.size == 0)
+  rescue:
+    - name: Clean up local Anthos Service Account Key if failed
+      delegate_to: localhost
+      become: false
+      ansible.builtin.file:
+        path: /tmp/bm-gcr.json
+        state: absent
+    - name: Ensure corrupt key is absent on workstation
+      ansible.builtin.file:
+        path: "{{ gem_home }}/bm-gcr.json"
+        state: absent
+    - name: Fail with clear message regarding key creation constraint
+      ansible.builtin.fail:
+        msg: >
+          🚨 Failed to create the Anthos Service Account Key.
+
+  always:
+    - name: Clean up local Anthos Service Account Key (always)
+      delegate_to: localhost
+      become: false
+      ansible.builtin.file:
+        path: /tmp/bm-gcr.json
+        state: absent
+      when: not workstation_ws_sa_key.stat.exists or (workstation_ws_sa_key.stat.exists and workstation_ws_sa_key.stat.size == 0)

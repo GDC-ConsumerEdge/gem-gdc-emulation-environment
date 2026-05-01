@@ -1,0 +1,46 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+- name: Verify Node Network Configuration
+  hosts: cluster_nodes
+  become: true
+  vars:
+    cluster_name: "{{ tf_cluster_name }}"
+  tasks:
+    - name: "Check interface exists: {{ vxlan_primary_iface }}"
+      ansible.builtin.command: ip link show {{ vxlan_primary_iface }}
+      register: vxlan_exists
+      changed_when: false
+    - name: "Verify MTU is 1410 for {{ vxlan_primary_iface }}"
+      ansible.builtin.shell: |
+        set -o pipefail
+        ip link show {{ vxlan_primary_iface }} | grep -o "mtu [0-9]*"
+      args:
+        executable: /bin/bash
+      register: vxlan_mtu
+      changed_when: false
+    - name: "Assert MTU is 1410 for {{ vxlan_primary_iface }}"
+      ansible.builtin.assert:
+        that:
+          - "'mtu 1410' in vxlan_mtu.stdout"
+        fail_msg: "MTU for {{ vxlan_primary_iface }} is not 1410!"
+    - name: Check if TCP MSS clamping rule exists
+      ansible.builtin.command: iptables -t mangle -C POSTROUTING -p tcp --tcp-flags SYN,RST SYN -o {{ vxlan_primary_iface }} -j TCPMSS --clamp-mss-to-pmtu
+      register: mss_clamping
+      changed_when: false
+      ignore_errors: true
+    - name: Assert TCP MSS clamping rule is present
+      ansible.builtin.assert:
+        that:
+          - mss_clamping.rc == 0
+        fail_msg: "TCP MSS clamping rule is missing on {{ vxlan_primary_iface }}!"

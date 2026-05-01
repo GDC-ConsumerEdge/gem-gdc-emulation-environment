@@ -1,0 +1,99 @@
+{#
+Copyright 2026 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    https://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+#}
+
+---
+gcrKeyPath: {{ gem_home }}/bm-gcr.json
+sshPrivateKeyPath: {{ gem_home }}/.ssh/id_rsa
+gkeConnectAgentServiceAccountKeyPath: {{ gem_home }}/bm-gcr.json
+gkeConnectRegisterServiceAccountKeyPath: {{ gem_home }}/bm-gcr.json
+cloudOperationsServiceAccountKeyPath: {{ gem_home }}/bm-gcr.json
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cluster-{{ cluster_name }}
+---
+apiVersion: baremetal.cluster.gke.io/v1
+kind: Cluster
+metadata:
+  name: {{ cluster_name }}
+  namespace: cluster-{{ cluster_name }}
+spec:
+  type: standalone
+  profile: default
+  anthosBareMetalVersion: {{ bmctl_version }}
+  nodeAccess:
+    loginUser: {{ gem_user }}
+  gkeConnect:
+    projectID: {{ gcp_project_id }}
+  controlPlane:
+    nodePoolSpec:
+      clusterName: {{ cluster_name }}
+      kubeletConfig:
+        kubeReserved:
+          cpu: 2400m
+          memory: 10240Mi
+        #shutdownGracePeriod: 30s
+        #shutdownGracePeriodCriticalPods: 10s
+        systemReserved:
+          cpu: 2400m
+          memory: 10240Mi
+      nodes:
+      - address: {{ hostvars['node1'].vxlan_ip }}
+      - address: {{ hostvars['node2'].vxlan_ip }}
+      - address: {{ hostvars['node3'].vxlan_ip }}
+      operatingSystem: linux
+      taints:
+{% for taint in cluster_node_taints %}
+      - key: {{ taint.key }}
+{% if taint.value is defined %}
+        value: {{ taint.value }}
+{% endif %}
+        effect: {{ taint.effect }}
+{% endfor %}
+  clusterNetwork:
+    multipleNetworkInterfaces: true
+    pods:
+      cidrBlocks:
+      - {{ pod_cidr_blocks }}
+    services:
+      cidrBlocks:
+      - {{ services_cidr_blocks }}
+  loadBalancer:
+    mode: bundled
+    ports:
+      controlPlaneLBPort: 443
+    vips:
+      controlPlaneVIP: {{ vxlan_base_ip }}.49
+      ingressVIP: {{ vxlan_base_ip }}.50
+    addressPools:
+    - name: pool1
+      addresses:
+      - {{ vxlan_base_ip }}.50-{{ vxlan_base_ip }}.70
+  clusterOperations:
+    location: us-central1
+    projectID: {{ gcp_project_id }}
+  storage:
+    lvpNodeMounts:
+      path: /mnt/localpv-disk
+      storageClassName: node-disk
+    lvpShare:
+      numPVUnderSharedPath: 5
+      path: /mnt/localpv-share
+      storageClassName: local-shared
+  nodeConfig:
+    podDensity:
+      maxPodsPerNode: {{ max_pods_per_node }}

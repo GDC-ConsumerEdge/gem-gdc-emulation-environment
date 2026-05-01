@@ -1,0 +1,285 @@
+{#
+Copyright 2026 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    https://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+#}
+
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: gdcworkloadlimitations
+spec:
+  crd:
+    spec:
+      names:
+        kind: GDCWorkloadLimitations
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            allowedHostPaths:
+              type: array
+              items:
+                type: string
+            excludedUsers:
+              type: array
+              items:
+                type: string
+            excludedUserPrefixes:
+              type: array
+              items:
+                type: string
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package gdcworkloadlimitations
+
+        # Check if user is explicitly exempt
+        is_exempt {
+          user := input.review.userInfo.username
+          exempt_user := input.parameters.excludedUsers[_]
+          user == exempt_user
+        }
+
+        # Check if user matches an exempt prefix
+        is_exempt {
+          user := input.review.userInfo.username
+          prefix := input.parameters.excludedUserPrefixes[_]
+          startswith(user, prefix)
+        }
+
+        # Check if user belongs to an exempt group
+        is_exempt {
+          group := input.review.userInfo.groups[_]
+          exempt_group := input.parameters.excludedUsers[_]
+          group == exempt_group
+        }
+
+        # HostPath Check
+        violation[{"msg": msg}] {
+          not is_exempt
+          input.review.object.kind == "Pod"
+          volume := input.review.object.spec.volumes[_]
+          hostPath := volume.hostPath.path
+          not hostpath_allowed(hostPath)
+          msg := sprintf("HostPath %v is not allowed.", [hostPath])
+        }
+
+        hostpath_allowed(path) {
+          allowed := input.parameters.allowedHostPaths[_]
+          startswith(path, allowed)
+        }
+
+        # HostNetwork Check
+        violation[{"msg": msg}] {
+          not is_exempt
+          input.review.object.kind == "Pod"
+          input.review.object.spec.hostNetwork == true
+          msg := "hostNetwork is not allowed"
+        }
+
+        # Privileged Check
+        violation[{"msg": msg}] {
+          not is_exempt
+          input.review.object.kind == "Pod"
+          container := input.review.object.spec.containers[_]
+          container.securityContext.privileged == true
+          msg := "Privileged containers are not allowed"
+        }
+
+        # Pod Priority Check
+        violation[{"msg": msg}] {
+          not is_exempt
+          input.review.object.kind == "Pod"
+          priority := input.review.object.spec.priority
+          priority >= 500000000
+          msg := sprintf("Pod priority %v must be less than 500000000", [priority])
+        }
+
+        # Service Restrictions
+        violation[{"msg": msg}] {
+          not is_exempt
+          input.review.object.kind == "Service"
+          input.review.object.spec.type == "NodePort"
+          msg := "Service type NodePort is not allowed"
+        }
+
+        violation[{"msg": msg}] {
+          not is_exempt
+          input.review.object.kind == "Service"
+          ips := input.review.object.spec.externalIPs
+          count(ips) > 0
+          msg := "Service externalIPs are not allowed"
+        }
+
+---
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: GDCWorkloadLimitations
+metadata:
+  name: enforce-gdc-workloads
+spec:
+  match:
+    kinds:
+      - apiGroups: [""]
+        kinds: ["Pod", "Service"]
+  parameters:
+    excludedUsers:
+      - "kubernetes-admin"
+      - "system:admin"
+      - "system:masters"
+      - "system:nodes"
+      - "gem-cluster-admin"
+      - "{{ gcp_edge_container_sa }}"
+    excludedUserPrefixes:
+      - "system:serviceaccount:kube-system:"
+      - "system:serviceaccount:gke-system:"
+      - "system:serviceaccount:gke-connect:"
+      - "system:serviceaccount:cert-manager:"
+      - "system:serviceaccount:metallb-system:"
+      - "system:serviceaccount:gatekeeper-system:"
+      - "system:serviceaccount:anthos-identity-service:"
+      - "system:serviceaccount:vm-system:"
+      - "system:kube-"
+    allowedHostPaths:
+      - "/dev/hugepages"
+      - "/dev/infiniband"
+      - "/dev/vfio"
+      - "/dev/char"
+      - "/sys/devices"
+
+---
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: gdcrestrictednamespaces
+spec:
+  crd:
+    spec:
+      names:
+        kind: GDCRestrictedNamespaces
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            restrictedNamespaces:
+              type: array
+              items:
+                type: string
+            excludedUsers:
+              type: array
+              items:
+                type: string
+            excludedUserPrefixes:
+              type: array
+              items:
+                type: string
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package gdcrestrictednamespaces
+
+        # Check if user is explicitly exempt
+        is_user_exempt {
+          user := input.review.userInfo.username
+          exempt_user := input.parameters.excludedUsers[_]
+          user == exempt_user
+        }
+
+        # Check if user matches an exempt prefix
+        is_user_exempt {
+          user := input.review.userInfo.username
+          prefix := input.parameters.excludedUserPrefixes[_]
+          startswith(user, prefix)
+        }
+
+        # Check if user belongs to an exempt group
+        is_user_exempt {
+          group := input.review.userInfo.groups[_]
+          exempt_group := input.parameters.excludedUsers[_]
+          group == exempt_group
+        }
+
+        violation[{"msg": msg}] {
+          not is_user_exempt
+          ns := input.review.object.metadata.namespace
+          is_restricted(ns)
+          not is_exempt(ns, input.review.object.kind)
+          msg := sprintf("Operations in namespace %v are forbidden by GDC policies", [ns])
+        }
+
+        is_restricted(ns) {
+          restricted := input.parameters.restrictedNamespaces[_]
+          ns == restricted
+        }
+
+        is_exempt("metallb-system", "ConfigMap")
+        is_exempt("kube-system", "IPPool")
+
+---
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: GDCRestrictedNamespaces
+metadata:
+  name: enforce-gdc-namespaces
+spec:
+  match:
+    kinds:
+      - apiGroups: ["*"]
+        kinds: ["*"]
+  parameters:
+    excludedUsers:
+      - "kubernetes-admin"
+      - "system:admin"
+      - "system:masters"
+      - "system:nodes"
+      - "gem-cluster-admin"
+      - "{{ gcp_edge_container_sa }}"
+    excludedUserPrefixes:
+      - "system:serviceaccount:kube-system:"
+      - "system:serviceaccount:gke-system:"
+      - "system:serviceaccount:gke-connect:"
+      - "system:serviceaccount:cert-manager:"
+      - "system:serviceaccount:metallb-system:"
+      - "system:serviceaccount:gatekeeper-system:"
+      - "system:serviceaccount:anthos-identity-service:"
+      - "system:serviceaccount:vm-system:"
+      - "system:kube-"
+    restrictedNamespaces:
+      - "ai-system"
+      - "ai-speech-system"
+      - "ai-ocr-system"
+      - "ai-translation-system"
+      - "anthos-identity-service"
+      - "cert-manager"
+      - "dataproc-system"
+      - "dns-system"
+      - "g-istio-system"
+      - "gke-connect"
+      - "gke-managed-metrics-server"
+      - "gke-operators"
+      - "gke-system"
+      - "gpc-backup-system"
+      - "iam-system"
+      - "kube-node-lease"
+      - "kube-public"
+      - "kube-system"
+      - "metallb-system"
+      - "nf-operator"
+      - "oclcm-system"
+      - "prediction"
+      - "rm-system"
+      - "robinio"
+      - "saas-system"
+      - "vm-system"
+      - "g-ospf-servicecontrol-system"
+      - "g-ospf-system"
+      - "g-pspf-system"

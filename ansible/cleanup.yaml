@@ -1,0 +1,80 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+- name: Reset and Unregister GDC Cluster
+  hosts: workstation
+  become: true
+  become_user: "{{ gem_user }}"
+  vars:
+    # Ensure these are passed via --extra-vars or defined in group_vars
+    kubeconfig_path: "{{ gem_home }}/bmctl-workspace/{{ cluster_name | default('UNSET') }}/{{ cluster_name | default('UNSET') }}-kubeconfig"
+  tasks:
+    - name: Ensure cluster_name is provided
+      ansible.builtin.fail:
+        msg: "The 'cluster_name' variable is required. Please pass it via --extra-vars (e.g. -e 'cluster_name=my-cluster')"
+      when: cluster_name is undefined or cluster_name | length == 0
+    - name: Check if kubeconfig exists
+      ansible.builtin.stat:
+        path: "{{ kubeconfig_path }}"
+      register: kubeconfig_stat
+    - name: Run bmctl reset
+      ansible.builtin.command: "bmctl reset cluster -c {{ cluster_name }} --kubeconfig {{ kubeconfig_path }}"
+      args:
+        chdir: "{{ gem_home }}"
+      changed_when: true
+      environment:
+        GOOGLE_APPLICATION_CREDENTIALS: "{{ gem_home }}/bm-gcr.json"
+      when: kubeconfig_stat.stat.exists
+      async: 1200
+      poll: 30
+      ignore_errors: true
+      register: reset_output
+    - name: Display reset output
+      ansible.builtin.debug:
+        var: reset_output.stdout_lines
+      when: reset_output is defined and reset_output.stdout_lines is defined
+    - name: Clean up cluster workspace directory
+      ansible.builtin.file:
+        path: "{{ gem_home }}/bmctl-workspace/{{ cluster_name }}"
+        state: absent
+- name: Clean up VXLAN networking on Workstation
+  hosts: workstation
+  become: true
+  vars:
+    vxlan_service: "vxlan-{{ cluster_name }}.service"
+    vxlan_script: "/usr/local/bin/setup-vxlan-{{ cluster_name }}.sh"
+    vx_iface: "{{ vxlan_primary_iface }}"
+  tasks:
+    - name: Stop and disable VXLAN service
+      ansible.builtin.systemd:
+        name: "{{ vxlan_service }}"
+        state: stopped
+        enabled: false
+      failed_when: false
+    - name: Remove VXLAN service file
+      ansible.builtin.file:
+        path: "/etc/systemd/system/{{ vxlan_service }}"
+        state: absent
+    - name: Remove VXLAN setup script
+      ansible.builtin.file:
+        path: "{{ vxlan_script }}"
+        state: absent
+    - name: Delete primary VXLAN interface
+      ansible.builtin.command: "ip link delete {{ vx_iface }}"
+      failed_when: false
+      changed_when: true
+    - name: Delete secondary VXLAN interfaces
+      ansible.builtin.command: "ip link delete {{ vxlan_secondary_iface_prefix }}-{{ item.vlan_id }}"
+      loop: "{{ secondary_networks }}"
+      failed_when: false
+      changed_when: true

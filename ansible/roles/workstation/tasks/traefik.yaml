@@ -1,0 +1,104 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+- name: Check if Traefik is installed
+  ansible.builtin.command: which traefik
+  register: workstation_traefik_check
+  failed_when: false
+  changed_when: false
+- name: Download and install Traefik
+  ansible.builtin.unarchive:
+    src: https://github.com/traefik/traefik/releases/download/v3.0.0/traefik_v3.0.0_linux_amd64.tar.gz
+    dest: /usr/local/bin/
+    remote_src: true
+    creates: /usr/local/bin/traefik
+- name: Make Traefik executable
+  ansible.builtin.file:
+    path: /usr/local/bin/traefik
+    mode: "0755"
+- name: Grant Traefik capability to bind privileged ports
+  ansible.builtin.shell: |
+    set -o pipefail
+    if ! getcap /usr/local/bin/traefik | grep -q "cap_net_bind_service+ep"; then
+      setcap 'cap_net_bind_service=+ep' /usr/local/bin/traefik
+      echo "CHANGED"
+    fi
+  args:
+    executable: /bin/bash
+  register: workstation_setcap_output
+  changed_when: '"CHANGED" in workstation_setcap_output.stdout'
+  become: true
+- name: Create Traefik configuration directory
+  ansible.builtin.file:
+    path: /etc/traefik
+    state: directory
+    mode: "0755"
+    owner: "{{ gem_user }}"
+    group: "{{ gem_user }}"
+- name: Configure Traefik as an Edge Router
+  ansible.builtin.copy:
+    dest: /etc/traefik/traefik.yml
+    owner: "{{ gem_user }}"
+    group: "{{ gem_user }}"
+    mode: "0644"
+    content: |
+      entryPoints:
+        web:
+          address: ":80"
+        websecure:
+          address: ":443"
+      providers:
+        file:
+          directory: /etc/traefik/dynamic
+          watch: true
+      api:
+        insecure: true
+        dashboard: true
+- name: Create Traefik dynamic configuration directory
+  ansible.builtin.file:
+    path: /etc/traefik/dynamic
+    state: directory
+    mode: "0755"
+    owner: "{{ gem_user }}"
+    group: "{{ gem_user }}"
+- name: Create Systemd service for Traefik
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/traefik.service
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Traefik Edge Router
+      Documentation=https://doc.traefik.io/traefik/
+      After=network-online.target
+      Wants=network-online.target systemd-networkd-wait-online.service
+
+      [Service]
+      Restart=on-abnormal
+      User={{ gem_user }}
+      Group={{ gem_user }}
+      ExecStart=/usr/local/bin/traefik --configfile=/etc/traefik/traefik.yml
+      LimitNOFILE=1048576
+      PrivateTmp=true
+      PrivateDevices=false
+      ProtectHome=true
+      ProtectSystem=full
+      ReadWriteDirectories=/etc/traefik
+
+      [Install]
+      WantedBy=multi-user.target
+- name: Enable and start Traefik service
+  ansible.builtin.systemd:
+    name: traefik
+    enabled: true
+    state: started
+    daemon_reload: true

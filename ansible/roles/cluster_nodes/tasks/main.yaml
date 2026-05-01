@@ -1,0 +1,103 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+- name: Install required packages
+  ansible.builtin.apt:
+    name:
+      - jq
+      - acl
+      - curl
+      - socat
+      - conntrack
+      - ipset
+      - bridge-utils
+      - lvm2
+    state: present
+    update_cache: true
+  register: cluster_nodes_apt_status
+  until: cluster_nodes_apt_status is success
+  delay: 10
+  retries: 3
+- name: Create cluster storage partition
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      # Only create partition 2 if it doesn't already exist
+      if ! parted -s /dev/disk/by-id/google-data print | grep -q "^ 2"; then
+        parted -s /dev/disk/by-id/google-data mkpart topolvm {{ node_storage_size }} 100%
+        udevadm settle # Wait for udev to populate the partition device
+        echo "CHANGED"
+      fi
+  args:
+    executable: /bin/bash
+  register: cluster_nodes_partition_output
+  changed_when: '"CHANGED" in cluster_nodes_partition_output.stdout'
+  become: true
+- name: Create Volume Group topolvm-vg
+  ansible.builtin.shell:
+    cmd: |
+      if ! vgs topolvm-vg >/dev/null 2>&1; then
+        vgcreate -y topolvm-vg /dev/disk/by-id/google-data-part2
+        echo "CHANGED"
+      fi
+  register: cluster_nodes_vg_output
+  changed_when: '"CHANGED" in cluster_nodes_vg_output.stdout'
+  become: true
+- name: Ensure GEM platform user exists
+  ansible.builtin.user:
+    name: "{{ gem_user }}"
+    state: present
+    shell: /bin/bash
+- name: Ensure docker group exists
+  ansible.builtin.group:
+    name: docker
+    state: present
+- name: Add user to docker group
+  ansible.builtin.user:
+    name: "{{ gem_user }}"
+    groups: docker
+    append: true
+- name: Grant passwordless sudo to platform user
+  ansible.builtin.copy:
+    dest: "/etc/sudoers.d/{{ gem_user }}"
+    content: "{{ gem_user }} ALL=(ALL) NOPASSWD: ALL"
+    mode: "0440"
+- name: Add workstation public key to authorized_keys
+  ansible.posix.authorized_key:
+    user: "{{ gem_user }}"
+    state: present
+    key: "{{ lookup('file', '/tmp/ws_id_rsa.pub') }}"
+  when: lookup('file', '/tmp/ws_id_rsa.pub', errors='ignore') | length > 0
+- name: Configure kernel modules to load at boot
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/gdc-modules.conf
+    content: |
+      vxlan
+      overlay
+      br_netfilter
+    mode: "0644"
+- name: Load kernel modules immediately
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - vxlan
+    - overlay
+    - br_netfilter
+- name: Increase inotify limits for cluster storage provider
+  ansible.posix.sysctl:
+    name: fs.inotify.max_user_instances
+    value: "8192"
+    sysctl_file: /etc/sysctl.d/99-inotify.conf
+    state: present
+    reload: true

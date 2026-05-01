@@ -1,0 +1,50 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+- name: Create working directory for secondary networks
+  ansible.builtin.file:
+    path: "{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/secondary-networks"
+    state: directory
+    owner: "{{ gem_user }}"
+    group: "{{ gem_user }}"
+    mode: "0755"
+- name: Render Network Custom Resources
+  ansible.builtin.template:
+    src: network.yaml.j2
+    dest: "{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/secondary-networks/network-{{ item.name }}.yaml"
+    owner: "{{ gem_user }}"
+    group: "{{ gem_user }}"
+    mode: "0644"
+  loop: "{{ secondary_networks }}"
+- name: Render ClusterCIDRConfig Custom Resources
+  ansible.builtin.template:
+    src: clustercidrconfig.yaml.j2
+    dest: "{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/secondary-networks/clustercidr-{{ item.name }}.yaml"
+    owner: "{{ gem_user }}"
+    group: "{{ gem_user }}"
+    mode: "0644"
+  loop: "{{ secondary_networks }}"
+- name: Render MetalLB IPAddressPool and L2Advertisement
+  ansible.builtin.template:
+    src: metallb.yaml.j2
+    dest: "{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/secondary-networks/metallb-{{ item.name }}.yaml"
+    owner: "{{ gem_user }}"
+    group: "{{ gem_user }}"
+    mode: "0644"
+  loop: "{{ secondary_networks }}"
+- name: Apply Secondary Network Manifests
+  ansible.builtin.shell: |
+    export KUBECONFIG="{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/{{ cluster_name }}-kubeconfig"
+    kubectl apply -f {{ gem_home }}/bmctl-workspace/{{ cluster_name }}/secondary-networks/
+  register: secondary_networks_kubectl_apply
+  changed_when: "'created' in secondary_networks_kubectl_apply.stdout or 'configured' in secondary_networks_kubectl_apply.stdout"

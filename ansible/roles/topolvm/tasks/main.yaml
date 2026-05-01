@@ -1,0 +1,52 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+- name: Create TopoLVM configuration directory
+  ansible.builtin.file:
+    path: "{{ gem_home }}/topolvm"
+    state: directory
+    owner: "{{ gem_user }}"
+    group: "{{ gem_user }}"
+    mode: "0755"
+- name: Render TopoLVM values
+  ansible.builtin.template:
+    src: topolvm-values.yaml.j2
+    dest: "{{ gem_home }}/topolvm/values.yaml"
+    owner: "{{ gem_user }}"
+    group: "{{ gem_user }}"
+    mode: "0644"
+- name: Add TopoLVM Helm repository
+  become: true
+  become_user: "{{ gem_user }}"
+  ansible.builtin.shell: |
+    set -o pipefail
+    if ! helm repo list | grep -q "topolvm"; then
+      helm repo add topolvm https://topolvm.github.io/topolvm
+      echo "CHANGED"
+    fi
+  args:
+    executable: /bin/bash
+  register: topolvm_helm_repo_add
+  changed_when: '"CHANGED" in topolvm_helm_repo_add.stdout'
+- name: Update Helm repositories
+  become: true
+  become_user: "{{ gem_user }}"
+  ansible.builtin.command: helm repo update
+  changed_when: false
+- name: Deploy TopoLVM via Helm
+  become: true
+  become_user: "{{ gem_user }}"
+  ansible.builtin.command: |
+    helm upgrade --install topolvm topolvm/topolvm --namespace topolvm-system --create-namespace \
+    -f {{ gem_home }}/topolvm/values.yaml --kubeconfig {{ gem_home }}/bmctl-workspace/{{ cluster_name }}/{{ cluster_name }}-kubeconfig
+  changed_when: true

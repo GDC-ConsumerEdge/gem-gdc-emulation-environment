@@ -1,0 +1,44 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+- name: Ensure GCP SSH Access is initialized
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    gcp_project: "{{ gcp_project_id }}"
+    ws_name: "gem-admin-ws"
+    gcp_zone: "us-central1-a"
+  tasks:
+    - name: Ensure GCP SSH Key exists locally
+      ansible.builtin.stat:
+        path: "~/.ssh/google_compute_engine"
+      register: gcp_ssh_key
+    - name: Generate google_compute_engine key if missing
+      ansible.builtin.command: "gcloud compute config-ssh --quiet --project={{ gcp_project }}"
+      when: not gcp_ssh_key.stat.exists
+      changed_when: true
+    - name: Trigger initial SSH connection to populate keys on host
+      ansible.builtin.command: >
+        gcloud compute ssh {{ ws_name }} --tunnel-through-iap --project={{ gcp_project }} --zone={{ gcp_zone }} --command="true"
+
+      register: ssh_trigger
+      changed_when: false
+      until: ssh_trigger is success
+      retries: 6
+      delay: 5
+- name: Prepare Administrative Workstation
+  hosts: workstation
+  become: true
+  roles:
+    - workstation

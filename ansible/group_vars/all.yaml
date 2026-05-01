@@ -1,0 +1,59 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+gem_user: "gem"
+gem_home: "/home/{{ gem_user }}"
+pod_cidr_blocks: "10.0.0.0/17"
+services_cidr_blocks: "10.96.0.0/12"
+max_pods_per_node: 250
+# GCP Service Account to grant cluster-admin access via GKE Connect Gateway
+# If not specified, we default to the GDC emulation service account or the Edge Container P4SA
+gcp_cluster_admin_sa: "gem-cluster-admin@{{ gcp_project_id }}.iam.gserviceaccount.com"
+gcp_edge_container_sa: "service-{{ gcp_project_number }}@gcp-sa-edgecontainer.iam.gserviceaccount.com"
+# Mapping between GDC versions and their corresponding Anthos Bare Metal versions
+emulated_gdc_versions:
+  "1.12.1": "1.33.300-gke.60"
+  "1.12.0": "1.33.300-gke.60"
+  "1.11.1": "1.32.700-gke.64"
+  "1.11.0": "1.32.100-gke.107"
+# Default to the first key in the map (latest version) if not specified
+emulate_gdc_version: "{{ emulated_gdc_versions.keys() | list | first }}"
+# Resolve the ABM version
+bmctl_version: "{{ emulated_gdc_versions[emulate_gdc_version] }}"
+# https://dl.k8s.io/release/stable.txt for the latest version
+kubectl_version: "v1.36.0"
+cluster_node_taints:
+  - key: "node-role.kubernetes.io/master"
+    effect: "PreferNoSchedule"
+  - key: "node-role.kubernetes.io/control-plane"
+    effect: "PreferNoSchedule"
+# OPA Gatekeeper release version for validation and mutation
+gatekeeper_version: "v3.22.2"
+secondary_networks:
+  - name: "vlan-123"
+    vlan_id: 123
+    subnet: "172.16.10.0/24"
+    gateway: "172.16.10.1"
+    vip_pool: "172.16.10.200-172.16.10.250"
+    pod_cidr: "172.16.100.0/16"
+    per_node_ipam_size: 18
+  - name: "vlan-456"
+    vlan_id: 456
+    subnet: "192.168.45.0/24"
+    gateway: "192.168.45.1"
+    vip_pool: "192.168.45.200-192.168.45.250"
+    pod_cidr: "192.168.100.0/16"
+    per_node_ipam_size: 18
+# Dynamic interface names based on cluster_name
+vxlan_primary_iface: "vx-{{ cluster_name | replace('-', '') | truncate(11, True, '', 0) }}"
+vxlan_secondary_iface_prefix: "sec-{{ cluster_name | replace('-', '') | truncate(6, True, '', 0) }}"

@@ -1,0 +1,108 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+- name: Test GDC Template Rendering Setup
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Add mock node1
+      ansible.builtin.add_host:
+        name: node1
+        vxlan_ip: 10.200.0.2
+    - name: Add mock node2
+      ansible.builtin.add_host:
+        name: node2
+        vxlan_ip: 10.200.0.3
+    - name: Add mock node3
+      ansible.builtin.add_host:
+        name: node3
+        vxlan_ip: 10.200.0.4
+- name: Test GDC Template Rendering Execution (Default Version)
+  hosts: localhost
+  gather_facts: false
+  vars:
+    cluster_name: test-cluster
+    gcp_project_id: "test-project"
+    gem_home: "/home/gdc"
+    vxlan_base_ip: "10.200.0"
+    pod_cidr_blocks: "10.0.0.0/17"
+    services_cidr_blocks: "10.96.0.0/12"
+    max_pods_per_node: 250
+    cluster_node_taints:
+      - key: "node-role.kubernetes.io/master"
+        effect: "PreferNoSchedule"
+      - key: "node-role.kubernetes.io/control-plane"
+        effect: "PreferNoSchedule"
+  tasks:
+    - name: Ensure test directory exists
+      ansible.builtin.file:
+        path: "/tmp/gdc_test"
+        state: directory
+        mode: "0755"
+    - name: Render cluster configuration template
+      ansible.builtin.template:
+        src: "../roles/gdc_deploy/templates/cluster.yaml.j2"
+        dest: "/tmp/gdc_test/cluster.yaml"
+        mode: "0644"
+    - name: Slurp rendered template
+      ansible.builtin.slurp:
+        src: "/tmp/gdc_test/cluster.yaml"
+      register: rendered_template
+    - name: Verify template contents (Default Version)
+      ansible.builtin.assert:
+        that:
+          - "'name: test-cluster' in (rendered_template['content'] | b64decode)"
+          - "'anthosBareMetalVersion: 1.33.300-gke.60' in (rendered_template['content'] | b64decode)"
+          - "'projectID: test-project' in (rendered_template['content'] | b64decode)"
+        fail_msg: "Template rendering failed one or more assertions."
+    - name: Clean up test directory
+      ansible.builtin.file:
+        path: "/tmp/gdc_test"
+        state: absent
+- name: Test GDC Template Rendering with Version Override
+  hosts: localhost
+  gather_facts: false
+  vars:
+    cluster_name: test-cluster-v2
+    emulate_gdc_version: "1.11.1"
+    gcp_project_id: "test-project"
+    gem_home: "/home/gdc"
+    vxlan_base_ip: "10.200.0"
+    pod_cidr_blocks: "10.0.0.0/17"
+    services_cidr_blocks: "10.96.0.0/12"
+    max_pods_per_node: 250
+    cluster_node_taints: []
+  tasks:
+    - name: Ensure test directory exists
+      ansible.builtin.file:
+        path: "/tmp/gdc_test_v2"
+        state: directory
+        mode: "0755"
+    - name: Render cluster configuration template
+      ansible.builtin.template:
+        src: "../roles/gdc_deploy/templates/cluster.yaml.j2"
+        dest: "/tmp/gdc_test_v2/cluster.yaml"
+        mode: "0644"
+    - name: Slurp rendered template
+      ansible.builtin.slurp:
+        src: "/tmp/gdc_test_v2/cluster.yaml"
+      register: rendered_template_v2
+    - name: Verify template contents for version 1.11.1
+      ansible.builtin.assert:
+        that:
+          - "'anthosBareMetalVersion: 1.32.700-gke.64' in (rendered_template_v2['content'] | b64decode)"
+        fail_msg: "Template rendering failed to map 1.11.1 to 1.32.700-gke.64"
+    - name: Clean up test directory
+      ansible.builtin.file:
+        path: "/tmp/gdc_test_v2"
+        state: absent
