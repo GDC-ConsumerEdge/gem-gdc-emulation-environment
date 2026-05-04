@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-name: Code Quality Validation
+name: Lint and Format Validation
 on:
   push:
     branches: [main]
@@ -25,12 +25,12 @@ jobs:
       pull-requests: read
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - name: Check for changes
         id: changes
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@v4
         with:
           filters: |
             terraform:
@@ -42,25 +42,24 @@ jobs:
         with:
           python-version: '3.13'
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: 'stable'
       - name: Setup Terraform
         if: steps.changes.outputs.terraform == 'true'
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: "1.5.7"
           terraform_wrapper: false
       - name: Setup TFLint
         if: steps.changes.outputs.terraform == 'true'
-        uses: terraform-linters/setup-tflint@v4
+        uses: terraform-linters/setup-tflint@v6
         with:
           tflint_version: v0.50.0
       - name: Run Core Pre-Commit Checks
         env:
           SKIP: terraform_fmt,terraform_tflint,terraform_validate,ansible-lint
         uses: pre-commit/action@v3.0.1
-
       - name: Terraform Init Mocks
         if: steps.changes.outputs.terraform == 'true'
         run: |

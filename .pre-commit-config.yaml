@@ -78,5 +78,5 @@ repos:
         entry: addlicense
         language: golang
         additional_dependencies: ['github.com/google/addlicense@latest']
-        args: [-check, -f, LICENSE]
+        args: [-f, LICENSE]
         types: [text]
