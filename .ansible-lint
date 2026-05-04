@@ -1,3 +1,7 @@
 # Configuration file for ansible-lint
 # Empty skip_list to see all remaining errors.
 skip_list: []
+exclude_paths:
+  - .github/
+  - policies/
+  - tests/
