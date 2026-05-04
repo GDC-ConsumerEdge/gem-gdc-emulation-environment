@@ -55,9 +55,9 @@ jobs:
             ansible:
               - 'ansible/**'
       - name: Run Core Pre-Commit Checks
+        env:
+          SKIP: terraform_fmt,terraform_tflint,terraform_validate,ansible-lint
         uses: pre-commit/action@v3.0.1
-        with:
-          extra_args: trailing-whitespace end-of-file-fixer check-yaml check-added-large-files yamlfmt gitleaks addlicense shellcheck
       - name: Validate Commit Message
         run: |
           git log -1 --pretty=%B > /tmp/commit_msg
@@ -78,11 +78,11 @@ jobs:
         shell: bash
       - name: Run Terraform Pre-Commit Checks
         if: steps.changes.outputs.terraform == 'true'
+        env:
+          SKIP: trailing-whitespace,end-of-file-fixer,check-yaml,check-added-large-files,yamlfmt,gitleaks,addlicense,shellcheck,ansible-lint
         uses: pre-commit/action@v3.0.1
-        with:
-          extra_args: terraform_fmt terraform_tflint terraform_validate
       - name: Run Ansible Pre-Commit Checks
         if: steps.changes.outputs.ansible == 'true'
+        env:
+          SKIP: trailing-whitespace,end-of-file-fixer,check-yaml,check-added-large-files,yamlfmt,gitleaks,addlicense,shellcheck,terraform_fmt,terraform_tflint,terraform_validate
         uses: pre-commit/action@v3.0.1
-        with:
-          extra_args: ansible-lint
