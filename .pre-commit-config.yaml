@@ -54,6 +54,7 @@ repos:
         name: Ansible Linter
         files: ^ansible/.*\.(yaml|yml)$
         exclude: ^(policies/|tests/)
+        always_run: false
         additional_dependencies:
           - ansible
         language_version: python3
