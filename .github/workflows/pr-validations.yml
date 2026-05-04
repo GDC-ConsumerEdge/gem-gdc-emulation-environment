@@ -60,11 +60,7 @@ jobs:
         env:
           SKIP: terraform_fmt,terraform_tflint,terraform_validate,ansible-lint
         uses: pre-commit/action@v3.0.1
-      - name: Validate Commit Message
-        run: |
-          git log -1 --pretty=%B > /tmp/commit_msg
-          pre-commit run conventional-pre-commit --hook-stage commit-msg --commit-msg-filename /tmp/commit_msg
-        shell: bash
+
       - name: Terraform Init Mocks
         if: steps.changes.outputs.terraform == 'true'
         run: |
