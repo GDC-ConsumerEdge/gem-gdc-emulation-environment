@@ -1,0 +1,306 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# One Pod per restricted namespace from
+# policies/workload-limitations/gdc-limitations.yaml.j2 (restrictedNamespaces).
+# The chainsaw test asserts each apply is rejected with the GDC policy message.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gem-restricted-ns-test
+  namespace: ai-system
+spec:
+  containers:
+    - name: nginx
+      image: nginx
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gem-restricted-ns-test
+  namespace: ai-speech-system
+spec:
+  containers:
+    - name: nginx
+      image: nginx
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gem-restricted-ns-test
+  namespace: ai-ocr-system
+spec:
+  containers:
+    - name: nginx
+      image: nginx
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gem-restricted-ns-test
+  namespace: ai-translation-system
+spec:
+  containers:
+    - name: nginx
+      image: nginx
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gem-restricted-ns-test
+  namespace: anthos-identity-service
+spec:
+  containers:
+    - name: nginx
+      image: nginx
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gem-restricted-ns-test
+  namespace: cert-manager
+spec:
+  containers:
+    - name: nginx
+      image: nginx
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gem-restricted-ns-test
+  namespace: dataproc-system
+spec:
+  containers:
+    - name: nginx
+      image: nginx
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gem-restricted-ns-test
+  namespace: dns-system
+spec:
+  containers:
+    - name: nginx
+      image: nginx
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gem-restricted-ns-test
+  namespace: g-istio-system
+spec:
+  containers:
+    - name: nginx
+      image: nginx
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gem-restricted-ns-test
+  namespace: gke-connect
+spec:
+  containers:
+    - name: nginx
+      image: nginx
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gem-restricted-ns-test
+  namespace: gke-managed-metrics-server
+spec:
+  containers:
+    - name: nginx
+      image: nginx
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gem-restricted-ns-test
+  namespace: gke-operators
+spec:
+  containers:
+    - name: nginx
+      image: nginx
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gem-restricted-ns-test
+  namespace: gke-system
+spec:
+  containers:
+    - name: nginx
+      image: nginx
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gem-restricted-ns-test
+  namespace: gpc-backup-system
+spec:
+  containers:
+    - name: nginx
+      image: nginx
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gem-restricted-ns-test
+  namespace: iam-system
+spec:
+  containers:
+    - name: nginx
+      image: nginx
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gem-restricted-ns-test
+  namespace: kube-node-lease
+spec:
+  containers:
+    - name: nginx
+      image: nginx
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gem-restricted-ns-test
+  namespace: kube-public
+spec:
+  containers:
+    - name: nginx
+      image: nginx
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gem-restricted-ns-test
+  namespace: kube-system
+spec:
+  containers:
+    - name: nginx
+      image: nginx
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gem-restricted-ns-test
+  namespace: metallb-system
+spec:
+  containers:
+    - name: nginx
+      image: nginx
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gem-restricted-ns-test
+  namespace: nf-operator
+spec:
+  containers:
+    - name: nginx
+      image: nginx
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gem-restricted-ns-test
+  namespace: oclcm-system
+spec:
+  containers:
+    - name: nginx
+      image: nginx
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gem-restricted-ns-test
+  namespace: prediction
+spec:
+  containers:
+    - name: nginx
+      image: nginx
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gem-restricted-ns-test
+  namespace: rm-system
+spec:
+  containers:
+    - name: nginx
+      image: nginx
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gem-restricted-ns-test
+  namespace: robinio
+spec:
+  containers:
+    - name: nginx
+      image: nginx
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gem-restricted-ns-test
+  namespace: saas-system
+spec:
+  containers:
+    - name: nginx
+      image: nginx
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gem-restricted-ns-test
+  namespace: vm-system
+spec:
+  containers:
+    - name: nginx
+      image: nginx
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gem-restricted-ns-test
+  namespace: g-ospf-servicecontrol-system
+spec:
+  containers:
+    - name: nginx
+      image: nginx
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gem-restricted-ns-test
+  namespace: g-ospf-system
+spec:
+  containers:
+    - name: nginx
+      image: nginx
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gem-restricted-ns-test
+  namespace: g-pspf-system
+spec:
+  containers:
+    - name: nginx
+      image: nginx
