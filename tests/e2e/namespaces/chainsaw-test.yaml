@@ -34,11 +34,13 @@ spec:
         # policies/workload-limitations/gdc-limitations.yaml.j2 so a future
         # edit that drops a namespace from the constraint is caught here.
         # Chainsaw evaluates the expect.check against each resource in the
-        # multi-doc apply, so every Pod must be rejected with the GDC
-        # message for the step to pass.
+        # multi-doc apply, so every Pod must be rejected for the step to pass.
+        # Accept either the GDC Gatekeeper message or the in-tree PodSecurity
+        # message: namespaces labeled pod-security.kubernetes.io/enforce
+        # (e.g. gke-connect) are rejected by PodSecurity before Gatekeeper.
         - apply:
             file: pods-in-restricted-namespaces.yaml
             expect:
               - check:
                   ($error != null): true
-                  (contains($error, 'forbidden by GDC policies')): true
+                  (contains($error, 'forbidden by GDC policies') || contains($error, 'violates PodSecurity')): true
