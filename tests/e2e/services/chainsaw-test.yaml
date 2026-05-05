@@ -25,10 +25,10 @@ spec:
             expect:
               - check:
                   ($error != null): true
-                  (contains($error, 'forbidden') || contains($error, 'denied')): true
+                  (contains($error, 'Service type NodePort is not allowed')): true
         - apply:
             file: service-external-ips.yaml
             expect:
               - check:
                   ($error != null): true
-                  (contains($error, 'forbidden') || contains($error, 'denied')): true
+                  (contains($error, 'Service externalIPs are not allowed')): true

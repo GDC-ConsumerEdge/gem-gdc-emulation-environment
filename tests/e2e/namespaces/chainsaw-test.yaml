@@ -28,11 +28,17 @@ spec:
             expect:
               - check:
                   ($error != null): true
-                  (contains($error, 'forbidden') || contains($error, 'denied')): true
+                  (contains($error, 'forbidden by GDC policies')): true
         # 2. Standard Creation Restrictions (CLI run)
+        # Covers the full restrictedNamespaces list from
+        # policies/workload-limitations/gdc-limitations.yaml.j2 so a future
+        # edit that drops a namespace from the constraint is caught here.
+        # Chainsaw evaluates the expect.check against each resource in the
+        # multi-doc apply, so every Pod must be rejected with the GDC
+        # message for the step to pass.
         - apply:
-            file: pod-forbidden-ai-system.yaml
+            file: pods-in-restricted-namespaces.yaml
             expect:
               - check:
                   ($error != null): true
-                  (contains($error, 'forbidden') || contains($error, 'denied')): true
+                  (contains($error, 'forbidden by GDC policies')): true
