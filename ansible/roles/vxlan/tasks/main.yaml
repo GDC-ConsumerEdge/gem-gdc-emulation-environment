@@ -11,6 +11,16 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+- name: Assert host_octet is supplied by inventory
+  ansible.builtin.assert:
+    that:
+      - host_octet is defined
+      - host_octet | int >= 1
+      - host_octet | int <= 254
+    fail_msg: >-
+      host_octet must be defined per-host in inventory (1-254).
+      Inventory script ansible/inventory.sh emits it for all known hosts;
+      if you added a new host, add host_octet to its hostvars.
 - name: Set dynamic interface and service names
   ansible.builtin.set_fact:
     vxlan_iface: "{{ vxlan_primary_iface }}"

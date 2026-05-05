@@ -186,13 +186,15 @@ $(if [ -n "$BMCTL_VERSION" ]; then echo "      \"bmctl_version\": \"${BMCTL_VERS
       "gem_admin_ws": {
         "ansible_host": "${GEM_WS_NAME}",
         "internal_ip": "${GEM_WS_INTERNAL_IP}",
-        "vxlan_ip": "${VXLAN_BASE}.100"
+        "vxlan_ip": "${VXLAN_BASE}.100",
+        "host_octet": 100
       }
 $(if [ -n "$EDGE_ROUTER_NAME" ]; then cat <<INNER_EOF
       , "edge_router_host": {
         "ansible_host": "${EDGE_ROUTER_NAME}",
         "internal_ip": "${EDGE_ROUTER_IP}",
-        "vxlan_ip": "${VXLAN_BASE}.254"
+        "vxlan_ip": "${VXLAN_BASE}.254",
+        "host_octet": 254
       }
 INNER_EOF
 fi)
@@ -200,17 +202,20 @@ $(if [ -n "$NODE1_NAME" ]; then cat <<INNER_EOF
       , "node1": {
         "ansible_host": "${NODE1_NAME}",
         "internal_ip": "${NODE1_INTERNAL_IP}",
-        "vxlan_ip": "${VXLAN_BASE}.2"
+        "vxlan_ip": "${VXLAN_BASE}.2",
+        "host_octet": 2
       },
       "node2": {
         "ansible_host": "${NODE2_NAME}",
         "internal_ip": "${NODE2_INTERNAL_IP}",
-        "vxlan_ip": "${VXLAN_BASE}.3"
+        "vxlan_ip": "${VXLAN_BASE}.3",
+        "host_octet": 3
       },
       "node3": {
         "ansible_host": "${NODE3_NAME}",
         "internal_ip": "${NODE3_INTERNAL_IP}",
-        "vxlan_ip": "${VXLAN_BASE}.4"
+        "vxlan_ip": "${VXLAN_BASE}.4",
+        "host_octet": 4
       }
 INNER_EOF
 fi)
