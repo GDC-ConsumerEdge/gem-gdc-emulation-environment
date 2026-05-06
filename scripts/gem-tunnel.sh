@@ -40,17 +40,17 @@ Connection overrides:
   -h, --help             Show this help
 
 Examples:
-  # Tunnel TCP/80 to GEM MetalLB VIP 10.200.1.50
-  gem-tunnel.sh --http 10.200.1.50:80
+  # Tunnel to GEM MetalLB VIP 10.200.145.50 which is listening on TCP port 7523
+  gem-tunnel.sh --http 10.200.145.50:7523
 
-  # Print the gcloud command needed to tunnel TCP/80 to GEM MetalLB VIP 10.200.1.50
-  gem-tunnel.sh --http 10.200.1.50 --print
+  # Print the gcloud command needed to tunnel to GEM MetalLB VIP 10.200.1.50
+  gem-tunnel.sh --http 10.200.145.50 --print
 
-  # Tunnel both RDP and VNC to two separate GEM Services
-  gem-tunnel.sh --rdp 10.200.5.10 --vnc 10.200.5.11
+  # Tunnel both RDP and VNC to two separate GEM MetalLB VIPs
+  gem-tunnel.sh --rdp 10.200.145.51 --vnc 10.200.145.52
 
-  # Tunnel to 10.200.1.50 on port 80, opening local port 8888
-  gem-tunnel.sh --http 10.200.1.50:80=8888
+  # Tunnel to 10.200.145.50 on port 80, opening local port 8888
+  gem-tunnel.sh --http 10.200.145.50:80=8888
 
 USAGE
 }
@@ -181,7 +181,14 @@ SUMMARY=()
 add_forward() {
   local_port="$1" remote_ip="$2" remote_port="$3" label="$4"
   SSH_ARGS+=("-L" "127.0.0.1:${local_port}:${remote_ip}:${remote_port}")
-  SUMMARY+=("${label}: localhost:${local_port} → ${remote_ip}:${remote_port}")
+
+  # Define the url scheme (http, rdp, vnc, etc)
+  scheme="$(echo "${label}" | tr '[:upper:]' '[:lower:]')"
+  if [[ "$label" == "TUNNEL" ]]; then scheme="tcp"; fi
+
+  # Results in HTTP:    http://localhost:8080 → 10.200.145.52:80
+  printf -v formatted_line "%-8s %s://localhost:%s → %s:%s" "${label}:" "$scheme" "$local_port" "$remote_ip" "$remote_port"
+  SUMMARY+=("$formatted_line")
 }
 
 parse_spec() {
@@ -270,19 +277,17 @@ else
 # Set up the tunnel, and print connection detail to the console
   echo -e '
 
-          \ \      💎      \ \
- __________\ \______________\ \___________
-
+              \ \        💎       \ \
+ ______________\ \_________________\ \_______________
 '
     for line in "${SUMMARY[@]}"; do echo " $line"; done
-
   echo '
- ___________  ______________  ___________
-           / /             / /
-          / /             / /
+ _______________  __________________  _______________
+               / /                 / /
+              / /                 / /
 
 
-  Press Ctrl-C to disconnect.
+  Press Ctrl-C to disconnect
   '
 
   # exec'ing gcloud to capture SIGINT to clean up the openssh tunnel when the user Ctrl-Cs
