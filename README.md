@@ -35,7 +35,7 @@ export CLUSTER_NAME=gem-cluster-1
 export PROJECT_ID=your-gcp-project-id
 export TF_STATE_BUCKET=gem-${PROJECT_ID}-tfstate
 # The local directory of this repo
-export REPO_BASE=~/src/gem-gdc-emulation-environment
+export REPO_ROOT=~/src/gem-gdc-emulation-environment
 # A GCP Service Account used by Terraform to provision the GEM infrastructure
 export PROVISIONING_SA_EMAIL="tf-provisioner@${PROJECT_ID}.iam.gserviceaccount.com"
 # A GCP Service Account used by Ansible to build a GEM cluster
@@ -52,7 +52,7 @@ A helper script is provided to automate this work:
 
 ```bash
 # Creates the SA, grants permissions, generates backend.tf and tfvars files
-cd ${REPO_BASE}
+cd ${REPO_ROOT}
 ./project-setup.sh
 ```
 
@@ -62,7 +62,7 @@ cd ${REPO_BASE}
 ```bash
 
 # Build and deploy the GEM foundation
-cd ${REPO_BASE}/terraform/foundation
+cd ${REPO_ROOT}/terraform/foundation
 
 terraform init \
   -backend-config="bucket=${TF_STATE_BUCKET}" \
@@ -72,7 +72,7 @@ terraform init \
 terraform apply
 
 # Deploy the Admin Workstation
-cd ${REPO_BASE}/terraform/admin-workstation
+cd ${REPO_ROOT}/terraform/admin-workstation
 
 terraform init \
   -backend-config="bucket=${TF_STATE_BUCKET}" \
@@ -82,7 +82,7 @@ terraform init \
 terraform apply
 
 # Configure the Admin Workstation
-cd ${REPO_BASE}/ansible
+cd ${REPO_ROOT}/ansible
 
 ansible-playbook admin-workstation.yaml
 ```
@@ -100,7 +100,7 @@ The cluster build process takes approximately 30 minutes to complete.
 
 ```bash
 # Provision the 3 Compute Engine nodes
-cd ${REPO_BASE}/terraform/cluster
+cd ${REPO_ROOT}/terraform/cluster
 
 terraform init \
   -backend-config="bucket=${TF_STATE_BUCKET}" \
@@ -110,7 +110,7 @@ terraform init \
 terraform apply -var="cluster_name=${CLUSTER_NAME}"
 
 
-cd ${REPO_BASE}/ansible
+cd ${REPO_ROOT}/ansible
 
 # Build a GEM cluster, emulating the latest available version
 ansible-playbook create-cluster.yaml
@@ -123,10 +123,16 @@ ansible-playbook create-cluster.yaml --extra-vars "emulate_gdc_version=1.11.1"
 If your GCP Project enforces Shielded VMs (Secure Boot), the GEM cluster will seamlessly fall back to QEMU software emulation. However, this strips Hyper-V CPU features, causing GDC `VirtualMachine` objects with `osType: Windows` to fail scheduling. If you need Windows guests, you must either deploy in a project without Secure Boot (to enable hardware KVM) or temporarily set `osType: Linux` on the Windows VM manifest as a workaround.
 
 ### Deploy the GEM Edge Router (Optional)
-If you require Traefik proxy access into your internal MetalLB VIPs, deploy the Edge Router.
+If you require remote access to the services running within your GEM cluster including
+HTTP, RDP, VNC, or other TCP-based protocols the Edge Router is the proxy through which
+this network traffic will proxy through.
+
+The Edge Router has network connectivity to each GEM cluster in your environment, including
+to all VXLAN secondary networks. This enables the Edge Router to be the ingress path from
+your local workstation to anything running within a GEM environment.
 
 ```bash
-cd ${REPO_BASE}/terraform/edge-router
+cd ${REPO_ROOT}/terraform/edge-router
 
 terraform init \
   -backend-config="bucket=${TF_STATE_BUCKET}" \
@@ -135,7 +141,7 @@ terraform init \
 
 terraform apply
 
-cd ${REPO_BASE}/ansible
+cd ${REPO_ROOT}/ansible
 ansible-playbook edge-router.yaml
 ```
 
@@ -183,7 +189,123 @@ kubectl config set-credentials "connectgateway_${PROJECT_ID}_global_${CLUSTER_NA
 kubectl get nodes
 ```
 
-From this point forward, you have a functioning GDC-like environment, which can be configured like any other GDC cluster. At this stage it is recommended to configure your required Kubernetes `ClusterRole` and `ClusterRoleBinding`s, permitting other users to access the cluster.
+From this point forward, you have a functioning GDC-like environment, which can be configured
+like any other GDC cluster. At this stage it is recommended to configure your required Kubernetes
+`ClusterRole` and `ClusterRoleBinding`, permitting other users to access the cluster.
+
+
+### Access Services Running on A GEM Cluster
+Access to the various Kubernetes Services running within a GEM cluster is facilitated through
+the GEM Edge Router, using long-lived SSH tunnels. Your local workstation will create an
+SSH tunnel using `gcloud compute ssh`, which is a thin wrapper around ssh that
+takes care of authentication, translation of an instance name into an IP address and
+connectivity through the GCP [Identity-Aware Proxy](https://docs.cloud.google.com/iap/docs/concepts-overview).
+All of this enables you to securely access your GEM VM instances from your local workstation
+without exposing the VM instances to the internet.
+
+Currently, only connectivity to MetalLB VIPs (Kubernetes Service of `type: LoadBalancer`)
+is supported.
+
+[`gem-tunnel.sh`](./scripts/gem-tunnel.sh) will assist in creating a secure tunnel to
+the GEM Edge Router, which then forwards the traffic to MetalLB VIP running within a
+GEM cluster.
+
+
+To start, identify the Service you wish to connect to:
+```
+k get service -n applications
+NAME                         TYPE           CLUSTER-IP       EXTERNAL-IP     PORT(S)
+application-webserver        LoadBalancer   10.109.51.163    10.200.145.52   80:32611/TCP
+```
+Once you have a Service with an External IP, you can pass that to `gem-tunnel.sh`:
+```
+${REPO_ROOT}/scripts/gem-tunnel.sh --tunnel 10.200.145.52:80=8080
+
+
+              \ \        💎       \ \
+ ______________\ \_________________\ \_______________
+
+ TUNNEL:  tcp://localhost:8080 → 10.200.145.52:80
+
+ _______________  __________________  _______________
+               / /                 / /
+              / /                 / /
+
+
+  Press Ctrl-C to disconnect
+```
+
+At this point, you are able to connect to http://localhost:8080 from your local workstation
+and reach the application running in your GEM cluster:
+```
+curl -Is http://localhost:8080
+HTTP/1.1 200 OK
+Server: nginx
+Content-Type: text/html; charset=utf-8
+Date: Wed, 06 May 2026 19:55:46 GMT
+Last-Modified: Tue, 10 Sep 2024 01:50:27 GMT
+Accept-Ranges: bytes
+Connection: close
+Content-Length: 25416
+```
+
+GEM Tunnel has a number of convenience flags to quickly setup secure tunnels for typical
+protocols like HTTP, RDP and VNC. GEM Tunnel also supports any TCP-based protocol through
+the `--tunnel` flag.
+
+To connected to the same application webserver using a protocol helper:
+```
+./gem-tunnel.sh --http 10.200.145.52
+
+
+              \ \        💎       \ \
+ ______________\ \_________________\ \_______________
+
+ HTTP:    http://localhost:8080 → 10.200.145.52:80
+
+ _______________  __________________  _______________
+               / /                 / /
+              / /                 / /
+
+
+  Press Ctrl-C to disconnect
+```
+
+This created the same secure tunnel, and you can access the same webserver through
+http://localhost:8080.
+
+If needed, you can setup a single tunnel with multiple destinations. In this example a
+secure tunnel has been setup to provide HTTP, RDP, VNC and TCP port 3306 (MySQL/MariaDB)
+access to various applications and virtual machines running on a GEM cluster.
+```
+./gem-tunnel.sh \
+  --rdp 10.200.145.55 \
+  --rdp 10.200.145.53 \
+  --vnc 10.200.145.54 \
+  --http 10.200.145.52 \
+  --http 10.200.145.56 \
+  --tunnel 10.200.145.57:3306=3306
+
+
+              \ \        💎       \ \
+ ______________\ \_________________\ \_______________
+
+ HTTP:    http://localhost:8080 → 10.200.145.52:80
+ HTTP:    http://localhost:8081 → 10.200.145.56:80
+ RDP:     rdp://localhost:13389 → 10.200.145.55:3389
+ RDP:     rdp://localhost:13390 → 10.200.145.53:3389
+ VNC:     vnc://localhost:15900 → 10.200.145.54:5900
+ TUNNEL:  tcp://localhost:3306 → 10.200.145.57:3306
+
+ _______________  __________________  _______________
+               / /                 / /
+              / /                 / /
+
+
+  Press Ctrl-C to disconnect
+```
+
+`${REPO_ROOT}/scripts/gem-tunnel.sh --help` provides many more examples and additional help.
 
 
 ## Cleanup
@@ -192,11 +314,11 @@ To safely delete a cluster, you must unregister it from GKE Hub before destroyin
 
 ```bash
 # Gracefully reset and unregister the cluster
-cd ${REPO_BASE}/ansible
+cd ${REPO_ROOT}/ansible
 ansible-playbook cleanup.yaml -e "cluster_name=${CLUSTER_NAME}"
 
 # Destroy the cluster VM infrastructure
-cd ${REPO_BASE}/terraform/cluster
+cd ${REPO_ROOT}/terraform/cluster
 
 terraform init \
   -backend-config="bucket=${TF_STATE_BUCKET}" \
@@ -214,7 +336,7 @@ This project leverages [Kyverno Chainsaw](https://kyverno.github.io/chainsaw/0.2
 ### Running Tests
 To run the full test suite against your active cluster:
 ```bash
-cd ${REPO_BASE}/tests/e2e
+cd ${REPO_ROOT}/tests/e2e
 
 chainsaw test --config chainsaw-configuration.yaml
 ```
