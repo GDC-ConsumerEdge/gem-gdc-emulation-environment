@@ -26,10 +26,10 @@ usage() {
 Usage: gem-tunnel.sh [options]
 
 Forwarding flags:
-  --http   <ip>[:<port>][=<localport>] Forward to an HTTP service   (default remote port 80, local port 8080+)
-  --rdp    <ip>[:<port>][=<localport>] Forward RDP to a VM          (default remote port 3389, local port 13389+)
-  --vnc    <ip>[:<port>][=<localport>] Forward VNC to a VM          (default remote port 5900, local port 15900+)
-  --tunnel <ip>:<port>[=<localport>]   Forward to a remote IP/Port  (default local port 9000+)
+  --http   <ip>[:<port>][=<localport>]  Forward to an HTTP service   (default remote port 80, local port 8080+)
+  --rdp    <ip>[:<port>][=<localport>]  Forward RDP to a VM          (default remote port 3389, local port 13389+)
+  --vnc    <ip>[:<port>][=<localport>]  Forward VNC to a VM          (default remote port 5900, local port 15900+)
+  --tunnel <ip>:<port>[=<localport>]    Forward to a remote IP/Port  (default local port 9000+)
 
 Connection overrides:
   --project-id <id>      GCP project ID (default: $PROJECT_ID or gcloud config get-value project)
@@ -65,37 +65,55 @@ ZONE="${GEM_ZONE:-}"
 SSH_USER="gem"
 PRINT_ONLY=0
 
+# Validate that we have the required options for a given argument
+check_arg() {
+  arg="$1" options="$2"
+  if [[ "$options" -lt 2 ]]; then
+    echo -e "\n🚫 ERROR: $arg is missing a valid non-empty value.\n" >&2
+    usage >&2
+    exit 2
+  fi
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
   --http)
+    check_arg "$1" "$#"
     HTTP_SPECS+=("$2")
     shift 2
     ;;
   --rdp)
+    check_arg "$1" "$#"
     RDP_SPECS+=("$2")
     shift 2
     ;;
   --vnc)
+    check_arg "$1" "$#"
     VNC_SPECS+=("$2")
     shift 2
     ;;
   --tunnel)
+    check_arg "$1" "$#"
     TUNNEL_SPECS+=("$2")
     shift 2
     ;;
   --project-id)
+    check_arg "$1" "$#"
     PROJECT_ID="$2"
     shift 2
     ;;
   --edge-router)
+    check_arg "$1" "$#"
     EDGE_NAME="$2"
     shift 2
     ;;
   --zone)
+    check_arg "$1" "$#"
     ZONE="$2"
     shift 2
     ;;
   --user)
+    check_arg "$1" "$#"
     SSH_USER="$2"
     shift 2
     ;;
@@ -157,7 +175,7 @@ GCLOUD_ARGS=(
   --project="${PROJECT_ID}"
   --tunnel-through-iap
 )
-SSH_ARGS=("-N")
+SSH_ARGS=("-N" "-o" "ControlMaster=no" "-o" "ControlPath=none")
 SUMMARY=()
 
 add_forward() {
@@ -167,13 +185,13 @@ add_forward() {
 }
 
 parse_spec() {
-  # Splits "<remote>[=<localocal_port>]" into REMOTE / LPORT_OR_EMPTY globals.
+  # Splits "<remote>[=<local_port>]" into REMOTE / LOCAL_PORT_OR_EMPTY globals.
   spec="$1"
   REMOTE="${spec%%=*}"
   if [[ "$spec" == *=* ]]; then
-    LPORT_OR_EMPTY="${spec#*=}"
+    LOCAL_PORT_OR_EMPTY="${spec#*=}"
   else
-    LPORT_OR_EMPTY=""
+    LOCAL_PORT_OR_EMPTY=""
   fi
 }
 
@@ -188,7 +206,7 @@ if [[ ${#HTTP_SPECS[@]} -gt 0 ]]; then
       remote_ip="$REMOTE"
       remote_port=80
     fi
-    local_port="${LPORT_OR_EMPTY:-$((http_next++))}"
+    local_port="${LOCAL_PORT_OR_EMPTY:-$((http_next++))}"
     add_forward "$local_port" "$remote_ip" "$remote_port" "HTTP"
   done
 fi
@@ -204,7 +222,7 @@ if [[ ${#RDP_SPECS[@]} -gt 0 ]]; then
       remote_ip="$REMOTE"
       remote_port=3389
     fi
-    local_port="${LPORT_OR_EMPTY:-$((rdp_next++))}"
+    local_port="${LOCAL_PORT_OR_EMPTY:-$((rdp_next++))}"
     add_forward "$local_port" "$remote_ip" "$remote_port" "RDP"
   done
 fi
@@ -220,7 +238,7 @@ if [[ ${#VNC_SPECS[@]} -gt 0 ]]; then
       remote_ip="$REMOTE"
       remote_port=5900
     fi
-    local_port="${LPORT_OR_EMPTY:-$((vnc_next++))}"
+    local_port="${LOCAL_PORT_OR_EMPTY:-$((vnc_next++))}"
     add_forward "$local_port" "$remote_ip" "$remote_port" "VNC"
   done
 fi
@@ -235,23 +253,38 @@ if [[ ${#TUNNEL_SPECS[@]} -gt 0 ]]; then
     fi
     remote_ip="${REMOTE%:*}"
     remote_port="${REMOTE##*:}"
-    local_port="${LPORT_OR_EMPTY:-$((generic_next++))}"
+    local_port="${LOCAL_PORT_OR_EMPTY:-$((generic_next++))}"
     add_forward "$local_port" "$remote_ip" "$remote_port" "TUNNEL"
   done
 fi
 
-
-echo "Edge router: ${EDGE_NAME} (zone ${ZONE}, project ${PROJECT_ID})"
-for line in "${SUMMARY[@]}"; do echo "  $line"; done
-
 if [[ "$PRINT_ONLY" -eq 1 ]]; then
+  # Just print the gcloud command needed to tunnel to a GEM Service
   printf 'gcloud'
   printf ' %q' "${GCLOUD_ARGS[@]}"
   printf ' --'
   printf ' %q' "${SSH_ARGS[@]}"
   printf '\n'
   exit 0
-fi
+else
+# Set up the tunnel, and print connection detail to the console
+  echo -e '
 
-echo "Press Ctrl-C to disconnect."
-exec gcloud "${GCLOUD_ARGS[@]}" -- "${SSH_ARGS[@]}"
+          \ \      💎      \ \
+ __________\ \______________\ \___________
+
+'
+    for line in "${SUMMARY[@]}"; do echo " $line"; done
+
+  echo '
+ ___________  ______________  ___________
+           / /             / /
+          / /             / /
+
+
+  Press Ctrl-C to disconnect.
+  '
+
+  # exec'ing gcloud to capture SIGINT to clean up the openssh tunnel when the user Ctrl-Cs
+  exec gcloud "${GCLOUD_ARGS[@]}" -- "${SSH_ARGS[@]}"
+fi
