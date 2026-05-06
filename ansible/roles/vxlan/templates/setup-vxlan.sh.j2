@@ -78,16 +78,10 @@ bridge fdb append to 00:00:00:00:00:00 dst {{ hostvars[node].internal_ip }} dev 
 # Calculate the base IP from the subnet (e.g. 172.16.10.0/24 -> 172.16.10)
 SUBNET_BASE="$(echo '{{ net.subnet }}' | cut -d. -f1-3)"
 
-# Determine the host octet based on the hostname. Edge router gets 254. Workstation gets 100.
-if [[ "{{ inventory_hostname }}" == "gem_admin_ws" ]]; then
-  HOST_OCTET="100"
-elif [[ "{{ inventory_hostname }}" == "edge_router_host" ]]; then
-  HOST_OCTET="254"
-else
-  # Extract node number from 'node1', 'node2', etc and add 1 (so node1 gets .2)
-  NODE_NUM=$(echo "{{ inventory_hostname }}" | grep -oE '[0-9]+$')
-  HOST_OCTET=$((NODE_NUM + 1))
-fi
+# Host octet is supplied per-host by inventory.sh (gem_admin_ws=100,
+# edge_router_host=254, cluster nodes=2/3/4); this avoids parsing a digit
+# off the hostname at runtime.
+HOST_OCTET="{{ host_octet }}"
 
 IP_CIDR="${SUBNET_BASE}.${HOST_OCTET}/24"
 

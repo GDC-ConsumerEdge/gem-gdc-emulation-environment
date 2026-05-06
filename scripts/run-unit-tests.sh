@@ -21,11 +21,24 @@ set -euo pipefail
 GEM_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 echo "🚀 GEM Root: $GEM_ROOT"
 
-# 1. Terraform Unit Tests
-echo "=== Running Terraform Unit Tests ==="
+# Dependency Check
+echo "Checking required tools"
+missing=()
+for cmd in terraform ansible-playbook; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        missing+=("$cmd")
+    fi
+done
+if [ "${#missing[@]}" -gt 0 ]; then
+    echo "❌ Missing required tools: ${missing[*]}" >&2
+    exit 1
+fi
+
+# Terraform Unit Tests
+echo "Running Terraform Unit Tests"
 # Workaround for GCS backend: Copy cluster module to temp dir and remove backend.tf
 TEMP_TF_DIR=$(mktemp -d)
-trap 'rm -rf "$TEMP_TF_DIR"' EXIT
+trap 'rm -rf "${TEMP_TF_DIR:-}"' EXIT INT TERM
 
 echo "Creating temp directory for Terraform tests: $TEMP_TF_DIR"
 cp -r "$GEM_ROOT/terraform/cluster"/* "$TEMP_TF_DIR"/
@@ -42,8 +55,8 @@ cp "$GEM_ROOT/terraform/tests/unit.tftest.hcl" tests/
 echo "Running terraform test..."
 terraform test
 
-# 2. Ansible Unit Tests
-echo "=== Running Ansible Unit Tests ==="
+# Ansible Unit Tests
+echo "Running Ansible Unit Tests"
 cd "$GEM_ROOT/ansible"
 echo "Running template rendering test..."
 ansible-playbook tests/test_gdc_template.yaml
