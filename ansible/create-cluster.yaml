@@ -15,6 +15,11 @@
   hosts: localhost
   connection: local
   tasks:
+    - name: Assert CLUSTER_NAME environment variable is set
+      ansible.builtin.assert:
+        that:
+          - lookup('env', 'CLUSTER_NAME') != ""
+        fail_msg: "🚫 ERROR: You must set the CLUSTER_NAME environment variable before running this playbook (e.g., export CLUSTER_NAME=gem-cluster-1)"
     - name: Check if google_compute_engine key exists
       ansible.builtin.stat:
         path: "~/.ssh/google_compute_engine"
