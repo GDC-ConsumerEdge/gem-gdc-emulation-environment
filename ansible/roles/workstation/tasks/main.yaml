@@ -22,6 +22,36 @@
     name: "{{ gem_user }}"
     state: present
     shell: /bin/bash
+- name: Suppress default login messages for platform user
+  ansible.builtin.file:
+    path: "{{ gem_home }}/.hushlogin"
+    state: touch
+    owner: "{{ gem_user }}"
+    group: "{{ gem_user }}"
+    mode: "0644"
+    modification_time: preserve
+    access_time: preserve
+- name: Create GEM MOTD
+  ansible.builtin.copy:
+    src: gem-motd.ans
+    dest: /etc/gem-motd.ans
+    owner: root
+    group: root
+    mode: "0644"
+- name: Enable GEM logo on login shell
+  ansible.builtin.blockinfile:
+    path: "{{ gem_home }}/.bashrc"
+    owner: "{{ gem_user }}"
+    group: "{{ gem_user }}"
+    mode: "0644"
+    create: true
+    marker: "# {mark} GEM MOTD"
+    block: |
+      if shopt -q login_shell; then
+          cat /etc/gem-motd.ans
+          echo ""
+          /etc/update-motd.d/98-reboot-required
+      fi
 - name: Configure GOOGLE_APPLICATION_CREDENTIALS for the user
   ansible.builtin.lineinfile:
     path: "{{ gem_home }}/.bashrc"
@@ -32,9 +62,10 @@
     mode: "0644"
 - name: Download kubectl version {{ kubectl_version }}
   ansible.builtin.get_url:
-    url: "https://storage.googleapis.com/kubernetes-release/release/{{ kubectl_version }}/bin/linux/amd64/kubectl"
+    url: "https://dl.k8s.io/release/{{ kubectl_version }}/bin/linux/amd64/kubectl"
     dest: /usr/local/sbin/kubectl
     mode: "0755"
+    checksum: "sha256:https://dl.k8s.io/release/{{ kubectl_version }}/bin/linux/amd64/kubectl.sha256"
 - name: Download Helm install script
   ansible.builtin.get_url:
     url: https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
@@ -54,7 +85,6 @@
 - name: Download bmctl version {{ bmctl_version }}
   ansible.builtin.command: >
     gcloud storage cp gs://anthos-baremetal-release/bmctl/{{ bmctl_version }}/linux-amd64/bmctl /usr/local/sbin/bmctl-{{ bmctl_version }}
-
   args:
     creates: /usr/local/sbin/bmctl-{{ bmctl_version }}
 - name: Make bmctl executable

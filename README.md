@@ -34,10 +34,13 @@ Some initial setup needs to be completed before you can begin to provision GEM c
 export CLUSTER_NAME=gem-cluster-1
 export PROJECT_ID=your-gcp-project-id
 export TF_STATE_BUCKET=gem-${PROJECT_ID}-tfstate
+
 # The local directory of this repo
 export REPO_ROOT=~/src/gem-gdc-emulation-environment
+
 # A GCP Service Account used by Terraform to provision the GEM infrastructure
 export PROVISIONING_SA_EMAIL="tf-provisioner@${PROJECT_ID}.iam.gserviceaccount.com"
+
 # A GCP Service Account used by Ansible to build a GEM cluster
 export IMPERSONATE_SA_EMAIL="gem-cluster-admin@${PROJECT_ID}.iam.gserviceaccount.com"
 ```
@@ -95,7 +98,6 @@ at build time through the `emulate_gdc_version` variable. If the `emulate_gdc_ve
 specified, the most recent GDC version will be emulated. Available options can be found in
 [ansible/group_vars/all.yaml](ansible/group_vars/all.yaml)
 
-
 The cluster build process takes approximately 30 minutes to complete.
 
 ```bash
@@ -122,10 +124,9 @@ ansible-playbook create-cluster.yaml --extra-vars "emulate_gdc_version=1.11.1"
 **A Note on Virtualization:**
 If your GCP Project enforces Shielded VMs (Secure Boot), the GEM cluster will seamlessly fall back to QEMU software emulation. However, this strips Hyper-V CPU features, causing GDC `VirtualMachine` objects with `osType: Windows` to fail scheduling. If you need Windows guests, you must either deploy in a project without Secure Boot (to enable hardware KVM) or temporarily set `osType: Linux` on the Windows VM manifest as a workaround.
 
-### Deploy the GEM Edge Router (Optional)
-If you require remote access to the services running within your GEM cluster including
-HTTP, RDP, VNC, or other TCP-based protocols the Edge Router is the proxy through which
-this network traffic will proxy through.
+### Deploy the GEM Edge Router
+To access services running inside your GEM cluster including HTTP, RDP, VNC, or other
+TCP-based protocols, the GEM Edge Router is the proxy through which this traffic will pass.
 
 The Edge Router has network connectivity to each GEM cluster in your environment, including
 to all VXLAN secondary networks. This enables the Edge Router to be the ingress path from
@@ -207,7 +208,7 @@ Currently, only connectivity to MetalLB VIPs (Kubernetes Service of `type: LoadB
 is supported.
 
 [`gem-tunnel.sh`](./scripts/gem-tunnel.sh) will assist in creating a secure tunnel to
-the GEM Edge Router, which then forwards the traffic to MetalLB VIP running within a
+the GEM Edge Router, which then forwards the traffic to MetalLB VIPs running within a
 GEM cluster.
 
 
@@ -217,6 +218,7 @@ k get service -n applications
 NAME                         TYPE           CLUSTER-IP       EXTERNAL-IP     PORT(S)
 application-webserver        LoadBalancer   10.109.51.163    10.200.145.52   80:32611/TCP
 ```
+
 Once you have a Service with an External IP, you can pass that to `gem-tunnel.sh`:
 ```
 ${REPO_ROOT}/scripts/gem-tunnel.sh --tunnel 10.200.145.52:80=8080
@@ -253,7 +255,7 @@ GEM Tunnel has a number of convenience flags to quickly setup secure tunnels for
 protocols like HTTP, RDP and VNC. GEM Tunnel also supports any TCP-based protocol through
 the `--tunnel` flag.
 
-To connected to the same application webserver using a protocol helper:
+To connect to the same application webserver using a protocol helper:
 ```
 ./gem-tunnel.sh --http 10.200.145.52
 
