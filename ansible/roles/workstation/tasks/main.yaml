@@ -22,6 +22,35 @@
     name: "{{ gem_user }}"
     state: present
     shell: /bin/bash
+- name: Suppress default login messages for platform user
+  ansible.builtin.file:
+    path: "{{ gem_home }}/.hushlogin"
+    state: touch
+    owner: "{{ gem_user }}"
+    group: "{{ gem_user }}"
+    mode: "0644"
+    modification_time: preserve
+    access_time: preserve
+- name: Create GEM MOTD
+  ansible.builtin.copy:
+    src: gem-motd.ans
+    dest: /etc/gem-motd.ans
+    owner: root
+    group: root
+    mode: "0644"
+- name: Enable GEM logo on login shell
+  ansible.builtin.blockinfile:
+    path: "{{ gem_home }}/.bashrc"
+    owner: "{{ gem_user }}"
+    group: "{{ gem_user }}"
+    mode: "0644"
+    create: true
+    marker: "# {mark} GEM MOTD"
+    block: |
+      if shopt -q login_shell; then
+          cat /etc/gem-motd.ans
+          /etc/update-motd.d/98-reboot-required
+      fi
 - name: Configure GOOGLE_APPLICATION_CREDENTIALS for the user
   ansible.builtin.lineinfile:
     path: "{{ gem_home }}/.bashrc"
