@@ -56,3 +56,22 @@
   delay: 5
   until: gatekeeper_apply_policies.rc == 0
   changed_when: '"created" in gatekeeper_apply_policies.stdout or "configured" in gatekeeper_apply_policies.stdout'
+
+- name: Nudge primary MetalLB advertisement to trigger Gatekeeper interface mutation
+  # The primary MetalLB advertisement (pool1-*) is written to etcd by the GDC installer
+  # before Gatekeeper boots up. Because mutating webhooks only intercept CREATE and UPDATE
+  # requests (ignoring resources sitting at rest), we patch a dummy annotation here to
+  # force an API UPDATE request. This triggers the policies/networking webhook to intercept the
+  # resource and permanently inject the required 'spec.interfaces: [vxlan0]' overlay binding.
+  ansible.builtin.shell: |
+    set -o pipefail
+    export KUBECONFIG="{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/{{ cluster_name }}-kubeconfig"
+    ADV_NAME=$(kubectl get l2advertisement -n kube-system -o name | grep "pool1")
+    if [[ -n "$ADV_NAME" ]]; then
+      kubectl patch "$ADV_NAME" -n kube-system --type='merge' -p '{"metadata":{"annotations":{"gem-gatekeeper-mutated":"true"}}}'
+      echo "CHANGED"
+    fi
+  args:
+    executable: /bin/bash
+  register: gatekeeper_nudge_output
+  changed_when: '"CHANGED" in gatekeeper_nudge_output.stdout'

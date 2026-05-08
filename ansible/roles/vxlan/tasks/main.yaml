@@ -23,7 +23,18 @@
       if you added a new host, add host_octet to its hostvars.
 - name: Set dynamic interface and service names
   ansible.builtin.set_fact:
-    vxlan_iface: "{{ vxlan_primary_iface }}"
+    # Because the admin workstation and edge router will have connectivity to all
+    # deployed GEM clusters, they will need a cluster-specific VXLAN interface name.
+    # Each cluster node is unique and can use the default vxlan0 interface name, which
+    # MetalLB will auto-detect, bind to and use to answer ARP requests. The following
+    # configures a unique vxlan interface name derived from the cluster name on the
+    # admin workstation and edge router, and will use vxlan0 on cluster nodes.
+    vxlan_iface: >-
+      {% if inventory_hostname in ['gem_admin_ws', 'edge_router_host'] %}
+      {{ vxlan_primary_iface }}
+      {% else %}
+      vxlan0
+      {% endif %}
     vxlan_service: "vxlan-{{ cluster_name }}.service"
     vxlan_script: "/usr/local/bin/setup-vxlan-{{ cluster_name }}.sh"
 - name: Template the VXLAN setup script

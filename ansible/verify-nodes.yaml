@@ -17,25 +17,25 @@
   vars:
     cluster_name: "{{ tf_cluster_name }}"
   tasks:
-    - name: "Check interface exists: {{ vxlan_primary_iface }}"
-      ansible.builtin.command: ip link show {{ vxlan_primary_iface }}
+    - name: "Check interface exists: vxlan0"
+      ansible.builtin.command: ip link show vxlan0
       register: vxlan_exists
       changed_when: false
-    - name: "Verify MTU is 1410 for {{ vxlan_primary_iface }}"
+    - name: "Verify MTU is 1410 for vxlan0"
       ansible.builtin.shell: |
         set -o pipefail
-        ip link show {{ vxlan_primary_iface }} | grep -o "mtu [0-9]*"
+        ip link show vxlan0 | grep -o "mtu [0-9]*"
       args:
         executable: /bin/bash
       register: vxlan_mtu
       changed_when: false
-    - name: "Assert MTU is 1410 for {{ vxlan_primary_iface }}"
+    - name: "Assert MTU is 1410 for vxlan0"
       ansible.builtin.assert:
         that:
           - "'mtu 1410' in vxlan_mtu.stdout"
-        fail_msg: "MTU for {{ vxlan_primary_iface }} is not 1410!"
+        fail_msg: "MTU for vxlan0 is not 1410!"
     - name: Check if TCP MSS clamping rule exists
-      ansible.builtin.command: iptables -t mangle -C POSTROUTING -p tcp --tcp-flags SYN,RST SYN -o {{ vxlan_primary_iface }} -j TCPMSS --clamp-mss-to-pmtu
+      ansible.builtin.command: iptables -t mangle -C POSTROUTING -p tcp --tcp-flags SYN,RST SYN -o vxlan0 -j TCPMSS --clamp-mss-to-pmtu
       register: mss_clamping
       changed_when: false
       ignore_errors: true
@@ -43,4 +43,4 @@
       ansible.builtin.assert:
         that:
           - mss_clamping.rc == 0
-        fail_msg: "TCP MSS clamping rule is missing on {{ vxlan_primary_iface }}!"
+        fail_msg: "TCP MSS clamping rule is missing on vxlan0!"
