@@ -49,7 +49,7 @@ If you are unsure about how a specific technology works or have questions about 
 
 ## ⚠️ Known Gotchas
 *   **QEMU Fallback**: If the GCP project enforces Shielded VMs (Secure Boot), nested virtualization (KVM) fails. The cluster falls back to QEMU software emulation, which breaks Windows VM scheduling due to lack of Hyper-V features. Workaround: Set `osType: Linux` for all VMs if using QEMU.
-*   **Fragile Coupling**: Partition sizes are hardcoded in both Terraform (`compute.tf` creates 100GB partition) and Ansible (`cluster_nodes` creates TopoLVM partition starting at 100GB). If you change one, you must change the other.
+*   **Fragile Coupling**: Partition sizes are hardcoded in both Terraform (`cluster-nodes.tf` creates 100GB partition) and Ansible (`cluster_nodes` creates TopoLVM partition starting at 100GB). If you change one, you must change the other.
 *   **Hostname Assumption**: The VXLAN script assumes hostnames end in numbers (e.g., `node1`) to calculate IP octets. Do not change naming without updating the script.
 *   **Storage Capacity vs. Usable Emulation**: The cluster provides ~3.9 TB of aggregate raw storage (1.3 TB per node via TopoLVM). Real GDC clusters with Robin SDS typically yield only ~1.3 TB of usable space due to 3-way replication. This limit is not currently enforced in the emulation to allow testing larger single volumes up to the node limit.
 

@@ -49,7 +49,7 @@ jobs:
         if: steps.changes.outputs.terraform == 'true'
         uses: hashicorp/setup-terraform@v4
         with:
-          terraform_version: "1.5.7"
+          terraform_version: "1.12.2"
           terraform_wrapper: false
       - name: Setup TFLint
         if: steps.changes.outputs.terraform == 'true'
@@ -68,7 +68,7 @@ jobs:
               echo "Initializing $dir..."
               backend_file="$dir/backend.tf"
               [ -f "$backend_file" ] && mv "$backend_file" "${backend_file}.bak"
-              terraform -cwd "$dir" init -backend=false
+              terraform -chdir="$dir" init -backend=false
               [ -f "${backend_file}.bak" ] && mv "${backend_file}.bak" "$backend_file"
             fi
           done
