@@ -13,11 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Open SSH tunnels to in-cluster services via the GEM edge router VM.
-# The edge router sits on both the GCP VPC and the VXLAN overlays, so it
-# reaches MetalLB LoadBalancer IPs and KubeVirt VM IPs. Kubernetes
-# ClusterIPs (10.96.0.0/12) are kube-proxy-resolved and need a cluster
-# node as the SSH hop instead and not yet supported
+# Open SSH tunnels to in-cluster services via the GEM Edge Router VM.
+# The edge router sits on both the GCP VPC and the VXLAN overlays, so it reaches MetalLB
+# LoadBalancer IPs and KubeVirt VM IPs.
+# Kubernetes ClusterIPs are not yet supported
 
 set -euo pipefail
 
@@ -26,10 +25,11 @@ usage() {
 Usage: gem-tunnel.sh [options]
 
 Forwarding flags:
-  --http   <ip>[:<port>][=<localport>]  Forward to an HTTP service   (default remote port 80, local port 8080+)
-  --rdp    <ip>[:<port>][=<localport>]  Forward RDP to a VM          (default remote port 3389, local port 13389+)
-  --vnc    <ip>[:<port>][=<localport>]  Forward VNC to a VM          (default remote port 5900, local port 15900+)
-  --tunnel <ip>:<port>[=<localport>]    Forward to a remote IP/Port  (default local port 9000+)
+  --http   <ip>[:<port>][=<localport>]  Forward to an HTTP service       (default remote port 80, local port 8080+)
+  --rdp    <ip>[:<port>][=<localport>]  Forward RDP to a VM              (default remote port 3389, local port 13389+)
+  --ssh    <ip>[:<port>][=<localport>]  Forward SSH to a remote Service  (default remote port 22, local port 2222+)
+  --vnc    <ip>[:<port>][=<localport>]  Forward VNC to a VM              (default remote port 5900, local port 15900+)
+  --tunnel <ip>:<port>[=<localport>]    Forward to a remote IP/Port      (default local port 9000+)
 
 Connection overrides:
   --project-id <id>      GCP project ID (default: $PROJECT_ID or gcloud config get-value project)
@@ -57,6 +57,7 @@ USAGE
 
 HTTP_SPECS=()
 RDP_SPECS=()
+SSH_SPECS=()
 VNC_SPECS=()
 TUNNEL_SPECS=()
 PROJECT_ID="${PROJECT_ID:-}"
@@ -85,6 +86,11 @@ while [[ $# -gt 0 ]]; do
   --rdp)
     check_arg "$1" "$#"
     RDP_SPECS+=("$2")
+    shift 2
+    ;;
+  --ssh)
+    check_arg "$1" "$#"
+    SSH_SPECS+=("$2")
     shift 2
     ;;
   --vnc)
@@ -133,8 +139,12 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ ${#HTTP_SPECS[@]} -eq 0 && ${#RDP_SPECS[@]} -eq 0 && ${#VNC_SPECS[@]} -eq 0 && ${#TUNNEL_SPECS[@]} -eq 0 ]]; then
-  echo -e "\n🚫 ERROR: must specify at least one of --http | --rdp | --vnc | --tunnel\n" >&2
+if [[ ${#HTTP_SPECS[@]} -eq 0 \
+  && ${#RDP_SPECS[@]} -eq 0 \
+  && ${#SSH_SPECS[@]} -eq 0 \
+  && ${#VNC_SPECS[@]} -eq 0 \
+  && ${#TUNNEL_SPECS[@]} -eq 0 ]]; then
+  echo -e "\n🚫 ERROR: must specify at least one of --http | --rdp | --ssh | --vnc | --tunnel\n" >&2
   usage >&2
   exit 2
 fi
@@ -186,7 +196,7 @@ add_forward() {
   scheme="$(echo "${label}" | tr '[:upper:]' '[:lower:]')"
   if [[ "$label" == "TUNNEL" ]]; then scheme="tcp"; fi
 
-  # Results in HTTP:    http://localhost:8080 → 10.200.145.52:80
+  # This outputs  HTTP:    http://localhost:8080 → 10.200.145.52:80
   printf -v formatted_line "%-8s %s://localhost:%s → %s:%s" "${label}:" "$scheme" "$local_port" "$remote_ip" "$remote_port"
   SUMMARY+=("$formatted_line")
 }
@@ -231,6 +241,22 @@ if [[ ${#RDP_SPECS[@]} -gt 0 ]]; then
     fi
     local_port="${LOCAL_PORT_OR_EMPTY:-$((rdp_next++))}"
     add_forward "$local_port" "$remote_ip" "$remote_port" "RDP"
+  done
+fi
+
+ssh_next=2222
+if [[ ${#SSH_SPECS[@]} -gt 0 ]]; then
+  for spec in "${SSH_SPECS[@]}"; do
+    parse_spec "$spec"
+    if [[ "$REMOTE" == *:* ]]; then
+      remote_ip="${REMOTE%:*}"
+      remote_port="${REMOTE##*:}"
+    else
+      remote_ip="$REMOTE"
+      remote_port=22
+    fi
+    local_port="${LOCAL_PORT_OR_EMPTY:-$((ssh_next++))}"
+    add_forward "$local_port" "$remote_ip" "$remote_port" "SSH"
   done
 fi
 
@@ -280,6 +306,7 @@ else
               \ \        💎       \ \
  ______________\ \_________________\ \_______________
 '
+    echo ""
     for line in "${SUMMARY[@]}"; do echo " $line"; done
   echo '
  _______________  __________________  _______________
