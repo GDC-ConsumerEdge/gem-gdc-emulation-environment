@@ -385,3 +385,14 @@ existing [Edge Parameter Store](https://github.com/GDC-ConsumerEdge/parameter-st
 [Automated Cluster Provisioner](https://github.com/GDC-ConsumerEdge/automated-cluster-provisioner)
 projects. Integration with these two projects will enable self-service cluster management
 and fully-automated cluster creation and deletion.
+
+
+## License
+
+Apache Version 2.0
+
+See [LICENSE](LICENSE)
+
+## Disclaimer
+
+This is not an official Google product.
