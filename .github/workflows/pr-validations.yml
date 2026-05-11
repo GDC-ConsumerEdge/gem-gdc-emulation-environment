@@ -68,7 +68,7 @@ jobs:
               echo "Initializing $dir..."
               backend_file="$dir/backend.tf"
               [ -f "$backend_file" ] && mv "$backend_file" "${backend_file}.bak"
-              terraform -cwd "$dir" init -backend=false
+              terraform -chdir="$dir" init -backend=false
               [ -f "${backend_file}.bak" ] && mv "${backend_file}.bak" "$backend_file"
             fi
           done
