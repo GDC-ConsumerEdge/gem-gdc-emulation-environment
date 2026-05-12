@@ -23,7 +23,7 @@ REQUIRED_ENV_VARS=(
   "CLUSTER_NAME"
   "PROJECT_ID"
   "TF_STATE_BUCKET"
-  "REPO_BASE"
+  "REPO_ROOT"
   "PROVISIONING_SA_EMAIL"
   "IMPERSONATE_SA_EMAIL"
 )
@@ -79,19 +79,19 @@ gcloud iam service-accounts add-iam-policy-binding "${PROVISIONING_SA_EMAIL}" \
 echo "✅ Provisioning Service Account setup complete."
 
 echo "🔄 Generating terraform.tfvars files..."
-cat <<EOF > "${REPO_BASE}/terraform/foundation/terraform.tfvars"
+cat <<EOF > "${REPO_ROOT}/terraform/foundation/terraform.tfvars"
 project_id            = "${PROJECT_ID}"
 EOF
 
-cat <<EOF > "${REPO_BASE}/terraform/admin-workstation/terraform.tfvars"
+cat <<EOF > "${REPO_ROOT}/terraform/admin-workstation/terraform.tfvars"
 project_id            = "${PROJECT_ID}"
 EOF
 
-cat <<EOF > "${REPO_BASE}/terraform/edge-router/terraform.tfvars"
+cat <<EOF > "${REPO_ROOT}/terraform/edge-router/terraform.tfvars"
 project_id            = "${PROJECT_ID}"
 EOF
 
-cat <<EOF > "${REPO_BASE}/terraform/cluster/terraform.tfvars"
+cat <<EOF > "${REPO_ROOT}/terraform/cluster/terraform.tfvars"
 project_id            = "${PROJECT_ID}"
 provisioning_sa_email = "${PROVISIONING_SA_EMAIL}"
 cluster_name          = "${CLUSTER_NAME}"
@@ -103,25 +103,25 @@ gcloud storage buckets create "gs://${TF_STATE_BUCKET}" --project="${PROJECT_ID}
 gcloud storage buckets update "gs://${TF_STATE_BUCKET}" --versioning || true
 
 echo "🔄 Generating backend.tf files..."
-cat <<EOF > "${REPO_BASE}/terraform/foundation/backend.tf"
+cat <<EOF > "${REPO_ROOT}/terraform/foundation/backend.tf"
 terraform {
   backend "gcs" {}
 }
 EOF
 
-cat <<EOF > "${REPO_BASE}/terraform/admin-workstation/backend.tf"
+cat <<EOF > "${REPO_ROOT}/terraform/admin-workstation/backend.tf"
 terraform {
   backend "gcs" {}
 }
 EOF
 
-cat <<EOF > "${REPO_BASE}/terraform/edge-router/backend.tf"
+cat <<EOF > "${REPO_ROOT}/terraform/edge-router/backend.tf"
 terraform {
   backend "gcs" {}
 }
 EOF
 
-cat <<EOF > "${REPO_BASE}/terraform/cluster/backend.tf"
+cat <<EOF > "${REPO_ROOT}/terraform/cluster/backend.tf"
 terraform {
   backend "gcs" {}
 }
