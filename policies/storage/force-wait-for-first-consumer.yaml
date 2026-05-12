@@ -1,0 +1,38 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# GDC Robin StorageClasses may use the 'Immediate' binding mode. With this mode TopoLVM
+# provisions the PVCs instantly across different nodes with free space. This causes an
+# impossible scheduling deadlock (e.g., "Schedule pod to node2 and node3 simultaneously").
+# This policy mutates all Robin storage classes to 'WaitForFirstConsumer', which delays
+# provisioning until the pod is scheduled, allowing K8s to pick a single node and allocate
+# all required PVCs on that same disk, which is on a single node.
+apiVersion: mutations.gatekeeper.sh/v1beta1
+kind: Assign
+metadata:
+  name: force-wait-for-first-consumer
+spec:
+  applyTo:
+    - groups: ["storage.k8s.io"]
+      kinds: ["StorageClass"]
+      versions: ["v1"]
+  match:
+    name: "*robin*"
+    kinds:
+      - apiGroups: ["storage.k8s.io"]
+        kinds: ["StorageClass"]
+  location: "volumeBindingMode"
+  parameters:
+    assign:
+      value: "WaitForFirstConsumer"
