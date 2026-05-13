@@ -20,16 +20,24 @@ max_pods_per_node: 250
 # If not specified, we default to the GDC emulation service account or the Edge Container P4SA
 gcp_cluster_admin_sa: "gem-cluster-admin@{{ gcp_project_id }}.iam.gserviceaccount.com"
 gcp_edge_container_sa: "service-{{ gcp_project_number }}@gcp-sa-edgecontainer.iam.gserviceaccount.com"
-# Mapping between GDC versions and their corresponding Anthos Bare Metal versions
+# Mapping between GDC versions and their corresponding ABM and gVisor versions
 emulated_gdc_versions:
-  "1.12.1": "1.33.300-gke.60"
-  "1.12.0": "1.33.300-gke.60"
-  "1.11.1": "1.32.700-gke.64"
-  "1.11.0": "1.32.100-gke.107"
+  "1.12.1":
+    abm_version: "1.33.300-gke.60"
+    gvisor_version: "20241021.0"
+  "1.12.0":
+    abm_version: "1.33.300-gke.60"
+    gvisor_version: "20241021.0"
+  "1.11.1":
+    abm_version: "1.32.700-gke.64"
+    gvisor_version: "20241021.0"
+  "1.11.0":
+    abm_version: "1.32.100-gke.107"
+    gvisor_version: "20241021.0"
 # Default to the first key in the map (latest version) if not specified
 emulate_gdc_version: "{{ emulated_gdc_versions.keys() | list | first }}"
-# Resolve the ABM version
-bmctl_version: "{{ emulated_gdc_versions[emulate_gdc_version] }}"
+bmctl_version: "{{ emulated_gdc_versions[emulate_gdc_version].abm_version }}"
+gvisor_version: "{{ emulated_gdc_versions[emulate_gdc_version].gvisor_version }}"
 # https://dl.k8s.io/release/stable.txt for the latest version
 kubectl_version: "v1.36.0"
 cluster_node_taints:

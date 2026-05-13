@@ -60,3 +60,9 @@
     - topolvm
     - gatekeeper
     - secondary_networks
+    - gvisor
+- name: Configure gVisor container runtime on cluster nodes
+  hosts: cluster_nodes
+  become: true
+  roles:
+    - gvisor_node

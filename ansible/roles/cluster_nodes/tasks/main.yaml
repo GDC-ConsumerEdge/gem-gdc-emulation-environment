@@ -28,6 +28,26 @@
   until: cluster_nodes_apt_status is success
   delay: 10
   retries: 3
+- name: Download gVisor runsc binary
+  ansible.builtin.get_url:
+    url: "https://storage.googleapis.com/gvisor/releases/release/{{ gvisor_version }}/x86_64/runsc"
+    dest: /usr/local/bin/runsc
+    mode: "0755"
+
+- name: Download gVisor containerd shim
+  ansible.builtin.get_url:
+    url: "https://storage.googleapis.com/gvisor/releases/release/{{ gvisor_version }}/x86_64/containerd-shim-runsc-v1"
+    dest: /usr/local/bin/containerd-shim-runsc-v1
+    mode: "0755"
+
+- name: Ensure gVisor log directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - /var/log/runsc/panic
+    - /var/log/runsc/debug
 - name: Create cluster storage partition
   ansible.builtin.shell:
     cmd: |
