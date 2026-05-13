@@ -37,23 +37,55 @@
       {% endif %}
     vxlan_service: "vxlan-{{ cluster_name }}.service"
     vxlan_script: "/usr/local/bin/setup-vxlan-{{ cluster_name }}.sh"
-- name: Template the VXLAN setup script
+- name: Build list of VXLAN interface definitions
+  ansible.builtin.set_fact:
+    vxlan_definitions: >-
+      {% set defs = [{'iface': vxlan_iface, 'vni': vxlan_id, 'ip_cidr': vxlan_ip ~ '/24'}] %}
+      {% if secondary_networks is defined %}
+      {% for net in secondary_networks %}
+      {% if inventory_hostname in ['gem_admin_ws', 'edge_router_host'] %}
+      {% set sec_if = 'sec-' ~ (cluster_name | replace('-', '') | truncate(6, True, '', 0)) ~ '-' ~ net.vlan_id %}
+      {% else %}
+      {% set sec_if = 'gdcenet0.' ~ net.vlan_id %}
+      {% endif %}
+      {% set sec_vni = (vxlan_id | int) + loop.index %}
+      {% set sec_ip = (net.subnet | split('.'))[:3] | join('.') ~ '.' ~ host_octet ~ '/24' %}
+      {% set _ = defs.append({'iface': sec_if, 'vni': sec_vni, 'ip_cidr': sec_ip}) %}
+      {% endfor %}
+      {% endif %}
+      {{ defs }}
+
+- name: Template declarative systemd virtual network devices (.netdev)
   ansible.builtin.template:
-    src: setup-vxlan.sh.j2
-    dest: "{{ vxlan_script }}"
-    mode: "0755"
-    owner: root
-    group: root
-- name: Template the systemd service for VXLAN persistence
-  ansible.builtin.template:
-    src: vxlan.service.j2
-    dest: "/etc/systemd/system/{{ vxlan_service }}"
+    src: vxlan.netdev.j2
+    dest: "/etc/systemd/network/10-{{ item.iface }}.netdev"
     mode: "0644"
     owner: root
     group: root
-- name: Enable and start the per-cluster VXLAN service
+  loop: "{{ vxlan_definitions }}"
+  notify: Reload systemd-networkd
+
+- name: Template declarative systemd network profiles (.network)
+  ansible.builtin.template:
+    src: vxlan.network.j2
+    dest: "/etc/systemd/network/10-{{ item.iface }}.network"
+    mode: "0644"
+    owner: root
+    group: root
+  loop: "{{ vxlan_definitions }}"
+  notify: Reload systemd-networkd
+
+- name: Template firewall TCP MSS clamping oneshot service
+  ansible.builtin.template:
+    src: vxlan-tcpmss.service.j2
+    dest: "/etc/systemd/system/vxlan-tcpmss-{{ cluster_name }}.service"
+    mode: "0644"
+    owner: root
+    group: root
+
+- name: Enable and start TCP MSS clamping firewall service
   ansible.builtin.systemd:
-    name: "{{ vxlan_service }}"
+    name: "vxlan-tcpmss-{{ cluster_name }}.service"
     enabled: true
     state: started
     daemon_reload: true
