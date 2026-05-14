@@ -31,3 +31,6 @@ jobs:
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+          token: ${{ secrets.CONSUMEREDGE_BOT_PAT }}
+          git-user-name: "gdc-consumeredge-bot"
+          git-user-email: "284335198+gdc-consumeredge-bot@users.noreply.github.com"
