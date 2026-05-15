@@ -30,13 +30,8 @@
     # configures a unique vxlan interface name derived from the cluster name on the
     # admin workstation and edge router, and will use vxlan0 on cluster nodes.
     vxlan_iface: >-
-      {% if inventory_hostname in ['gem_admin_ws', 'edge_router_host'] %}
-      {{ vxlan_primary_iface }}
-      {% else %}
-      vxlan0
-      {% endif %}
-    vxlan_service: "vxlan-{{ cluster_name }}.service"
-    vxlan_script: "/usr/local/bin/setup-vxlan-{{ cluster_name }}.sh"
+      {%- if inventory_hostname in ['gem_admin_ws', 'edge_router_host'] -%} {{ vxlan_primary_iface | trim }}{%- else -%} vxlan0{%- endif -%}
+
 - name: Build list of VXLAN interface definitions
   ansible.builtin.set_fact:
     vxlan_definitions: >-
@@ -55,6 +50,10 @@
       {% endif %}
       {{ defs }}
 
+- name: Parse VXLAN definitions into native Ansible list
+  ansible.builtin.set_fact:
+    vxlan_defs_list: "{{ vxlan_definitions | from_yaml }}"
+
 - name: Template declarative systemd virtual network devices (.netdev)
   ansible.builtin.template:
     src: vxlan.netdev.j2
@@ -62,8 +61,8 @@
     mode: "0644"
     owner: root
     group: root
-  loop: "{{ vxlan_definitions }}"
-  notify: Reload systemd-networkd
+  loop: "{{ vxlan_defs_list }}"
+  notify: Restart systemd-networkd
 
 - name: Template declarative systemd network profiles (.network)
   ansible.builtin.template:
@@ -72,8 +71,8 @@
     mode: "0644"
     owner: root
     group: root
-  loop: "{{ vxlan_definitions }}"
-  notify: Reload systemd-networkd
+  loop: "{{ vxlan_defs_list }}"
+  notify: Restart systemd-networkd
 
 - name: Template firewall TCP MSS clamping oneshot service
   ansible.builtin.template:
@@ -82,6 +81,9 @@
     mode: "0644"
     owner: root
     group: root
+  vars:
+    vxlan_interfaces: "{{ vxlan_defs_list }}"
+
 
 - name: Enable and start TCP MSS clamping firewall service
   ansible.builtin.systemd:

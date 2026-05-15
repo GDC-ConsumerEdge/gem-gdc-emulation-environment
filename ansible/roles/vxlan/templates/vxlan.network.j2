@@ -21,7 +21,8 @@ Address={{ item.ip_cidr }}
 # Static Forwarding Database (FDB) Peers across cluster underlay network
 {% for node in groups['gdc_nodes'] %}
 {% if node != inventory_hostname %}
-[ForwardingDatabase]
+[BridgeFDB]
+MACAddress=00:00:00:00:00:00
 Destination={{ hostvars[node].internal_ip }}
 {% endif %}
 {% endfor %}
