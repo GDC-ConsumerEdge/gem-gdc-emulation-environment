@@ -59,6 +59,9 @@ cd ${REPO_ROOT}
 ./project-setup.sh
 ```
 
+If you wish to configure your GCP project manually, or to better understand what the `project-setup.sh` script is doing, refer to the [Project Setup](docs/project-setup.md) documentation.
+
+
 ### Deploy Foundation and Admin Workstation
 *This should only be required once per GCP project.*
 
