@@ -55,7 +55,7 @@
     creates: "{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/{{ cluster_name }}-kubeconfig"
   environment:
     GOOGLE_APPLICATION_CREDENTIALS: "{{ gem_home }}/bm-gcr.json"
-  async: 3600
+  async: 7200
   poll: 60
   register: gdc_deploy_cluster_create
 - name: Display cluster creation output
