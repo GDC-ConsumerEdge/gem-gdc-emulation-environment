@@ -11,26 +11,19 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-name: Release Please Automation
 
-on:
-  push:
-    branches:
-      - main
+[Unit]
+Description=GEM VXLAN TCP MSS Clamping ({{ cluster_name }})
+After=network-online.target
+Wants=network-online.target
 
-permissions:
-  contents: write
-  pull-requests: write
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+{% for item in vxlan_interfaces %}
+ExecStart=-/sbin/iptables -t mangle -A POSTROUTING -p tcp --tcp-flags SYN,RST SYN -o {{ item.iface }} -j TCPMSS --clamp-mss-to-pmtu
+ExecStop=-/sbin/iptables -t mangle -D POSTROUTING -p tcp --tcp-flags SYN,RST SYN -o {{ item.iface }} -j TCPMSS --clamp-mss-to-pmtu
+{% endfor %}
 
-jobs:
-  release-please:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Run Release Please
-        uses: googleapis/release-please-action@v4
-        with:
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
-          token: ${{ secrets.CONSUMEREDGE_BOT_PAT }}
-          git-user-name: "gdc-consumeredge-bot"
-          git-user-email: "284335198+gdc-consumeredge-bot@users.noreply.github.com"
+[Install]
+WantedBy=multi-user.target

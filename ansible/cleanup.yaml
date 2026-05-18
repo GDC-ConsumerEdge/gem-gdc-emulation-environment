@@ -51,30 +51,32 @@
   hosts: workstation
   become: true
   vars:
-    vxlan_service: "vxlan-{{ cluster_name }}.service"
-    vxlan_script: "/usr/local/bin/setup-vxlan-{{ cluster_name }}.sh"
+    firewall_service: "vxlan-tcpmss-{{ cluster_name }}.service"
     vx_iface: "{{ vxlan_primary_iface }}"
   tasks:
-    - name: Stop and disable VXLAN service
+    - name: Stop and disable TCP MSS clamping firewall service
       ansible.builtin.systemd:
-        name: "{{ vxlan_service }}"
+        name: "{{ firewall_service }}"
         state: stopped
         enabled: false
       failed_when: false
-    - name: Remove VXLAN service file
+    - name: Remove firewall service file
       ansible.builtin.file:
-        path: "/etc/systemd/system/{{ vxlan_service }}"
+        path: "/etc/systemd/system/{{ firewall_service }}"
         state: absent
-    - name: Remove VXLAN setup script
-      ansible.builtin.file:
-        path: "{{ vxlan_script }}"
-        state: absent
-    - name: Delete primary VXLAN interface
+    - name: Delete primary VXLAN interface from kernel
       ansible.builtin.command: "ip link delete {{ vx_iface }}"
       failed_when: false
       changed_when: true
-    - name: Delete secondary VXLAN interfaces
+    - name: Delete secondary VXLAN interfaces from kernel
       ansible.builtin.command: "ip link delete {{ vxlan_secondary_iface_prefix }}-{{ item.vlan_id }}"
       loop: "{{ secondary_networks }}"
       failed_when: false
       changed_when: true
+    - name: Remove declarative systemd-networkd configuration files
+      ansible.builtin.shell: "rm -f /etc/systemd/network/*{{ (cluster_name | replace('-', '') | truncate(6, True, '', 0)) }}*"
+      changed_when: true
+    - name: Restart systemd-networkd to synchronize active kernel netdevs
+      ansible.builtin.systemd:
+        name: systemd-networkd
+        state: restarted

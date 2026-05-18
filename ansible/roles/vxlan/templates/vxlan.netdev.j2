@@ -11,26 +11,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-name: Release Please Automation
 
-on:
-  push:
-    branches:
-      - main
+[NetDev]
+Name={{ item.iface }}
+Kind=vxlan
+MTUBytes=1410
 
-permissions:
-  contents: write
-  pull-requests: write
-
-jobs:
-  release-please:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Run Release Please
-        uses: googleapis/release-please-action@v4
-        with:
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
-          token: ${{ secrets.CONSUMEREDGE_BOT_PAT }}
-          git-user-name: "gdc-consumeredge-bot"
-          git-user-email: "284335198+gdc-consumeredge-bot@users.noreply.github.com"
+[VXLAN]
+VNI={{ item.vni }}
+DestinationPort=4789
+Local={{ internal_ip }}
+Independent=yes

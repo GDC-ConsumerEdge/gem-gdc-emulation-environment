@@ -11,26 +11,18 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-name: Release Please Automation
 
-on:
-  push:
-    branches:
-      - main
+[Match]
+Name={{ item.iface }}
 
-permissions:
-  contents: write
-  pull-requests: write
+[Network]
+Address={{ item.ip_cidr }}
 
-jobs:
-  release-please:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Run Release Please
-        uses: googleapis/release-please-action@v4
-        with:
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
-          token: ${{ secrets.CONSUMEREDGE_BOT_PAT }}
-          git-user-name: "gdc-consumeredge-bot"
-          git-user-email: "284335198+gdc-consumeredge-bot@users.noreply.github.com"
+# Static Forwarding Database (FDB) Peers across cluster underlay network
+{% for node in groups['gdc_nodes'] %}
+{% if node != inventory_hostname %}
+[BridgeFDB]
+MACAddress=00:00:00:00:00:00
+Destination={{ hostvars[node].internal_ip }}
+{% endif %}
+{% endfor %}

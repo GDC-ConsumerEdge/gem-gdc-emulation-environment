@@ -59,6 +59,9 @@ cd ${REPO_ROOT}
 ./project-setup.sh
 ```
 
+If you wish to configure your GCP project manually, or to better understand what the `project-setup.sh` script is doing, refer to the [Project Setup](docs/project-setup.md) documentation.
+
+
 ### Deploy Foundation and Admin Workstation
 *This should only be required once per GCP project.*
 
@@ -227,6 +230,7 @@ ${REPO_ROOT}/scripts/gem-tunnel.sh --tunnel 10.200.145.52:80=8080
               \ \        💎       \ \
  ______________\ \_________________\ \_______________
 
+
  TUNNEL:  tcp://localhost:8080 → 10.200.145.52:80
 
  _______________  __________________  _______________
@@ -263,6 +267,26 @@ To connect to the same application webserver using a protocol helper:
               \ \        💎       \ \
  ______________\ \_________________\ \_______________
 
+
+ HTTP:    http://localhost:8080 → 10.200.145.52:80
+
+ _______________  __________________  _______________
+               / /                 / /
+              / /                 / /
+
+
+  Press Ctrl-C to disconnect
+```
+
+Or to connect to the same application webserver using a protocol helper and the Service name:
+```
+./gem-tunnel.sh --http applications/application-webserver
+
+
+              \ \        💎       \ \
+ ______________\ \_________________\ \_______________
+
+
  HTTP:    http://localhost:8080 → 10.200.145.52:80
 
  _______________  __________________  _______________
@@ -286,11 +310,12 @@ access to various applications and virtual machines running on a GEM cluster.
   --vnc 10.200.145.54 \
   --http 10.200.145.52 \
   --http 10.200.145.56 \
-  --tunnel 10.200.145.57:3306=3306
+  --tunnel db/application-db:3306=3306
 
 
               \ \        💎       \ \
  ______________\ \_________________\ \_______________
+
 
  HTTP:    http://localhost:8080 → 10.200.145.52:80
  HTTP:    http://localhost:8081 → 10.200.145.56:80

@@ -71,7 +71,7 @@ VNC_SPECS=()
 TUNNEL_SPECS=()
 PROJECT_ID="${PROJECT_ID:-}"
 EDGE_NAME="${GEM_EDGE_ROUTER_NAME:-gem-edge-router}"
-ZONE="${GEM_ZONE:-}"
+ZONE="${CLOUDSDK_COMPUTE_ZONE:-}"
 SSH_USER="gem"
 PRINT_ONLY=0
 
@@ -176,13 +176,14 @@ if [[ -z "$EDGE_NAME" || "$EDGE_NAME" == "null" ]]; then
    Ensure it has been deployed, or define with --edge-router" >&2
   exit 1
 fi
-if [[ -z "$ZONE" || "$ZONE" == "null" ]]; then
+
+if [[ -z "$ZONE" ]]; then
   ZONE="$(gcloud config get-value compute/zone 2>/dev/null || true)"
-fi
-if [[ -z "$ZONE" || "$ZONE" == "null" ]]; then
-  echo "🚫 ERROR: GCP zone not found.
-   Define via --zone, GEM_ZONE or gcloud config set compute/zone <GCP zone>" >&2
-  exit 1
+  if [[ -z "$ZONE"  ]]; then
+    echo "🚫 ERROR: GCP zone not found.
+   Define via --zone, CLOUDSDK_COMPUTE_ZONE or gcloud config set compute/zone <GCP zone>" >&2
+    exit 1
+  fi
 fi
 
 # Drive the connection through `gcloud compute ssh`  so it auto-provisions

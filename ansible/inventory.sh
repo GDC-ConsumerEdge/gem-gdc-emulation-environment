@@ -140,7 +140,14 @@ if [ -z "$GEM_WS_NAME" ]; then
   exit 0
 fi
 
-# Deterministic Hashing Scheme for Network Isolation
+# Deterministic Hashing Scheme for Network Isolation (VNI & Subnets)
+# To ensure multi-cluster network isolation without requiring centralized IPAM,
+# we calculate a 32-bit CRC checksum of the cluster name using cksum.
+# "gem-cluster-1" == 3901383111
+# Then we modulo the hash, to map it into the valid 24-bit VXLAN Network Identifier (VNI)
+# range of 100 - 16,000,100. The modulo of "gem-cluster-1" == 13383211
+# This VXLAN_ID is used both as the kernel VNI header and a a portion of a systemd-networkd
+# virtual interface name (e.g., vx-gemclu-1338).
 HASH=$(echo -n "$CLUSTER_NAME" | cksum | awk '{print $1}')
 VXLAN_ID=$(( HASH % 16000000 + 100 ))
 OCTET3=$(( HASH % 254 + 1 ))
@@ -153,7 +160,7 @@ cat <<EOF
 {
   "all": {
     "vars": {
-      "ansible_ssh_common_args": "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ProxyCommand='gcloud compute start-iap-tunnel %h %p --listen-on-stdin --project=${GCP_PROJECT} --zone=${GCP_ZONE}'",
+      "ansible_ssh_common_args": "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ControlMaster=auto -o ControlPersist=30m -o ConnectionAttempts=100 -o ProxyCommand='gcloud compute start-iap-tunnel %h %p --listen-on-stdin --project=${GCP_PROJECT} --zone=${GCP_ZONE}'",
       "ansible_python_interpreter": "/usr/bin/python3",
       "ansible_user": "${GCP_USER}",
       "gcp_project_id": "${GCP_PROJECT}",
