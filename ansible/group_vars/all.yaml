@@ -62,6 +62,11 @@ secondary_networks:
     vip_pool: "192.168.45.200-192.168.45.250"
     pod_cidr: "192.168.100.0/16"
     per_node_ipam_size: 18
-# Dynamic interface names based on cluster_name
-vxlan_primary_iface: "vx-{{ cluster_name | replace('-', '') | truncate(11, True, '', 0) }}"
+
+# To prevent virtual interface naming collisions when deploying multiple clusters sharing
+# similar prefixes (e.g., gem-cluster-1 vs gem-cluster-2), we slice the first 4 digits of
+# the VXLAN_ID emitted by inventory.sh and append it to the interface string.
+# The maximum Linux interface length is 15 characters, so we ensure the interface name
+# is <= 15 characters.
+vxlan_primary_iface: "vx-{{ (cluster_name | replace('-', '') | truncate(6, True, '', 0)) }}-{{ (vxlan_id | string)[:4] }}"
 vxlan_secondary_iface_prefix: "sec-{{ cluster_name | replace('-', '') | truncate(6, True, '', 0) }}"
