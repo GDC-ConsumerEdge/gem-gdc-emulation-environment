@@ -60,5 +60,9 @@ echo "Running Ansible Unit Tests"
 cd "$GEM_ROOT/ansible"
 echo "Running template rendering test..."
 ansible-playbook tests/test_gdc_template.yaml
+echo "Running parameter validation check test..."
+ansible-playbook tests/test_validations.yaml
+echo "Running dynamic VXLAN & VLAN interface rendering test..."
+ansible-playbook tests/test_vxlan_rendering.yaml
 
 echo "✅ All unit tests passed!"

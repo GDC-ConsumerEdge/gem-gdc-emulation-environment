@@ -1,0 +1,207 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+- name: Test VXLAN Hashing Setup
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Set mock inventory variables
+      ansible.builtin.add_host:
+        name: "{{ item.name }}"
+        groups: gdc_nodes
+        internal_ip: "{{ item.ip }}"
+      loop:
+        - {name: 'node1', ip: '10.10.0.8'}
+        - {name: 'node2', ip: '10.10.0.4'}
+        - {name: 'node3', ip: '10.10.0.7',}
+
+- name: Test VXLAN Configuration Rendering for Administrative Workstation
+  hosts: localhost
+  gather_facts: false
+  vars:
+    inventory_hostname: "gem_admin_ws"
+    cluster_name: "rack-q8cui"
+    vxlan_id: "2959013"
+    internal_ip: "10.10.0.2"
+    host_octet: "100"
+    secondary_networks:
+      - {vlan_id: 123, subnet: "172.16.10.0"}
+      - {vlan_id: 456, subnet: "192.168.45.0"}
+  tasks:
+    - name: Ensure test directories exist
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - "/tmp/vxlan_ws_test"
+        - "/tmp/vxlan_ws_test/network"
+
+    - name: Compile dynamic VXLAN definitions list (Workstation)
+      ansible.builtin.set_fact:
+        vxlan_definitions: >-
+          {% set defs = [{'iface': 'vx-rackq8-2959', 'vni': '2959013', 'ip_cidr': '10.200.13.100/24'}] %}
+          {% if secondary_networks is defined and secondary_networks | length > 0 %}
+          {% for net in secondary_networks %}
+          {% set sec_if = 'sec-' ~ (cluster_name | replace('-', '') | truncate(6, True, '', 0)) ~ '-' ~ net.vlan_id %}
+          {% set sec_vni = (vxlan_id | int) + loop.index %}
+          {% set sec_ip = (net.subnet | split('.'))[:3] | join('.') ~ '.' ~ host_octet ~ '/24' %}
+          {% set _ = defs.append({'iface': sec_if, 'vni': sec_vni, 'ip_cidr': sec_ip}) %}
+          {% endfor %}
+          {% endif %}
+          {{ defs }}
+
+    - name: Parse VXLAN definitions
+      ansible.builtin.set_fact:
+        vxlan_defs_list: "{{ vxlan_definitions | from_yaml }}"
+
+    - name: Assert compiled names are compliant with IFNAMSIZ (<= 15 chars)
+      ansible.builtin.assert:
+        that:
+          - "(item.iface | length) <= 15"
+        fail_msg: "🚨 IFNAMSIZ ERROR: Dynamic interface '{{ item.iface }}' exceeds 15 characters limit!"
+      loop: "{{ vxlan_defs_list }}"
+
+    - name: Render NetDev and Network profiles
+      ansible.builtin.template:
+        src: "../roles/vxlan/templates/{{ tpl_item.tpl }}"
+        dest: "/tmp/vxlan_ws_test/{{ tpl_item.dest }}"
+        mode: "0644"
+      loop:
+        - {tpl: "vxlan.netdev.j2", dest: "10-vx-rackq8-2959.netdev"}
+        - {tpl: "vxlan.network.j2", dest: "network/10-vx-rackq8-2959.network"}
+      loop_control:
+        loop_var: tpl_item
+      vars:
+        item:
+          iface: "vx-rackq8-2959"
+          vni: "2959013"
+          ip_cidr: "10.200.13.100/24"
+
+    - name: Slurp rendered files
+      ansible.builtin.slurp:
+        src: "{{ item }}"
+      register: rendered_files
+      loop:
+        - "/tmp/vxlan_ws_test/10-vx-rackq8-2959.netdev"
+        - "/tmp/vxlan_ws_test/network/10-vx-rackq8-2959.network"
+
+    - name: Verify Workstation NetDev parameters (Name and MTU)
+      ansible.builtin.assert:
+        that:
+          - "'Name=vx-rackq8-2959' in (rendered_files.results[0].content | b64decode)"
+          - "'MTUBytes=1410' in (rendered_files.results[0].content | b64decode)"
+          - "'VNI=2959013' in (rendered_files.results[0].content | b64decode)"
+        fail_msg: "Workstation NetDev parameters validation failed!"
+
+    - name: Clean up Workstation test directory
+      ansible.builtin.file:
+        path: "/tmp/vxlan_ws_test"
+        state: absent
+
+- name: Test VXLAN Configuration Rendering for Cluster worker Nodes
+  hosts: localhost
+  gather_facts: false
+  vars:
+    inventory_hostname: "node1"
+    cluster_name: "rack-q8cui"
+    vxlan_id: "2959013"
+    internal_ip: "10.10.0.8"
+    host_octet: "2"
+    secondary_networks:
+      - {vlan_id: 123, subnet: "172.16.10.0"}
+      - {vlan_id: 456, subnet: "192.168.45.0"}
+  tasks:
+    - name: Ensure test directories exist
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - "/tmp/vxlan_node_test"
+        - "/tmp/vxlan_node_test/network"
+
+    - name: Compile dynamic VXLAN definitions list (Node)
+      ansible.builtin.set_fact:
+        vxlan_definitions: >-
+          {% set defs = [{'iface': 'vxlan0', 'vni': '2959013', 'ip_cidr': '10.200.13.2/24'}] %}
+          {% if secondary_networks is defined and secondary_networks | length > 0 %}
+          {% for net in secondary_networks %}
+          {% set sec_if = 'gdcenet0.' ~ net.vlan_id %}
+          {% set sec_vni = (vxlan_id | int) + loop.index %}
+          {% set sec_ip = (net.subnet | split('.'))[:3] | join('.') ~ '.' ~ host_octet ~ '/24' %}
+          {% set _ = defs.append({'iface': sec_if, 'vni': sec_vni, 'ip_cidr': sec_ip}) %}
+          {% endfor %}
+          {% endif %}
+          {{ defs }}
+
+    - name: Parse VXLAN definitions
+      ansible.builtin.set_fact:
+        vxlan_defs_list: "{{ vxlan_definitions | from_yaml }}"
+
+    - name: Assert dynamic names strictly match gdcenet0.X node patterns
+      ansible.builtin.assert:
+        that:
+          - "item.iface == 'vxlan0' or item.iface.startswith('gdcenet0.')"
+        fail_msg: "🚨 Naming Violation: Dynamic interface '{{ item.iface }}' violates GDC node naming convention!"
+      loop: "{{ vxlan_defs_list }}"
+
+    - name: Render NetDev and Network profiles for node
+      ansible.builtin.template:
+        src: "../roles/vxlan/templates/{{ tpl_item.tpl }}"
+        dest: "/tmp/vxlan_node_test/{{ tpl_item.dest }}"
+        mode: "0644"
+      loop:
+        - {tpl: "vxlan.netdev.j2", dest: "10-gdcenet0.123.netdev"}
+        - {tpl: "vxlan.network.j2", dest: "network/10-gdcenet0.123.network"}
+      loop_control:
+        loop_var: tpl_item
+      vars:
+        item:
+          iface: "gdcenet0.123"
+          vni: "2959014"
+          ip_cidr: "172.16.10.2/24"
+        groups:
+          gdc_nodes: ['node1', 'node2', 'node3']
+        hostvars:
+          node2: {internal_ip: '10.10.0.4'}
+          node3: {internal_ip: '10.10.0.7'}
+
+    - name: Slurp rendered files
+      ansible.builtin.slurp:
+        src: "{{ item }}"
+      register: node_rendered_files
+      loop:
+        - "/tmp/vxlan_node_test/10-gdcenet0.123.netdev"
+        - "/tmp/vxlan_node_test/network/10-gdcenet0.123.network"
+
+    - name: Verify Node NetDev parameters
+      ansible.builtin.assert:
+        that:
+          - "'Name=gdcenet0.123' in (node_rendered_files.results[0].content | b64decode)"
+          - "'MTUBytes=1410' in (node_rendered_files.results[0].content | b64decode)"
+          - "'VNI=2959014' in (node_rendered_files.results[0].content | b64decode)"
+        fail_msg: "Node NetDev parameters validation failed!"
+
+    - name: Verify Node FDB MAC forwarding peers
+      ansible.builtin.assert:
+        that:
+          - "'Destination=10.10.0.4' in (node_rendered_files.results[1].content | b64decode)"
+          - "'Destination=10.10.0.7' in (node_rendered_files.results[1].content | b64decode)"
+        fail_msg: "Node Bridge FDB peer configurations validation failed!"
+
+    - name: Clean up Node test directory
+      ansible.builtin.file:
+        path: "/tmp/vxlan_node_test"
+        state: absent
