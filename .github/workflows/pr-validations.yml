@@ -83,3 +83,13 @@ jobs:
         env:
           SKIP: trailing-whitespace,end-of-file-fixer,check-yaml,check-added-large-files,yamlfmt,gitleaks,addlicense,shellcheck,terraform_fmt,terraform_tflint,terraform_validate
         uses: pre-commit/action@v3.0.1
+      - name: Install Ansible for Unit Testing
+        run: |
+          python -m pip install --upgrade pip
+          pip install ansible
+        shell: bash
+      - name: Run Project Unit Tests (Terraform & Ansible)
+        run: |
+          chmod +x ./scripts/run-unit-tests.sh
+          ./scripts/run-unit-tests.sh
+        shell: bash
