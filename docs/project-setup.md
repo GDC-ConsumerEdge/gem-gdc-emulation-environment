@@ -250,8 +250,12 @@ Running GDC Connected emulation requires two additional dedicated service accoun
     *   `roles/compute.viewer`: Allows node agents to inspect VM resources.
 
 #### 2. Cluster Administrator SA (`gem-cluster-admin`)
-*   This SA is used to manage the active GEM cluster remotely through GKE
-  Connect Gateway. It inherits the Kubernetes  cluster-admin  ClusterRole for unrestricted administration. Managing remote access through this service account guarantees that any user authorized to impersonate it can securely connect to and manage the cluster from their local terminal.
+*   This service account is used to administer the active GEM cluster remotely via GKE
+Connect Gateway. It is bound to the Kubernetes `cluster-admin` ClusterRole, granting
+unrestricted administrative control over cluster resources. Routing remote connections
+through this service account ensures that any developer authorized to impersonate this
+service account can securely connect to and manage the cluster directly from their local
+workstation.
 
 *   Required Roles:
     *   `roles/gkehub.gatewayAdmin`: Allows the service account to dynamically authenticate through GKE Connect Gateway.

@@ -92,12 +92,6 @@
     dest: "/etc/sudoers.d/{{ gem_user }}"
     content: "{{ gem_user }} ALL=(ALL) NOPASSWD: ALL"
     mode: "0440"
-- name: Add workstation public key to authorized_keys
-  ansible.posix.authorized_key:
-    user: "{{ gem_user }}"
-    state: present
-    key: "{{ lookup('file', '/tmp/ws_id_rsa.pub') }}"
-  when: lookup('file', '/tmp/ws_id_rsa.pub', errors='ignore') | length > 0
 - name: Configure kernel modules to load at boot
   ansible.builtin.copy:
     dest: /etc/modules-load.d/gdc-modules.conf
@@ -114,10 +108,17 @@
     - vxlan
     - overlay
     - br_netfilter
-- name: Increase inotify limits for cluster storage provider
+- name: Increase inotify instances limit for cluster storage provider
   ansible.posix.sysctl:
     name: fs.inotify.max_user_instances
     value: "8192"
+    sysctl_file: /etc/sysctl.d/99-inotify.conf
+    state: present
+    reload: true
+- name: Increase inotify watches limit for cluster storage provider
+  ansible.posix.sysctl:
+    name: fs.inotify.max_user_watches
+    value: "524288"
     sysctl_file: /etc/sysctl.d/99-inotify.conf
     state: present
     reload: true
