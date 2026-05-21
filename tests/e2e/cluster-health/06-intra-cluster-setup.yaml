@@ -1,0 +1,106 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx-server
+  labels:
+    app: nginx-server
+spec:
+  containers:
+    - name: nginx
+      image: nginx:alpine
+      ports:
+        - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-clusterip
+spec:
+  selector:
+    app: nginx-server
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-loadbalancer
+spec:
+  selector:
+    app: nginx-server
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+  type: LoadBalancer
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx-client-1
+  labels:
+    app: nginx-client
+spec:
+  containers:
+    - name: client
+      image: curlimages/curl:latest
+      command: ["sleep", "3600"]
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        # Enforce scheduling on a different node than the server pod
+        - labelSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values:
+                  - nginx-server
+          topologyKey: "kubernetes.io/hostname"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx-client-2
+  labels:
+    app: nginx-client
+spec:
+  containers:
+    - name: client
+      image: curlimages/curl:latest
+      command: ["sleep", "3600"]
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        # Enforce scheduling on a different node than the server pod
+        - labelSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values:
+                  - nginx-server
+          topologyKey: "kubernetes.io/hostname"
+        # Enforce scheduling on a different node than the other client pod
+        - labelSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values:
+                  - nginx-client
+          topologyKey: "kubernetes.io/hostname"

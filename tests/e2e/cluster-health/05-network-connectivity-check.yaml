@@ -1,0 +1,33 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: network-connectivity-pod
+spec:
+  restartPolicy: Never
+  containers:
+    - name: connectivity
+      image: alpine:latest
+      command:
+        - sh
+        - -c
+        - |
+          echo "DNS Connectivity Check"
+          nslookup google.com || exit 1
+          nslookup googleapis.com || exit 1
+          echo "HTTP Outbound Connectivity Check"
+          wget -qSO- --timeout=5 https://connectivitycheck.gstatic.com/generate_204 2>&1 |grep -q "HTTP/1.1 204 No Content" || exit 2
+          echo "🟢 Network connectivity checks have passed."
