@@ -55,3 +55,15 @@ run "validate_vm_count_and_config" {
     error_message = "Nested virtualization should be enabled."
   }
 }
+
+run "validate_cluster_name_length_fail" {
+  command = plan
+
+  variables {
+    cluster_name = "my-extremely-long-gem-cluster-name-which-fails-validation"
+  }
+
+  expect_failures = [
+    var.cluster_name
+  ]
+}

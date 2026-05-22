@@ -1,0 +1,119 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: cluster-health-validation
+spec:
+  steps:
+    # Step 1: PV Storage Write & Telemetry Check (Implicit Polling)
+    - name: sds-pv-write-persistence-test
+      try:
+        - apply:
+            file: 01-pv-write.yaml
+        - assert:
+            file: 01-pv-write-assert.yaml
+        - apply:
+            file: 01-pv-read-check.yaml
+        - assert:
+            file: 01-pv-read-assert.yaml
+        - script:
+            content: kubectl logs sds-reader-pod -n $NAMESPACE
+            check:
+              (contains($stdout, 'GEM_SDS_PV_DATA_OK')): true
+
+    # Step 2: OPA Gatekeeper Robin SC Mutation (10 Random StorageClasses)
+    - name: gatekeeper-robin-sc-mutation-test
+      try:
+        - script:
+            content: |
+              set -e
+              PREFIXES=("robin-storage" "fast-robin" "robin-sds" "custom-robin" "gold-robin")
+              for i in {1..10}; do
+                RAND_PREFIX=${PREFIXES[$RANDOM % ${#PREFIXES[@]}]}
+                RAND_ENTROPY=$(tr -dc 'a-z0-9' < /dev/urandom | head -c 5)
+                SC_NAME="${RAND_PREFIX}-${RAND_ENTROPY}"
+
+                echo "Creating StorageClass ${SC_NAME} (Should be mutated to topolvm.io)..."
+                kubectl apply -f - <<EOF
+              apiVersion: storage.k8s.io/v1
+              kind: StorageClass
+              metadata:
+                name: ${SC_NAME}
+              provisioner: robin-sds-provisioner-mock
+              reclaimPolicy: Delete
+              volumeBindingMode: Immediate
+              EOF
+
+                # Wait a brief moment and assert mutated provisioner
+                sleep 1
+                PROVISIONER=$(kubectl get storageclass ${SC_NAME} -o jsonpath='{.provisioner}')
+                if [ "$PROVISIONER" != "topolvm.io" ]; then
+                  echo "❌ MUTATION FAILURE: StorageClass ${SC_NAME} was not mutated! Provisioner is: ${PROVISIONER}"
+                  exit 1
+                fi
+                echo "🟢 Mutation Success: ${SC_NAME} Provisioner mutated dynamically to 'topolvm.io'!"
+                kubectl delete storageclass ${SC_NAME}
+              done
+              echo "🟢 All 10 random Robin StorageClasses successfully intercepted and mutated!"
+
+    # Step 3: VMRuntime Enablement & Status Check
+    - name: vmruntime-enablement-validation-test
+      try:
+        - apply:
+            file: 03-vmruntime-enable.yaml
+        - assert:
+            file: 03-vmruntime-assert.yaml
+
+    # Step 4: VirtualMachine Dynamic HTTP Provisioning & Running State Verification
+    - name: virtualmachine-http-provisioning-test
+      try:
+        - apply:
+            file: 04-vm-provision.yaml
+        - assert:
+            timeout: 15m
+            file: 04-vm-assert.yaml
+
+    # Step 5: Outbound Networking, DNS, & Internet Egress Preflight Check
+    - name: network-internet-preflight-test
+      try:
+        - apply:
+            file: 05-network-connectivity-check.yaml
+        - assert:
+            file: 05-network-connectivity-assert.yaml
+
+    # Step 6: Intra-Cluster Communication (ClusterIP & LoadBalancer)
+    - name: intra-cluster-networking-test
+      try:
+        - apply:
+            file: 06-intra-cluster-setup.yaml
+        - assert:
+            timeout: 3m
+            file: 06-intra-cluster-assert.yaml
+        - script:
+            content: |
+              set -e
+              CLUSTER_IP=$(kubectl get svc nginx-clusterip -n $NAMESPACE -o jsonpath='{.spec.clusterIP}')
+              LOADBALANCER_IP=$(kubectl get svc nginx-loadbalancer -n $NAMESPACE -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+
+              echo "=== ClusterIP Communication Check ==="
+              kubectl exec nginx-client-1 -n $NAMESPACE -- curl -s -I http://${CLUSTER_IP} | grep -q "HTTP/1.1 200 OK"
+              kubectl exec nginx-client-2 -n $NAMESPACE -- curl -s -I http://${CLUSTER_IP} | grep -q "HTTP/1.1 200 OK"
+              echo "🟢 ClusterIP communication validated successfully!"
+
+              echo "=== LoadBalancer VIP Communication Check ==="
+              kubectl exec nginx-client-1 -n $NAMESPACE -- curl -s -I http://${LOADBALANCER_IP} | grep -q "HTTP/1.1 200 OK"
+              kubectl exec nginx-client-2 -n $NAMESPACE -- curl -s -I http://${LOADBALANCER_IP} | grep -q "HTTP/1.1 200 OK"
+              echo "🟢 LoadBalancer VIP communication validated successfully!"

@@ -19,3 +19,6 @@ terraform.rc
 *.retry
 .ansible/
 *.ansible
+
+# Tooling
+*jetski**

@@ -140,11 +140,6 @@
     size: 2048
     owner: "{{ gem_user }}"
     group: "{{ gem_user }}"
-- name: Fetch platform user public key from workstation
-  ansible.builtin.fetch:
-    src: "{{ gem_home }}/.ssh/id_rsa.pub"
-    dest: /tmp/ws_id_rsa.pub
-    flat: true
 - name: Check if Anthos Service Account Key exists on workstation
   ansible.builtin.stat:
     path: "{{ gem_home }}/bm-gcr.json"
@@ -153,7 +148,22 @@
   ansible.builtin.file:
     path: "{{ gem_home }}/bm-gcr.json"
     state: absent
-  when: workstation_ws_sa_key.stat.exists and workstation_ws_sa_key.stat.size == 0
+- name: Increase inotify max_user_watches on admin workstation
+  become: true
+  ansible.posix.sysctl:
+    name: fs.inotify.max_user_watches
+    value: "524288"
+    sysctl_file: /etc/sysctl.d/99-inotify.conf
+    state: present
+    reload: true
+- name: Increase inotify max_user_instances on admin workstation
+  become: true
+  ansible.posix.sysctl:
+    name: fs.inotify.max_user_instances
+    value: "8192"
+    sysctl_file: /etc/sysctl.d/99-inotify.conf
+    state: present
+    reload: true
 - name: Generate and copy Anthos Service Account Key
   block:
     - name: Generate Anthos Service Account Key dynamically
@@ -166,7 +176,10 @@
         --impersonate-service-account=tf-provisioner@{{ gcp_project_id }}.iam.gserviceaccount.com
       args:
         creates: /tmp/bm-gcr.json
-      when: not workstation_ws_sa_key.stat.exists or (workstation_ws_sa_key.stat.exists and workstation_ws_sa_key.stat.size == 0)
+      when: >
+        not hostvars[inventory_hostname]['workstation_ws_sa_key']['stat']['exists'] or
+        (hostvars[inventory_hostname]['workstation_ws_sa_key']['stat']['exists'] and
+        hostvars[inventory_hostname]['workstation_ws_sa_key']['stat']['size'] == 0)
     - name: Copy Anthos Service Account Key to workstation
       ansible.builtin.copy:
         src: /tmp/bm-gcr.json
@@ -174,7 +187,10 @@
         owner: "{{ gem_user }}"
         group: "{{ gem_user }}"
         mode: "0600"
-      when: not workstation_ws_sa_key.stat.exists or (workstation_ws_sa_key.stat.exists and workstation_ws_sa_key.stat.size == 0)
+      when: >
+        not hostvars[inventory_hostname]['workstation_ws_sa_key']['stat']['exists'] or
+        (hostvars[inventory_hostname]['workstation_ws_sa_key']['stat']['exists'] and
+        hostvars[inventory_hostname]['workstation_ws_sa_key']['stat']['size'] == 0)
   rescue:
     - name: Clean up local Anthos Service Account Key if failed
       delegate_to: localhost

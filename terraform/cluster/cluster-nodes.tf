@@ -14,9 +14,9 @@
 
 locals {
   vms = {
-    node1 = "${var.cluster_name}-node-1"
-    node2 = "${var.cluster_name}-node-2"
-    node3 = "${var.cluster_name}-node-3"
+    node1 = "${var.cluster_name}-1"
+    node2 = "${var.cluster_name}-2"
+    node3 = "${var.cluster_name}-3"
   }
 }
 
@@ -81,7 +81,11 @@ resource "google_compute_instance" "gdc_vms" {
     cluster_id     = var.cluster_name
     bmctl_version  = var.bmctl_version
     enable-oslogin = "FALSE"
-    user-data      = <<-EOF
+    # The admin workstation's SSH public key is managed natively via GCP Instance Metadata.
+    # When the admin workstation is built, it's SSH public key is pushed into Compute Engine
+    # metadata, and is retrieved by the cluster nodes here
+    ssh-keys  = "gem:${lookup(data.google_compute_instance.gem_admin_ws.metadata, "workstation_pubkey", "")}"
+    user-data = <<-EOF
 #cloud-config
 bootcmd:
   # Initialize the secondary disk with a GPT label

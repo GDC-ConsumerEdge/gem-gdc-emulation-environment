@@ -160,11 +160,12 @@ cat <<EOF
 {
   "all": {
     "vars": {
-      "ansible_ssh_common_args": "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ControlMaster=auto -o ControlPersist=30m -o ConnectionAttempts=100 -o ProxyCommand='gcloud compute start-iap-tunnel %h %p --listen-on-stdin --project=${GCP_PROJECT} --zone=${GCP_ZONE}'",
+      "ansible_ssh_common_args": "-i ~/.ssh/google_compute_engine -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ControlMaster=auto -o ControlPersist=30m -o ConnectionAttempts=100 -o ProxyCommand='gcloud compute start-iap-tunnel %h %p --listen-on-stdin --project=${GCP_PROJECT} --zone=${GCP_ZONE}'",
       "ansible_python_interpreter": "/usr/bin/python3",
       "ansible_user": "${GCP_USER}",
       "gcp_project_id": "${GCP_PROJECT}",
       "gcp_project_number": "${GCP_PROJECT_NUMBER}",
+      "gcp_zone": "${GCP_ZONE}",
       "tf_cluster_name": "${CLUSTER_NAME}",
 $(if [ -n "$BMCTL_VERSION" ]; then echo "      \"bmctl_version\": \"${BMCTL_VERSION}\","; fi)
       "vxlan_id": "${VXLAN_ID}",

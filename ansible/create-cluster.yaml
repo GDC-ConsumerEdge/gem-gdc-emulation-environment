@@ -20,6 +20,15 @@
         that:
           - lookup('env', 'CLUSTER_NAME') != ""
         fail_msg: "🚫 ERROR: You must set the CLUSTER_NAME environment variable before running this playbook (e.g., export CLUSTER_NAME=gem-cluster-1)"
+    - name: Assert CLUSTER_NAME does not exceed Kubernetes FQDN character limits
+      ansible.builtin.assert:
+        that:
+          - (lookup('env', 'CLUSTER_NAME') | length) <= 26
+        fail_msg: >-
+          🚨 ERROR: CLUSTER_NAME '{{ lookup('env', 'CLUSTER_NAME') }}' is too long
+          ({{ lookup('env', 'CLUSTER_NAME') | length }} characters). GEM cluster names must be 26
+          characters or fewer to prevent GCE VM hostnames from exceeding Kubernetes' strict
+          63-character metadata label limits.
     - name: Check if google_compute_engine key exists
       ansible.builtin.stat:
         path: "~/.ssh/google_compute_engine"
