@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/compare/gem-v0.1.2...gem-v0.1.3) (2026-05-22)
+
+
+### Bug Fixes
+
+* **cluster:** cluster build optimizations ([#12](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/issues/12)) ([1825c44](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/1825c44b871cf48d88f1ef0354ae29bf71b77a4a))
+
 ## [0.1.2](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/compare/gem-v0.1.1...gem-v0.1.2) (2026-05-18)
 
 
