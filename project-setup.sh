@@ -96,6 +96,11 @@ project_id            = "${PROJECT_ID}"
 provisioning_sa_email = "${PROVISIONING_SA_EMAIL}"
 cluster_name          = "${CLUSTER_NAME}"
 EOF
+
+cat <<EOF > "${REPO_ROOT}/terraform/cloudbuild/terraform.tfvars"
+project_id            = "${PROJECT_ID}"
+provisioning_sa_email = "${PROVISIONING_SA_EMAIL}"
+EOF
 echo "✅ terraform.tfvars created successfully."
 
 echo "🔄 Creating Terraform state bucket..."
@@ -122,6 +127,12 @@ terraform {
 EOF
 
 cat <<EOF > "${REPO_ROOT}/terraform/cluster/backend.tf"
+terraform {
+  backend "gcs" {}
+}
+EOF
+
+cat <<EOF > "${REPO_ROOT}/terraform/cloudbuild/backend.tf"
 terraform {
   backend "gcs" {}
 }

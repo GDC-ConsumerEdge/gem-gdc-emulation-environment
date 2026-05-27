@@ -140,6 +140,106 @@
     size: 2048
     owner: "{{ gem_user }}"
     group: "{{ gem_user }}"
+# Publish the platform user's SSH keypair so the cluster module and the
+# Cloud Build cluster pipeline can both authenticate to cluster nodes as
+# `gem` without each having to manage its own key. Two outputs:
+#   - The public key is written to the workstation's `workstation_pubkey`
+#     instance metadata, which terraform/cluster reads to authorize the
+#     `gem` user on each node.
+#   - The private key is mirrored into the Secret Manager secret that
+#     terraform/cloudbuild creates, where Cloud Build reads it at submit time.
+# Both pushes happen via gcloud impersonating tf-provisioner@,  matching the
+# existing baremetal-gcr SA-key flow below, and avoiding any new IAM grants on
+# the workstation's default Compute SA.
+# Cloud Build integration is opt-in: it activates only when the Secret Manager
+# secret created by terraform/cloudbuild already exists. This keeps the
+# workstation playbook fully self-contained for users running the classic
+# local workflow (foundation → workstation → cluster) who never set up Cloud
+# Build,  for them the whole block below is skipped.
+- name: Determine whether the Cloud Build SSH secret exists
+  delegate_to: localhost
+  become: false
+  ansible.builtin.command:
+    argv:
+      - gcloud
+      - secrets
+      - describe
+      - gem-cluster-builder-ssh-key
+      - "--project={{ gcp_project_id }}"
+      - "--impersonate-service-account=tf-provisioner@{{ gcp_project_id }}.iam.gserviceaccount.com"
+  register: workstation_ssh_secret
+  failed_when: false
+  changed_when: false
+- name: Integrate the workstation SSH key with Cloud Build
+  when: workstation_ssh_secret.rc == 0
+  block:
+    - name: Read platform user's SSH public key
+      ansible.builtin.slurp:
+        src: "{{ gem_home }}/.ssh/id_rsa.pub"
+      register: workstation_pubkey_file
+    - name: Read platform user's SSH private key
+      ansible.builtin.slurp:
+        src: "{{ gem_home }}/.ssh/id_rsa"
+      register: workstation_privkey_file
+      no_log: true
+    # Cluster nodes trust this key via terraform/cluster's `workstation_pubkey`
+    # metadata, but the workstation does not authorize it for itself,  so a
+    # non-interactive caller (Cloud Build) holding the matching private key can
+    # reach the cluster nodes but not the workstation. This closes that gap.
+    - name: Authorize platform user's key for inbound SSH
+      ansible.posix.authorized_key:
+        user: "{{ gem_user }}"
+        key: "{{ workstation_pubkey_file.content | b64decode }}"
+        state: present
+    # The argv form keeps the --metadata value a single argument; the public
+    # key contains a space (`ssh-rsa <blob>`) a folded string would split on.
+    - name: Publish workstation SSH pubkey to instance metadata
+      delegate_to: localhost
+      become: false
+      ansible.builtin.command:
+        argv:
+          - gcloud
+          - compute
+          - instances
+          - add-metadata
+          - gem-admin-ws
+          - "--zone={{ gcp_zone }}"
+          - "--project={{ gcp_project_id }}"
+          - "--impersonate-service-account=tf-provisioner@{{ gcp_project_id }}.iam.gserviceaccount.com"
+          - "--metadata=workstation_pubkey={{ (workstation_pubkey_file.content | b64decode).strip() }}"
+      changed_when: true
+    - name: Check current SSH private key version in Secret Manager
+      delegate_to: localhost
+      become: false
+      ansible.builtin.command:
+        argv:
+          - gcloud
+          - secrets
+          - versions
+          - access
+          - latest
+          - --secret=gem-cluster-builder-ssh-key
+          - "--project={{ gcp_project_id }}"
+          - "--impersonate-service-account=tf-provisioner@{{ gcp_project_id }}.iam.gserviceaccount.com"
+      register: workstation_ssh_secret_current
+      failed_when: false
+      changed_when: false
+      no_log: true
+    - name: Publish SSH private key to Secret Manager
+      delegate_to: localhost
+      become: false
+      ansible.builtin.shell:
+        cmd: >
+          gcloud secrets versions add gem-cluster-builder-ssh-key
+          --data-file=-
+          --project={{ gcp_project_id }}
+          --impersonate-service-account=tf-provisioner@{{ gcp_project_id }}.iam.gserviceaccount.com
+        stdin: "{{ (workstation_privkey_file.content | b64decode) }}"
+      when: >
+        workstation_ssh_secret_current.rc != 0 or
+        workstation_ssh_secret_current.stdout != (workstation_privkey_file.content | b64decode)
+      changed_when: true
+      no_log: true
 - name: Check if Anthos Service Account Key exists on workstation
   ansible.builtin.stat:
     path: "{{ gem_home }}/bm-gcr.json"
@@ -148,6 +248,10 @@
   ansible.builtin.file:
     path: "{{ gem_home }}/bm-gcr.json"
     state: absent
+  # Only remove an empty/corrupt key. Deleting a valid key here would orphan it,
+  # because the regeneration tasks below are gated on the stat captured *before*
+  # this task and would skip recreation, leaving the workstation with no key.
+  when: workstation_ws_sa_key.stat.exists and workstation_ws_sa_key.stat.size == 0
 - name: Increase inotify max_user_watches on admin workstation
   become: true
   ansible.posix.sysctl:
