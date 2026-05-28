@@ -38,8 +38,14 @@ data "google_compute_subnetwork" "gdc_subnet" {
 }
 
 data "google_compute_image" "ubuntu" {
-  family  = "ubuntu-2404-lts-amd64"
+  family  = "ubuntu-2404-lts-amd64 "
   project = "ubuntu-os-cloud"
+}
+
+data "google_compute_instance" "gem_admin_ws" {
+  name    = "gem-admin-ws"
+  project = var.project_id
+  zone    = var.zone
 }
 
 resource "google_compute_instance" "edge_router" {
@@ -68,6 +74,7 @@ resource "google_compute_instance" "edge_router" {
 
   metadata = {
     enable-oslogin = "FALSE"
+    ssh-keys       = "gem:${lookup(data.google_compute_instance.gem_admin_ws.metadata, "workstation_pubkey", "")}"
   }
 
   service_account {

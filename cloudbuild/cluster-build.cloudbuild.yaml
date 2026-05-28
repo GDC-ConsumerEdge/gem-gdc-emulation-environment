@@ -92,7 +92,7 @@ steps:
   - id: ansible-create-cluster
     name: ${_AR_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/builder:${_BUILDER_TAG}
     entrypoint: bash
-    waitFor: ["tf-apply"]
+    waitFor: ["terraform-apply"]
     allowFailure: true
     timeout: 3600s
     args: ["cloudbuild/steps/ansible-create-cluster.sh"]
