@@ -53,10 +53,10 @@ options:
     - ANSIBLE_FORCE_COLOR=True
 
 tags:
-  - 'gem-cluster-create'
+  - 'gem-cluster-build'
   - '${_CLUSTER_NAME}'
-  - '${_EMULATE_GDC_VERSION:-latest}'
-  - '${BRANCH_NAME:-manual}'
+  - '${_EMULATE_GDC_VERSION}'
+  - '${BRANCH_NAME}'
 
 availableSecrets:
   secretManager:

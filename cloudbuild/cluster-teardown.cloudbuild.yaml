@@ -36,7 +36,7 @@ options:
 tags:
   - 'gem-cluster-delete'
   - '${_CLUSTER_NAME}'
-  - '${BRANCH_NAME:-manual}'
+  - '${BRANCH_NAME}'
 
 availableSecrets:
   secretManager:
