@@ -52,6 +52,12 @@ options:
     - ANSIBLE_HOST_KEY_CHECKING=False
     - ANSIBLE_FORCE_COLOR=True
 
+tags:
+  - 'gem-cluster-create'
+  - '${_CLUSTER_NAME}'
+  - '${_EMULATE_GDC_VERSION:-latest}'
+  - '${BRANCH_NAME:-manual}'
+
 availableSecrets:
   secretManager:
     - versionName: projects/${PROJECT_ID}/secrets/${_SSH_SECRET_NAME}/versions/${_SSH_SECRET_VERSION}

@@ -33,6 +33,11 @@ options:
     - ANSIBLE_HOST_KEY_CHECKING=False
     - ANSIBLE_FORCE_COLOR=True
 
+tags:
+  - 'gem-cluster-delete'
+  - '${_CLUSTER_NAME}'
+  - '${BRANCH_NAME:-manual}'
+
 availableSecrets:
   secretManager:
     - versionName: projects/${PROJECT_ID}/secrets/${_SSH_SECRET_NAME}/versions/${_SSH_SECRET_VERSION}
