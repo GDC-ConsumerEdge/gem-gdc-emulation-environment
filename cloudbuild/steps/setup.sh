@@ -32,15 +32,15 @@ export PROJECT_ID="${PROJECT_ID}"
 export CLUSTER_NAME="${CLUSTER_NAME}"
 export TF_STATE_BUCKET="${TF_STATE_BUCKET}"
 export PROVISIONING_SA_EMAIL="${PROVISIONING_SA_EMAIL}"
-export EMULATE_GDC_VERSION="${EMULATE_GDC_VERSION}"
-export DESTROY_ON_FAILURE="${DESTROY_ON_FAILURE}"
+export EMULATE_GDC_VERSION="${EMULATE_GDC_VERSION:-}"
+export DESTROY_ON_FAILURE="${DESTROY_ON_FAILURE:-false}"
 ENV
 
 echo "PROJECT_ID         = ${PROJECT_ID}"
 echo "CLUSTER_NAME       = ${CLUSTER_NAME}"
 echo "TF_STATE_BUCKET    = ${TF_STATE_BUCKET}"
 echo "EMULATE_GDC_VERSION= ${EMULATE_GDC_VERSION:-<latest>}"
-echo "DESTROY_ON_FAILURE = ${DESTROY_ON_FAILURE}"
+echo "DESTROY_ON_FAILURE = ${DESTROY_ON_FAILURE:-false}"
 
 # SSH key from Secret Manager -> ~/.ssh/google_compute_engine (the path the
 # Ansible playbooks and ansible/ansible.cfg expect.

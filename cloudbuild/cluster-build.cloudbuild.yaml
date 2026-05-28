@@ -76,7 +76,6 @@ steps:
   - id: preflight
     name: ${_AR_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/builder:${_BUILDER_TAG}
     entrypoint: bash
-    waitFor: ["setup"]
     args: ["cloudbuild/steps/preflight.sh"]
 
   # 3) Terraform init + apply. allowFailure so teardown can still run if needed.
@@ -84,7 +83,6 @@ steps:
   - id: terraform-apply
     name: ${_AR_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/builder:${_BUILDER_TAG}
     entrypoint: bash
-    waitFor: ["preflight"]
     allowFailure: true
     args: ["cloudbuild/steps/tf-apply.sh"]
 
@@ -92,7 +90,6 @@ steps:
   - id: ansible-create-cluster
     name: ${_AR_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/builder:${_BUILDER_TAG}
     entrypoint: bash
-    waitFor: ["terraform-apply"]
     allowFailure: true
     timeout: 3600s
     args: ["cloudbuild/steps/ansible-create-cluster.sh"]
@@ -103,7 +100,6 @@ steps:
   # - id: chainsaw-e2e
   #   name: ${_AR_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/builder:${_BUILDER_TAG}
   #   entrypoint: bash
-  #   waitFor: ["ansible-create-cluster"]
   #   allowFailure: true
   #   timeout: 1800s
   #   args: ["cloudbuild/steps/chainsaw-e2e.sh"]
@@ -112,7 +108,6 @@ steps:
   - id: teardown-on-failure
     name: ${_AR_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/builder:${_BUILDER_TAG}
     entrypoint: bash
-    waitFor: ["ansible-create-cluster"]
     allowFailure: true
     args: ["cloudbuild/steps/teardown-on-failure.sh"]
 
@@ -120,5 +115,4 @@ steps:
   - id: status
     name: ${_AR_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/builder:${_BUILDER_TAG}
     entrypoint: bash
-    waitFor: ["teardown-on-failure"]
     args: ["cloudbuild/steps/status.sh"]
