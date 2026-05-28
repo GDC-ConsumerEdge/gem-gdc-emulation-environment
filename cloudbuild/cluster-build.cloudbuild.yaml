@@ -78,7 +78,7 @@ steps:
     entrypoint: bash
     args: ["cloudbuild/steps/preflight.sh"]
 
-  # 3) Terraform init + apply. allowFailure so teardown can still run if needed.
+  # Terraform init + apply. allowFailure so teardown can still run if needed.
   # The status step carries the build's overall exit code.
   - id: terraform-apply
     name: ${_AR_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/builder:${_BUILDER_TAG}

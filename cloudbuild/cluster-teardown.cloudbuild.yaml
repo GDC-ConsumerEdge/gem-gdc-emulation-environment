@@ -39,7 +39,7 @@ availableSecrets:
       env: SSH_PRIVATE_KEY
 
 steps:
-  # 1) Setup environment and fetch Secret Manager SSH keys
+  # Setup environment and fetch Secret Manager SSH keys
   - id: setup
     name: ${_AR_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/builder:${_BUILDER_TAG}
     entrypoint: bash
@@ -51,13 +51,13 @@ steps:
     secretEnv: ["SSH_PRIVATE_KEY"]
     args: ["cloudbuild/steps/setup.sh"]
 
-  # 2) Run Ansible GKE Fleet Un-registration
+  # Run Ansible GKE Fleet Un-registration
   - id: ansible-cleanup
     name: ${_AR_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/builder:${_BUILDER_TAG}
     entrypoint: bash
     args: ["cloudbuild/steps/ansible-cleanup.sh"]
 
-  # 3) Run Terraform Destroy
+  # Run Terraform Destroy
   - id: terraform-destroy
     name: ${_AR_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/builder:${_BUILDER_TAG}
     entrypoint: bash

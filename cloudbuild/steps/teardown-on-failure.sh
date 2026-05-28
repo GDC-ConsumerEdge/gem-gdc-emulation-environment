@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Runs only when a prior stage failed AND DESTROY_ON_FAILURE=true.  THis is best-effort
+# Runs only when a prior stage failed AND DESTROY_ON_FAILURE=true.  This is best-effort
 # its own failure will not mask the original build failure
 
 set -euo pipefail
