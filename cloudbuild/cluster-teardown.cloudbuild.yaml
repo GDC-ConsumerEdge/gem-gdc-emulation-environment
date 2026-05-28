@@ -62,3 +62,5 @@ steps:
     name: ${_AR_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/builder:${_BUILDER_TAG}
     entrypoint: bash
     args: ["cloudbuild/steps/tf-destroy.sh"]
+
+serviceAccount: 'projects/${PROJECT_ID}/serviceAccounts/gem-cluster-builder@${PROJECT_ID}.iam.gserviceaccount.com'
