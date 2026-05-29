@@ -17,6 +17,11 @@ set -euo pipefail
 # shellcheck source=/dev/null
 source /workspace/state/env
 
+export CLUSTER_NAME="${CLUSTER_NAME}"
+export PROJECT_ID="${PROJECT_ID}"
+export TF_STATE_BUCKET="${TF_STATE_BUCKET}"
+
+
 # Inject SSH Keys for Ansible cleanup over IAP
 install -m 700 -d /root/.ssh
 install -m 600 /workspace/.ssh/google_compute_engine /root/.ssh/google_compute_engine

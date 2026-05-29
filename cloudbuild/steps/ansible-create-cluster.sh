@@ -18,6 +18,11 @@ set -euo pipefail
 # shellcheck source=/dev/null
 source /workspace/state/env
 
+export CLUSTER_NAME="${CLUSTER_NAME}"
+export PROJECT_ID="${PROJECT_ID}"
+export TF_STATE_BUCKET="${TF_STATE_BUCKET}"
+
+
 # The Ansible inventory references the SSH key as ~/.ssh/google_compute_engine.
 # which is the running user (/root here) and /root is not persisted across Cloud Build
 # steps,  so stage the key from the persisted /workspace dir into /root for this step.

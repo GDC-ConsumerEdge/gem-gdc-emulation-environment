@@ -20,6 +20,11 @@ set -euo pipefail
 # shellcheck source=/dev/null
 source /workspace/state/env
 
+export CLUSTER_NAME="${CLUSTER_NAME}"
+export PROJECT_ID="${PROJECT_ID}"
+export TF_STATE_BUCKET="${TF_STATE_BUCKET}"
+
+
 if [[ ! -f /workspace/state/failed-stage ]]; then
   echo "No failure recorded; leaving cluster ${CLUSTER_NAME} in place."
   exit 0
