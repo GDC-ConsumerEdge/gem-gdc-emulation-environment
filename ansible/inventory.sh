@@ -48,9 +48,13 @@ fetch_state "foundation/state" "foundation"
 fetch_state "admin-workstation/state" "admin-workstation"
 fetch_state "edge-router/state" "edge-router"
 
-# We need CLUSTER_NAME to fetch cluster state.
 # Check if it's in environment, else default.
-CLUSTER_NAME="${CLUSTER_NAME:-gem-cluster-1}"
+CLUSTER_NAME="${CLUSTER_NAME:-}"
+if [ -z "$CLUSTER_NAME" ]; then
+  echo "🚨 Environment variable CLUSTER_NAME is not set." >&2
+  echo "{}"
+  exit 1
+fi
 fetch_state "clusters/${CLUSTER_NAME}/state" "cluster"
 
 # Helper function to get output from fetched state

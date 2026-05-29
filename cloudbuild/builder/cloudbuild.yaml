@@ -1,0 +1,40 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Builds and publishes the GEM Cloud Build builder image used by
+# `cluster-build.cloudbuild.yaml`. Run this once after `cloudbuild/setup.sh`,
+# and re-run whenever the Dockerfile changes.
+#
+# gcloud builds submit \
+#   --config=cloudbuild/builder/cloudbuild.yaml \
+#   --substitutions=_AR_LOCATION=us-central1,_AR_REPO=gem,_IMAGE_TAG=latest \
+#   cloudbuild/builder
+substitutions:
+  _AR_LOCATION: us-central1
+  _AR_REPO: gem
+  _IMAGE_TAG: latest
+
+images:
+  - "${_AR_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/builder:${_IMAGE_TAG}"
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --tag=${_AR_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/builder:${_IMAGE_TAG}
+      - .

@@ -62,7 +62,14 @@
     owner: root
     group: root
   loop: "{{ vxlan_defs_list }}"
-  notify: Restart systemd-networkd
+
+- name: Ensure /etc/systemd/network directory has correct execute and read permissions
+  ansible.builtin.file:
+    path: /etc/systemd/network
+    state: directory
+    mode: "0755"
+    owner: root
+    group: root
 
 - name: Template declarative systemd network profiles (.network)
   ansible.builtin.template:
@@ -72,7 +79,12 @@
     owner: root
     group: root
   loop: "{{ vxlan_defs_list }}"
-  notify: Restart systemd-networkd
+
+- name: Restart systemd-networkd immediately to initialize VXLAN interfaces
+  ansible.builtin.systemd:
+    name: systemd-networkd
+    state: restarted
+  become: true
 
 - name: Template firewall TCP MSS clamping oneshot service
   ansible.builtin.template:

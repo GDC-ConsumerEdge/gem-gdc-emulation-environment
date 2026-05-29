@@ -1,0 +1,126 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# An on-demand pipeline that builds a single GEM workload cluster. Assumes the
+# Foundation and Admin Workstation are already deployed in the target project.
+#
+# The various step scripts live in cloudbuild/steps/*.sh so we're not stuffing a ton
+# of bash into multi-line YAML
+#
+#
+# Submit with:
+#   gcloud builds submit \
+#     --config=cloudbuild/cluster-build.cloudbuild.yaml \
+#     --substitutions=_CLUSTER_NAME=gem-cluster-1 \
+#     --service-account=projects/${PROJECT_ID}/serviceAccounts/gem-cluster-builder@${PROJECT_ID}.iam.gserviceaccount.com \
+#     .
+#
+# See docs/cloud-build.md for the one-time setup and the substitutions reference.
+substitutions:
+  _CLUSTER_NAME: gem-cluster-1
+  _TF_STATE_BUCKET: "" # set explicitly, or leave empty to derive as gem-${PROJECT_ID}-tfstate
+  _EMULATE_GDC_VERSION: "" # empty = latest available
+  _PROVISIONING_SA_EMAIL: "" # empty = impersonate tf-provisioner@${PROJECT_ID} (default, set in setup.sh)
+  _DESTROY_ON_FAILURE: "true"
+  _AR_LOCATION: us-central1
+  _AR_REPO: gem
+  _BUILDER_TAG: latest
+  _SSH_SECRET_NAME: gem-cluster-builder-ssh-key
+  _SSH_SECRET_VERSION: latest
+
+# Cluster build is ~30 min; allow generous headroom for retries and teardown.
+timeout: 5400s
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  env:
+    # Ansible inventory.sh uses ${USER} as the SSH user; align it with the
+    # `gem` account that the workstation/cluster nodes accept.
+    - USER=gem
+    - HOME=/workspace
+    - ANSIBLE_HOST_KEY_CHECKING=False
+    - ANSIBLE_FORCE_COLOR=True
+
+tags:
+  - 'gem-cluster-build'
+  - '${_CLUSTER_NAME}'
+  - '${_EMULATE_GDC_VERSION}'
+  - '${BRANCH_NAME}'
+
+availableSecrets:
+  secretManager:
+    - versionName: projects/${PROJECT_ID}/secrets/${_SSH_SECRET_NAME}/versions/${_SSH_SECRET_VERSION}
+      env: SSH_PRIVATE_KEY
+
+steps:
+  # Setup the Cloud Build environment for downstream steps.
+  - id: setup
+    name: ${_AR_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/builder:${_BUILDER_TAG}
+    entrypoint: bash
+    env:
+      - "PROJECT_ID=${PROJECT_ID}"
+      - "CLUSTER_NAME=${_CLUSTER_NAME}"
+      - "TF_STATE_BUCKET_IN=${_TF_STATE_BUCKET}"
+      - "PROVISIONING_SA_EMAIL=${_PROVISIONING_SA_EMAIL}"
+      - "EMULATE_GDC_VERSION=${_EMULATE_GDC_VERSION}"
+      - "DESTROY_ON_FAILURE=${_DESTROY_ON_FAILURE}"
+    secretEnv: ["SSH_PRIVATE_KEY"]
+    args: ["cloudbuild/steps/setup.sh"]
+
+  # Run our pre-flight checks
+  - id: preflight
+    name: ${_AR_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/builder:${_BUILDER_TAG}
+    entrypoint: bash
+    args: ["cloudbuild/steps/preflight.sh"]
+
+  # Terraform init + apply. allowFailure so teardown can still run if needed.
+  # The status step carries the build's overall exit code.
+  - id: terraform-apply
+    name: ${_AR_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/builder:${_BUILDER_TAG}
+    entrypoint: bash
+    allowFailure: true
+    args: ["cloudbuild/steps/tf-apply.sh"]
+
+  # Ansible create-cluster.
+  - id: ansible-create-cluster
+    name: ${_AR_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/builder:${_BUILDER_TAG}
+    entrypoint: bash
+    allowFailure: true
+    timeout: 3600s
+    args: ["cloudbuild/steps/ansible-create-cluster.sh"]
+
+  # (Optional) Chainsaw e2e validation against the freshly built cluster.
+  #    Disabled by default; uncomment and add chainsaw + kubectl to the builder
+  #    image to enable. Create cloudbuild/steps/chainsaw-e2e.sh to host the body.
+  # - id: chainsaw-e2e
+  #   name: ${_AR_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/builder:${_BUILDER_TAG}
+  #   entrypoint: bash
+  #   allowFailure: true
+  #   timeout: 1800s
+  #   args: ["cloudbuild/steps/chainsaw-e2e.sh"]
+
+  # Conditional best-effort teardown on failure.
+  - id: teardown-on-failure
+    name: ${_AR_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/builder:${_BUILDER_TAG}
+    entrypoint: bash
+    allowFailure: true
+    args: ["cloudbuild/steps/teardown-on-failure.sh"]
+
+  # Final status. Reports the overall build exit code.
+  - id: status
+    name: ${_AR_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/builder:${_BUILDER_TAG}
+    entrypoint: bash
+    args: ["cloudbuild/steps/status.sh"]
+
+serviceAccount: 'projects/${PROJECT_ID}/serviceAccounts/gem-cluster-builder@${PROJECT_ID}.iam.gserviceaccount.com'
