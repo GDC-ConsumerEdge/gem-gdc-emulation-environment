@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/compare/gem-v0.1.3...gem-v0.1.4) (2026-05-29)
+
+
+### Features
+
+* **cloudbuild:** implement cloud build pipelines for cluster builds and deletions" ([#14](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/issues/14)) ([6f17db9](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/6f17db99d62169fb96cfc87c00a33e57c6e708dd))
+
 ## [0.1.3](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/compare/gem-v0.1.2...gem-v0.1.3) (2026-05-22)
 
 
