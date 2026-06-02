@@ -80,7 +80,25 @@
     group: root
   loop: "{{ vxlan_defs_list }}"
 
-- name: Restart systemd-networkd immediately to initialize VXLAN interfaces
+- name: Copy generated .netdev configurations to GCS overlay sync bucket
+  ansible.builtin.command: >
+    gcloud storage cp
+    /etc/systemd/network/10-{{ item.iface }}.netdev
+    gs://gem-{{ gcp_project_id }}-overlay-sync/{{ inventory_hostname }}/
+  loop: "{{ vxlan_defs_list }}"
+  when: inventory_hostname in ['gem_admin_ws', 'edge_router_host']
+  changed_when: true
+
+- name: Copy generated .network configurations to GCS overlay sync bucket
+  ansible.builtin.command: >
+    gcloud storage cp
+    /etc/systemd/network/10-{{ item.iface }}.network
+    gs://gem-{{ gcp_project_id }}-overlay-sync/{{ inventory_hostname }}/
+  loop: "{{ vxlan_defs_list }}"
+  when: inventory_hostname in ['gem_admin_ws', 'edge_router_host']
+  changed_when: true
+
+- name: Restart systemd-networkd to initialize VXLAN interfaces
   ansible.builtin.systemd:
     name: systemd-networkd
     state: restarted
@@ -95,7 +113,6 @@
     group: root
   vars:
     vxlan_interfaces: "{{ vxlan_defs_list }}"
-
 
 - name: Enable and start TCP MSS clamping firewall service
   ansible.builtin.systemd:

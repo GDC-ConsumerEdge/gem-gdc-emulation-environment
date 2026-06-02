@@ -27,3 +27,8 @@ output "subnetwork_name" {
 output "anthos_sa_email" {
   value = google_service_account.baremetal_gcr.email
 }
+
+output "overlay_sync_bucket_name" {
+  description = "GCS bucket used to synchronize VXLAN overlay configurations to the Admin Workstation and Edge Router."
+  value       = google_storage_bucket.overlay_sync.name
+}
