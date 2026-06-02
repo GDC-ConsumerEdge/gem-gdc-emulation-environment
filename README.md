@@ -394,7 +394,7 @@ To emulate this behavior in GEM, future work will implement:
 
 As GEM is running within GCP, the methods used to access the Services running within a GDC cluster will differ from GDC.
 
-As an example, becuase GDC is integrated within an on-prem network and has a MetalLB VIP pool with network-routeable
+As an example, because GDC is integrated within an on-prem network and has a MetalLB VIP pool with network-routeable
 IP addresses (e.g. 192.168.200.0/28) a GDC end-user will simply connect to http://192.168.200.x to access their application
 running on GDC.
 
