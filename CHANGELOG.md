@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.5](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/compare/gem-v0.1.4...gem-v0.1.5) (2026-06-02)
+
+
+### Features
+
+* **networking:** implement persistent VXLAN overlay and additional documentation ([#16](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/issues/16)) ([4c5cf9d](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/4c5cf9d58da4bd878578c39ec8cdfada3d7b40db))
+
 ## [0.1.4](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/compare/gem-v0.1.3...gem-v0.1.4) (2026-05-29)
 
 
