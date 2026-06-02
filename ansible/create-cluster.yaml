@@ -62,7 +62,7 @@
   any_errors_fatal: true
   roles:
     - cluster_nodes
-- name: Setup VxLAN on all GCE instances
+- name: Setup VXLAN on all GCE instances
   hosts: gdc_nodes
   become: true
   vars:

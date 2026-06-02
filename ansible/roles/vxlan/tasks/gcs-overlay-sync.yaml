@@ -1,0 +1,32 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# GEM clusters require dynamic VXLAN overlay interfaces (vx-*, sec-*) which are configured
+# on the Admin Workstation (ws) and Edge Router (er). We're storing these network configurations
+# in GCS and on a schedule, sync the configurations down to the ws and er. This provides
+# a single source of truth for these network configs (GCS), so that the ws and er can
+# be ephemeral. If one of those VMs is rebuilt, all existing vxlan network configurations
+# is synced down to that VM, ensuring they retain connectivity to the GEM clusters.
+- name: Deploy VXLAN Overlay Sync Script
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../scripts/cron-overlay-sync.sh"
+    dest: /usr/local/sbin/gem-cron-overlay-sync.sh
+    owner: root
+    group: root
+    mode: "0755"
+- name: Schedule GEM GCS VXLAN Overlay Sync Cron Job (every 1 minute)
+  ansible.builtin.cron:
+    name: "GEM VXLAN Overlay Synchronizer"
+    minute: "*"
+    job: "PROJECT_ID={{ gcp_project_id }} HOST_DIR={{ inventory_hostname }} /usr/local/sbin/gem-cron-overlay-sync.sh >/dev/null 2>&1"

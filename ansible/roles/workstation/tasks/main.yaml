@@ -117,7 +117,7 @@
     name: "{{ gem_user }}"
     groups: docker
     append: true
-- name: Configure Docker daemon MTU for VxLAN overlay
+- name: Configure Docker daemon MTU for VXLAN overlay
   ansible.builtin.copy:
     dest: /etc/docker/daemon.json
     content: |
