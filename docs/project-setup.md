@@ -337,16 +337,19 @@ Navigate to each Terraform directory and create the required `terraform.tfvars` 
 # Foundation Var File
 cat <<EOF > "${REPO_ROOT}/terraform/foundation/terraform.tfvars"
 project_id            = "${PROJECT_ID}"
+provisioning_sa_email = "${PROVISIONING_SA_EMAIL}"
 EOF
 
 # Workstation Var File
 cat <<EOF > "${REPO_ROOT}/terraform/admin-workstation/terraform.tfvars"
 project_id            = "${PROJECT_ID}"
+provisioning_sa_email = "${PROVISIONING_SA_EMAIL}"
 EOF
 
 # Edge Router Var File
 cat <<EOF > "${REPO_ROOT}/terraform/edge-router/terraform.tfvars"
 project_id            = "${PROJECT_ID}"
+provisioning_sa_email = "${PROVISIONING_SA_EMAIL}"
 EOF
 
 # Cluster Var File

@@ -17,6 +17,12 @@ variable "project_id" {
   description = "The GCP project ID"
 }
 
+variable "provisioning_sa_email" {
+  type        = string
+  description = "Email of the Terraform provisioning SA to impersonate for resource operations. Empty disables impersonation and uses the caller's credentials."
+  default     = ""
+}
+
 variable "region" {
   type    = string
   default = "us-central1"
