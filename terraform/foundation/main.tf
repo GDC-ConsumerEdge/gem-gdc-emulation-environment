@@ -23,9 +23,10 @@ terraform {
 }
 
 provider "google" {
-  project = var.project_id
-  region  = var.region
-  zone    = var.zone
+  project                     = var.project_id
+  region                      = var.region
+  zone                        = var.zone
+  impersonate_service_account = var.provisioning_sa_email
 }
 
 data "google_project" "project" {}

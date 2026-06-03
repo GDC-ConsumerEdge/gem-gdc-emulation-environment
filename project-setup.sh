@@ -81,14 +81,17 @@ echo "✅ Provisioning Service Account setup complete."
 echo "🔄 Generating terraform.tfvars files..."
 cat <<EOF > "${REPO_ROOT}/terraform/foundation/terraform.tfvars"
 project_id            = "${PROJECT_ID}"
+provisioning_sa_email = "${PROVISIONING_SA_EMAIL}"
 EOF
 
 cat <<EOF > "${REPO_ROOT}/terraform/admin-workstation/terraform.tfvars"
 project_id            = "${PROJECT_ID}"
+provisioning_sa_email = "${PROVISIONING_SA_EMAIL}"
 EOF
 
 cat <<EOF > "${REPO_ROOT}/terraform/edge-router/terraform.tfvars"
 project_id            = "${PROJECT_ID}"
+provisioning_sa_email = "${PROVISIONING_SA_EMAIL}"
 EOF
 
 cat <<EOF > "${REPO_ROOT}/terraform/cluster/terraform.tfvars"
