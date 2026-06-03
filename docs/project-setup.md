@@ -91,7 +91,15 @@ Provisioning GCE compute nodes and managing VPC networks requires privileged acc
 ### Secure Token Impersonation vs. JSON Keys
 As designed, GEM restricts the generation and export of unmanaged, long-lived JSON Service Account Keys. JSON keys are a massive security risk; if leaked to a public repository they grant attackers full access to your project.
 
-Instead, we use Service Account Impersonation via Token Creator bindings. By granting your GCP user account the `roles/iam.serviceAccountTokenCreator` role on `tf-provisioner`, GCP generates short-lived (1-hour), auto-rotating OAuth2 tokens automatically when executing Terraform commands.
+Instead, we use Service Account Impersonation via Token Creator bindings. By granting your GCP user account the `roles/iam.serviceAccountTokenCreator` role on `tf-provisioner`, GCP can generate short-lived (1-hour), auto-rotating OAuth2 tokens for the provisioning SA.
+
+The Token Creator binding only *permits* impersonation; it does not enable it. Terraform's `google` provider impersonates `tf-provisioner` only when the `GOOGLE_IMPERSONATE_SERVICE_ACCOUNT` environment variable is set. The `impersonate_service_account` value passed to `terraform init -backend-config` applies solely to remote state access in GCS, not to the resource API calls the provider makes. Export the variable before running any `terraform` command:
+```bash
+export GOOGLE_IMPERSONATE_SERVICE_ACCOUNT="${PROVISIONING_SA_EMAIL}"
+```
+Without this env variable set, Terraform falls back to your user credentials, and resource
+operations fail with `403` permission errors even though `tf-provisioner` holds the
+required roles.
 
 ### Manual Execution
 1.  Create the Service Account:

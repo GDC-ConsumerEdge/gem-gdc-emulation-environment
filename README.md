@@ -41,6 +41,11 @@ export REPO_ROOT=~/src/gem-gdc-emulation-environment
 # A GCP Service Account used by Terraform to provision the GEM infrastructure
 export PROVISIONING_SA_EMAIL="tf-provisioner@${PROJECT_ID}.iam.gserviceaccount.com"
 
+# Make the Terraform google provider impersonate the provisioning SA for all
+# resource operations. The -backend-config impersonation flag used below only
+# covers remote state access in GCS, not the API calls that create resources.
+export GOOGLE_IMPERSONATE_SERVICE_ACCOUNT="${PROVISIONING_SA_EMAIL}"
+
 # A GCP Service Account used by Ansible to build a GEM cluster
 export IMPERSONATE_SA_EMAIL="gem-cluster-admin@${PROJECT_ID}.iam.gserviceaccount.com"
 ```
