@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.6](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/compare/gem-v0.1.5...gem-v0.1.6) (2026-06-03)
+
+
+### Features
+
+* impersonate provisioning SA by default in all Terraform modules ([#19](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/issues/19)) ([da564e6](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/da564e6eebdc5430bfd034653a638de0402e4dd5))
+
 ## [0.1.5](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/compare/gem-v0.1.4...gem-v0.1.5) (2026-06-02)
 
 
