@@ -15,6 +15,13 @@ Validate changes locally without provisioning real infrastructure:
 
 Never run `terraform apply` or live Ansible plays against real GCP resources to validate a change unless approved. Both operations create or mutate live infrastructure.
 
+## 🛠️ Task Playbooks
+Step-by-step procedures for common changes live in [skills/](skills/). Read the relevant one before making that kind of change:
+
+*   [skills/validate.md](skills/validate.md) — validate a change locally without provisioning infrastructure.
+*   [skills/add-ansible-role.md](skills/add-ansible-role.md) — scaffold and wire a new Ansible role.
+*   [skills/add-terraform-module.md](skills/add-terraform-module.md) — scaffold a new Terraform module.
+
 ## 📚 Documentation Links
 If you are unsure about how a specific technology works or have questions about its usage in this project, refer to the official documentation links below:
 
