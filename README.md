@@ -192,9 +192,6 @@ export GEM_CLUSTER_ADMIN_SA_EMAIL="gem-cluster-admin@${PROJECT_ID}.iam.gservicea
 gcloud config set auth/impersonate_service_account ${GEM_CLUSTER_ADMIN_SA_EMAIL}
 gcloud container fleet memberships get-credentials ${CLUSTER_NAME}
 
-kubectl config set-credentials "connectgateway_${PROJECT_ID}_global_${CLUSTER_NAME}" \
-  --token=$(gcloud auth print-access-token)
-
 kubectl get nodes
 ```
 
