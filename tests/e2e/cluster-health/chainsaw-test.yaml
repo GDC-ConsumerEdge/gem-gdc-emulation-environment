@@ -43,7 +43,7 @@ spec:
               PREFIXES=("robin-storage" "fast-robin" "robin-sds" "custom-robin" "gold-robin")
               for i in {1..10}; do
                 RAND_PREFIX=${PREFIXES[$RANDOM % ${#PREFIXES[@]}]}
-                RAND_ENTROPY=$(tr -dc 'a-z0-9' < /dev/urandom | head -c 5)
+                RAND_ENTROPY=$(LC_ALL=C tr -dc 'a-z0-9' < /dev/urandom | head -c 5)
                 SC_NAME="${RAND_PREFIX}-${RAND_ENTROPY}"
 
                 echo "Creating StorageClass ${SC_NAME} (Should be mutated to topolvm.io)..."
