@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.7](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/compare/gem-v0.1.6...gem-v0.1.7) (2026-06-04)
+
+
+### Bug Fixes
+
+* **workstation:** always publish SSH public key to instance metadata ([#21](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/issues/21)) ([067f274](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/067f2743f7fe99fa2e7dd72e4d2d79e62884e0cc))
+
 ## [0.1.6](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/compare/gem-v0.1.5...gem-v0.1.6) (2026-06-03)
 
 
