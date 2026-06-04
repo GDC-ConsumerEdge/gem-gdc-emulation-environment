@@ -3,18 +3,18 @@
 The GEM Admin Workstation (`gem-admin-ws`) is a dedicated Google Compute Engine (GCE) virtual machine that serves as the centralized control point and management node for the GDC emulation environment (GEM). It is responsible for orchestrating the lifecycle of GEM workload clusters, running the `bmctl` deployment engine, managing credentials and fleet registrations, and serving as a bootstrap node. The GEM Admin Workstation isolates cluster installation tasks and orchestration software from both the local developer machine and the cluster nodes themselves.
 
 
-## 🏗️ Design Decisions
+## Design Decisions
 
-### 1. Isolation of the GDC (software only) Installer
+### Isolation of the GDC (software only) Installer
 Running the Anthos Bare Metal bootstrap cluster (`bmctl`) requires spinning up a local KinD (Kubernetes-in-Docker) cluster on the installer machine. The Admin Workstation is built as a standalone, isolated GCE VM to ensure cluster bootstrap operations never interfere with installer execution.
 
-### 2. Dynamic Ansible Orchestration
+### Dynamic Ansible Orchestration
 The workstation relies on a dynamic inventory script (`ansible/inventory.sh`) that compiles live infrastructure state directly from **Google Cloud Storage (GCS)** Terraform state files. This prevents hardcoding of node IPs and allows the workstation to interact seamlessly with multiple, ephemeral GDC emulation clusters without manual configuration updates.
 
-### 3. Host-Specific VXLAN Persistence
+### Host-Specific VXLAN Persistence
 The Admin Workstation must participate in the VXLAN overlay network (`vx-*`, `sec-*`) to directly communicate with the emulation nodes. To allow the workstation to be completely ephemeral, all generated `.netdev` and `.network` interface configurations are synchronized in real-time to a GCS bucket (`gs://gem-${PROJECT_ID}-overlay-sync/gem_admin_ws/`). A background cron job runs every minute on the workstation to pull down configurations, ensuring that if the workstation is rebuilt, it immediately recovers network connectivity to all running GEM clusters.
 
-## ⚙️ Installation and Configuration
+## Installation and Configuration
 
 The bootstrap of the Admin Workstation is split into a two-tier process: provisioning via Terraform and OS-level configuration via Ansible.
 
