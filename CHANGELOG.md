@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.8](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/compare/gem-v0.1.7...gem-v0.1.8) (2026-06-04)
+
+
+### Bug Fixes
+
+* **tests:** update storageclass test to ensure valid k8s resource name ([471bca9](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/471bca93146ac3ab0b83d97b7e158e5ba9da2a3c))
+
 ## [0.1.7](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/compare/gem-v0.1.6...gem-v0.1.7) (2026-06-04)
 
 
