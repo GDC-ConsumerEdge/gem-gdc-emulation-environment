@@ -86,7 +86,11 @@ Rather than relying on an external database or a centralized state, the dynamic 
 #### 1. The CRC32 Hash Seed
 First, the cluster name is passed to `cksum`. This produces a highly distributed 32-bit unsigned integer representation of the cluster name:
 
-$$\text{Hash} = \text{CRC32}(\text{CLUSTER\_NAME})$$
+```math
+\text{Hash} = (\text{CRC32}(\text{CLUSTER\_NAME})
+```
+
+<br>
 
 In bash, this is extracted using:
 ```bash
@@ -96,7 +100,11 @@ HASH=$(echo -n "$CLUSTER_NAME" | cksum | awk '{print $1}')
 #### 2. VXLAN VNI Calculation ($VNI$ or $VXLAN\_ID$)
 The valid range for a VXLAN Network Identifier (VNI) is a 24-bit space (1 to 16,777,215). GEM maps the `HASH` value into a safe sub-range starting at `100` and capping at `16,000,100`. This avoids system-reserved or low-value ranges while keeping the identifier safely within the 24-bit boundary:
 
-$$\text{VNI} = (\text{Hash} \pmod{16,000,000}) + 100$$
+```math
+\text{VNI} = (\text{Hash} \pmod{16,000,000}) + 100
+```
+
+<br>
 
 ```bash
 VXLAN_ID=$(( HASH % 16000000 + 100 ))
@@ -108,14 +116,21 @@ This unique `VXLAN_ID` serves two critical purposes:
 #### 3. Third Octet IPAM Calculation ($\text{Octet}_{3}$)
 To create a fully isolated private IP network for the cluster's primary overlay, GEM reserves the `10.200.X.0/24` private IP space. The third octet ($X$ or $\text{Octet}_{3}$) is calculated by applying a modulo 254 operation, ensuring the value stays in the safe IP range of 1 to 254 (avoiding network address 0 and broadcast address 255):
 
-$$\text{Octet}_{3} = (\text{Hash} \pmod{254}) + 1$$
+```math
+\text{Octet}_{3} = (\text{Hash} \pmod{254}) + 1
+```
+<br>
 
 ```bash
 OCTET3=$(( HASH % 254 + 1 ))
 ```
 The base overlay network is then established as:
 
-$$\text{Overlay Network} = 10.200.\text{Octet}_{3}.0/24$$
+```math
+\text{Overlay Network} = 10.200.\text{Octet}_{3}.0/24
+```
+
+<br>
 
 #### 4. Host IP Assignments within the Overlay Subnet
 Once the overlay base network is established, host IPs are assigned deterministically based on their logical function or node index using fixed host octets:
