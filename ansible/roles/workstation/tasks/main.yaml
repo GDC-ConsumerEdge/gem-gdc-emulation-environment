@@ -156,6 +156,29 @@
 # workstation playbook fully self-contained for users running the classic
 # local workflow (foundation → workstation → cluster) who never set up Cloud
 # Build,  for them the whole block below is skipped.
+- name: Read platform user's SSH public key
+  ansible.builtin.slurp:
+    src: "{{ gem_home }}/.ssh/id_rsa.pub"
+  register: workstation_pubkey_file
+
+# The argv form keeps the --metadata value a single argument; the public
+# key contains a space (`ssh-rsa <blob>`) a folded string would split on.
+- name: Publish workstation SSH pubkey to instance metadata
+  delegate_to: localhost
+  become: false
+  ansible.builtin.command:
+    argv:
+      - gcloud
+      - compute
+      - instances
+      - add-metadata
+      - gem-admin-ws
+      - "--zone={{ gcp_zone }}"
+      - "--project={{ gcp_project_id }}"
+      - "--impersonate-service-account=tf-provisioner@{{ gcp_project_id }}.iam.gserviceaccount.com"
+      - "--metadata=workstation_pubkey={{ (workstation_pubkey_file.content | b64decode).strip() }}"
+  changed_when: true
+
 - name: Determine whether the Cloud Build SSH secret exists
   delegate_to: localhost
   become: false
@@ -170,13 +193,10 @@
   register: workstation_ssh_secret
   failed_when: false
   changed_when: false
+
 - name: Integrate the workstation SSH key with Cloud Build
   when: workstation_ssh_secret.rc == 0
   block:
-    - name: Read platform user's SSH public key
-      ansible.builtin.slurp:
-        src: "{{ gem_home }}/.ssh/id_rsa.pub"
-      register: workstation_pubkey_file
     - name: Read platform user's SSH private key
       ansible.builtin.slurp:
         src: "{{ gem_home }}/.ssh/id_rsa"
@@ -191,23 +211,6 @@
         user: "{{ gem_user }}"
         key: "{{ workstation_pubkey_file.content | b64decode }}"
         state: present
-    # The argv form keeps the --metadata value a single argument; the public
-    # key contains a space (`ssh-rsa <blob>`) a folded string would split on.
-    - name: Publish workstation SSH pubkey to instance metadata
-      delegate_to: localhost
-      become: false
-      ansible.builtin.command:
-        argv:
-          - gcloud
-          - compute
-          - instances
-          - add-metadata
-          - gem-admin-ws
-          - "--zone={{ gcp_zone }}"
-          - "--project={{ gcp_project_id }}"
-          - "--impersonate-service-account=tf-provisioner@{{ gcp_project_id }}.iam.gserviceaccount.com"
-          - "--metadata=workstation_pubkey={{ (workstation_pubkey_file.content | b64decode).strip() }}"
-      changed_when: true
     - name: Check current SSH private key version in Secret Manager
       delegate_to: localhost
       become: false
