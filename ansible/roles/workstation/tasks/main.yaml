@@ -75,6 +75,18 @@
   ansible.builtin.command: /tmp/get_helm.sh
   args:
     creates: /usr/local/bin/helm
+- name: Download and extract Kyverno Chainsaw
+  ansible.builtin.unarchive:
+    src: "https://github.com/kyverno/chainsaw/releases/download/{{ chainsaw_version }}/chainsaw_linux_amd64.tar.gz"
+    dest: /usr/local/bin
+    remote_src: true
+    include:
+      - chainsaw
+    owner: root
+    group: root
+    mode: "0755"
+    creates: /usr/local/bin/chainsaw
+  become: true
 - name: Create baremetal directory
   ansible.builtin.file:
     path: "{{ gem_home }}/baremetal"

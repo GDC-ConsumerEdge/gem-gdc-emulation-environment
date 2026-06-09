@@ -100,15 +100,13 @@ steps:
     timeout: 3600s
     args: ["cloudbuild/steps/ansible-create-cluster.sh"]
 
-  # (Optional) Chainsaw e2e validation against the freshly built cluster.
-  #    Disabled by default; uncomment and add chainsaw + kubectl to the builder
-  #    image to enable. Create cloudbuild/steps/chainsaw-e2e.sh to host the body.
-  # - id: chainsaw-e2e
-  #   name: ${_AR_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/builder:${_BUILDER_TAG}
-  #   entrypoint: bash
-  #   allowFailure: true
-  #   timeout: 1800s
-  #   args: ["cloudbuild/steps/chainsaw-e2e.sh"]
+  # Chainsaw e2e validation against the freshly built cluster.
+  - id: chainsaw-e2e
+    name: ${_AR_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/builder:${_BUILDER_TAG}
+    entrypoint: bash
+    allowFailure: true
+    timeout: 1800s
+    args: ["cloudbuild/steps/chainsaw-e2e.sh"]
 
   # Conditional best-effort teardown on failure.
   - id: teardown-on-failure
@@ -116,6 +114,14 @@ steps:
     entrypoint: bash
     allowFailure: true
     args: ["cloudbuild/steps/teardown-on-failure.sh"]
+
+  # Graceful best-effort teardown on success. This is primarily used for GH PR automated
+  # cluster builds
+  - id: teardown-on-success
+    name: ${_AR_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/builder:${_BUILDER_TAG}
+    entrypoint: bash
+    allowFailure: true
+    args: ["cloudbuild/steps/teardown-on-success.sh"]
 
   # Final status. Reports the overall build exit code.
   - id: status
