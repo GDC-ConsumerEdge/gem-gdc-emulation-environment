@@ -31,6 +31,8 @@ kind: Cluster
 metadata:
   name: {{ cluster_name }}
   namespace: cluster-{{ cluster_name }}
+  labels:
+    gem.google.com/expected-abm-version: "{{ bmctl_version }}"
 spec:
   type: standalone
   profile: default
