@@ -62,7 +62,7 @@
       ansible.builtin.assert:
         that:
           - "'name: test-cluster' in (rendered_template['content'] | b64decode)"
-          - "'anthosBareMetalVersion: 1.33.300-gke.60' in (rendered_template['content'] | b64decode)"
+          - "'anthosBareMetalVersion: ' ~ bmctl_version in (rendered_template['content'] | b64decode)"
           - "'projectID: test-project' in (rendered_template['content'] | b64decode)"
         fail_msg: "Template rendering failed one or more assertions."
     - name: Clean up test directory
