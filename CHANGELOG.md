@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.9](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/compare/gem-v0.1.8...gem-v0.1.9) (2026-06-09)
+
+
+### Features
+
+* **config:** update to support gdc version 1.13.0 ([#24](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/issues/24)) ([4976005](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/497600555b146b9dc534d32bc35d67c1fc6e5f77))
+
 ## [0.1.8](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/compare/gem-v0.1.7...gem-v0.1.8) (2026-06-04)
 
 
