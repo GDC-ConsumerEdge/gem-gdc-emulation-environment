@@ -1,0 +1,129 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: GEM Cluster Build and Validation Tests
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: write
+
+jobs:
+  build-and-test:
+    name: Build & Test GDC Cluster
+    if: github.event.issue.pull_request != null && startsWith(github.event.comment.body, '/buildandtest')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify user permissions
+        id: check_permission
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: permission } = await github.rest.repos.getCollaboratorPermissionLevel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              username: context.payload.comment.user.login
+            });
+            const allowed = ['admin', 'write'].includes(permission.permission);
+            if (!allowed) {
+              core.setFailed(`User ${context.payload.comment.user.login} does not have permission to trigger this build.`);
+            }
+
+      - name: Get PR details
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = context.payload.issue.number;
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+            core.setOutput('branch', pr.head.ref);
+            core.setOutput('sha', pr.head.sha);
+
+      - name: Sanitize Cluster Name
+        id: sanitize
+        run: |
+          BRANCH="${{ steps.pr.outputs.branch }}"
+          # Convert to lowercase, replace non-alphanumeric with -
+          CLEAN=$(echo "$BRANCH" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/-\{2,\}/-/g' | sed 's/^-//' | sed 's/-$//')
+          # Truncate to 30 chars (leaving room for "gh-" prefix)
+          TRUNC=$(echo "$CLEAN" | cut -c 1-30 | sed 's/-$//')
+          CLUSTER_NAME="gh-$TRUNC"
+          echo "cluster_name=$CLUSTER_NAME" >> $GITHUB_OUTPUT
+
+      - name: Checkout PR code
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.pr.outputs.sha }}
+
+      - name: Post Trigger Comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+              body: `🚀 Cluster build and validation tests triggered for cluster \`${{ steps.sanitize.outputs.cluster_name }}\` (branch: \`${{ steps.pr.outputs.branch }}\`).\n[View Action Run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`
+            });
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ secrets.BUILDANDTEST_PROJECT_ID }}
+
+      - name: Trigger Google Cloud Build
+        run: |
+          gcloud builds submit \
+            --config=cloudbuild/cluster-build.cloudbuild.yaml \
+            --substitutions=_CLUSTER_NAME=${{ steps.sanitize.outputs.cluster_name }},_DESTROY_ON_FAILURE=false \
+            --project=${{ secrets.BUILDANDTEST_PROJECT_ID }} \
+            .
+
+      - name: Post Success Comment
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+              body: `✅ **SUCCESS**: Cluster build and validation tests completed successfully for cluster \`${{ steps.sanitize.outputs.cluster_name }}\`. \nThe cluster has been automatically destroyed.`
+            });
+
+      - name: Post Failure Comment
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+              body: `🙅 **FAILURE**: Cluster build or validation tests failed for cluster \`${{ steps.sanitize.outputs.cluster_name }}\`.\n\nThe cluster was preserved for debugging.\nRefer to the [Action Run Logs](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) for GCB build logs.`
+            });
