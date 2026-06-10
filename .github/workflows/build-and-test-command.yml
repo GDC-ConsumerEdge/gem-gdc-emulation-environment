@@ -17,6 +17,10 @@ name: GEM Cluster Build and Validation Tests
 on:
   issue_comment:
     types: [created]
+  workflow_dispatch:
+  push:
+    branches:
+      - gh-build-automation
 
 permissions:
   contents: read
