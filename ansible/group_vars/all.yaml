@@ -40,6 +40,7 @@ bmctl_version: "{{ emulated_gdc_versions[emulate_gdc_version].abm_version }}"
 gvisor_version: "{{ emulated_gdc_versions[emulate_gdc_version].gvisor_version }}"
 # https://dl.k8s.io/release/stable.txt for the latest version
 kubectl_version: "v1.36.0"
+chainsaw_version: "v0.2.15"
 cluster_node_taints:
   - key: "node-role.kubernetes.io/master"
     effect: "PreferNoSchedule"
