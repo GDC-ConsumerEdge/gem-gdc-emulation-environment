@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.10](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/compare/gem-v0.1.9...gem-v0.1.10) (2026-06-10)
+
+
+### Features
+
+* **ci:** implement Github workflow for cluster build and conformance test validation ([16ed906](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/16ed906a5c2225606530a01345b246f85aebbf46))
+
+
+### Bug Fixes
+
+* **ci:** fix corrupted workflow yaml syntax ([80e904c](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/80e904c26efea5806eafe7c89c2b678047421f88))
+
 ## [0.1.9](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/compare/gem-v0.1.8...gem-v0.1.9) (2026-06-09)
 
 
