@@ -357,7 +357,7 @@ cat <<EOF > "${REPO_ROOT}/terraform/cluster/terraform.tfvars"
 project_id            = "${PROJECT_ID}"
 provisioning_sa_email = "${PROVISIONING_SA_EMAIL}"
 cluster_name          = "${CLUSTER_NAME}"
-hardware_variant      = "g2-medium" # Options: g1-medium, g1-large, g2-small-64gb, g2-medium, g2-large
+hardware_variant      = "g2-small-64gb" # Options: g1-medium, g1-large, g2-small-64gb, g2-small-128gb, g2-medium, g2-large
 EOF
 ```
 

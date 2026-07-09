@@ -31,7 +31,7 @@ substitutions:
   _CLUSTER_NAME: gem-cluster-1
   _TF_STATE_BUCKET: "" # set explicitly, or leave empty to derive as gem-${PROJECT_ID}-tfstate
   _EMULATE_GDC_VERSION: "" # empty = latest available
-  _HARDWARE_VARIANT: "g2-medium"
+  _HARDWARE_VARIANT: "g2-small-64gb" # Default to this hardware variant
   _PROVISIONING_SA_EMAIL: "" # empty = impersonate tf-provisioner@${PROJECT_ID} (default, set in setup.sh)
   _DESTROY_ON_FAILURE: "true"
   _AR_LOCATION: us-central1

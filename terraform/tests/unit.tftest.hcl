@@ -34,7 +34,7 @@ variables {
   bmctl_version = "1.28.0"
 }
 
-run "validate_default_hardware_variant_g2_medium" {
+run "validate_default_hardware_variant_g2_small_64gb" {
   command = plan
 
   assert {
@@ -43,18 +43,54 @@ run "validate_default_hardware_variant_g2_medium" {
   }
 
   assert {
-    condition     = google_compute_instance.gdc_vms["node1"].machine_type == "n2-custom-48-131072"
-    error_message = "G2 Medium should map to n2-custom-48-131072 compute."
+    condition     = google_compute_instance.gdc_vms["node1"].machine_type == "n4-custom-32-65536"
+    error_message = "Default G2 Small 64GB should map to n4-custom-32-65536 machine type."
   }
 
   assert {
     condition     = google_compute_disk.gdc_data_disks["node1"].size == 3840
-    error_message = "G2 Medium should map to a 3840 GB data disk."
+    error_message = "G2 Small 64GB should map to a 3840 GB data disk."
   }
 
   assert {
     condition     = google_compute_instance.gdc_vms["node1"].advanced_machine_features[0].enable_nested_virtualization == true
     error_message = "Nested virtualization should be enabled."
+  }
+}
+
+run "validate_g2_small_128gb_hardware_variant" {
+  command = plan
+
+  variables {
+    hardware_variant = "g2-small-128gb"
+  }
+
+  assert {
+    condition     = google_compute_instance.gdc_vms["node1"].machine_type == "n4-standard-32"
+    error_message = "G2 Small 128GB should map to n4-standard-32 machine type."
+  }
+
+  assert {
+    condition     = google_compute_disk.gdc_data_disks["node1"].size == 3840
+    error_message = "G2 Small 128GB should map to a 3840 GB data disk."
+  }
+}
+
+run "validate_g2_medium_hardware_variant" {
+  command = plan
+
+  variables {
+    hardware_variant = "g2-medium"
+  }
+
+  assert {
+    condition     = google_compute_instance.gdc_vms["node1"].machine_type == "n4-custom-48-131072"
+    error_message = "G2 Medium should map to n4-custom-48-131072 machine type."
+  }
+
+  assert {
+    condition     = google_compute_disk.gdc_data_disks["node1"].size == 3840
+    error_message = "G2 Medium should map to a 3840 GB data disk."
   }
 }
 
@@ -67,7 +103,7 @@ run "validate_g1_medium_hardware_variant" {
 
   assert {
     condition     = google_compute_instance.gdc_vms["node1"].machine_type == "n2-custom-32-65536"
-    error_message = "G1 Medium should map to n2-custom-32-65536 compute."
+    error_message = "G1 Medium should map to n2-custom-32-65536 machine type."
   }
 
   assert {
@@ -85,7 +121,7 @@ run "validate_g1_large_hardware_variant" {
 
   assert {
     condition     = google_compute_instance.gdc_vms["node1"].machine_type == "n2-custom-64-131072"
-    error_message = "G1 Large should map to n2-custom-64-131072 compute."
+    error_message = "G1 Large should map to n2-custom-64-131072 machine type."
   }
 
   assert {
@@ -102,8 +138,8 @@ run "validate_g2_large_hardware_variant" {
   }
 
   assert {
-    condition     = google_compute_instance.gdc_vms["node1"].machine_type == "n2-custom-64-131072"
-    error_message = "G2 Large should map to n2-custom-64-131072 compute."
+    condition     = google_compute_instance.gdc_vms["node1"].machine_type == "n4-custom-64-131072"
+    error_message = "G2 Large should map to n4-custom-64-131072 machine type."
   }
 
   assert {

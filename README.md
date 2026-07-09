@@ -140,9 +140,9 @@ the `-var="hardware_variant="` argument.
 | :--- | :--- | :--- | :--- |
 | `g1-medium` | 32 vCPU | 64 GB | 1.6 TB SSD |
 | `g1-large` | 64 vCPU | 128 GB | 3.2 TB SSD |
-| `g2-small-64gb` | 32 vCPU | 64 GB | 3.84 TB SSD |
+| `g2-small-64gb` *(Default)*  | 32 vCPU | 64 GB | 3.84 TB SSD |
 | `g2-small-128gb` | 32 vCPU | 128 GB | 3.84 TB SSD |
-| `g2-medium` *(Default)* | 48 vCPU | 128 GB | 3.84 TB SSD |
+| `g2-medium` | 48 vCPU | 128 GB | 3.84 TB SSD |
 | `g2-large` | 64 vCPU | 128 GB | 3.84 TB SSD |
 
 **A Note on Virtualization:**

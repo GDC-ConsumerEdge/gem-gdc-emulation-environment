@@ -50,7 +50,7 @@ variable "bmctl_version" {
 variable "hardware_variant" {
   type        = string
   description = "The target GDC hardware offering variant to emulate (e.g., g1-medium, g1-large, g2-small-64gb, g2-medium, g2-large)."
-  default     = "g2-medium"
+  default     = "g2-small-64gb"
   validation {
     condition     = contains(["g1-medium", "g1-large", "g2-small-64gb", "g2-small-128gb", "g2-medium", "g2-large"], var.hardware_variant)
     error_message = "🚨 ERROR: The hardware_variant value must be one of: g1-medium, g1-large, g2-small-64gb, g2-small-128gb, g2-medium, g2-large."

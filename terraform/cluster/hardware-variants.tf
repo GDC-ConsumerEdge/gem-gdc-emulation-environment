@@ -31,26 +31,26 @@ locals {
 
     # G2 Hardware Variants
     g2-small-64gb = {
-      machine_type   = "n2-custom-32-65536" # 32 vCPU, 64 GB RAM
-      cpu_platform   = "Intel Ice Lake"
+      machine_type   = "n4-custom-32-65536" # 32 vCPU, 64 GB RAM
+      cpu_platform   = "Intel Emerald Rapids"
       data_disk_size = 3840 # 3.84 TB SSD
       boot_disk_size = 100
     }
     g2-small-128gb = {
-      machine_type   = "n2-custom-32-131072" # 32 vCPU, 128 GB RAM
-      cpu_platform   = "Intel Ice Lake"
+      machine_type   = "n4-standard-32" # 32 vCPU, 128 GB RAM
+      cpu_platform   = "Intel Emerald Rapids"
       data_disk_size = 3840 # 3.84 TB SSD
       boot_disk_size = 100
     }
     g2-medium = {
-      machine_type   = "n2-custom-48-131072" # 48 vCPU, 128 GB RAM
-      cpu_platform   = "Intel Ice Lake"
+      machine_type   = "n4-custom-48-131072" # 48 vCPU, 128 GB RAM
+      cpu_platform   = "Intel Emerald Rapids"
       data_disk_size = 3840 # 3.84 TB SSD
       boot_disk_size = 100
     }
     g2-large = {
-      machine_type   = "n2-custom-64-131072" # 64 vCPU, 128 GB RAM
-      cpu_platform   = "Intel Ice Lake"
+      machine_type   = "n4-custom-64-131072" # 64 vCPU, 128 GB RAM
+      cpu_platform   = "Intel Emerald Rapids"
       data_disk_size = 3840 # 3.84 TB SSD
       boot_disk_size = 100
     }
