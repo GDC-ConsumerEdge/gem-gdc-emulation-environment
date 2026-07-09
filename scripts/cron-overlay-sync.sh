@@ -55,8 +55,12 @@ if gcloud storage rsync --delete-unmatched-destination-objects "${BUCKET}" "${ST
 
     # If the file exists locally but was removed from GCS
     if [[ ! -f "${STAGING_DIR}/${filename}" ]]; then
-      rm -f "$file"
-      changed=1
+      # Help to prevent a race condition where a newly templated file hasn't been uploaded
+      # to GCS yet. Only delete files modified > 5 minutes ago.
+      if [[ $(find "$file" -mmin +5 -print) ]]; then
+        rm -f "$file"
+        changed=1
+      fi
     fi
   done
 
