@@ -30,19 +30,19 @@ resource "google_compute_disk" "gdc_data_disks" {
   name     = "${each.value}-data"
   type     = "pd-ssd"
   zone     = var.zone
-  size     = 1400
+  size     = local.hardware_variants[var.hardware_variant].data_disk_size
   project  = var.project_id
 }
 
 resource "google_compute_instance" "gdc_vms" {
   for_each     = local.vms
   name         = each.value
-  machine_type = var.machine_type
+  machine_type = local.hardware_variants[var.hardware_variant].machine_type
   zone         = var.zone
   project      = var.project_id
 
-  # Match GDCc Ice Lake CPU platform
-  min_cpu_platform = "Intel Ice Lake"
+  # Match GDCc hardware offering CPU platform
+  min_cpu_platform = local.hardware_variants[var.hardware_variant].cpu_platform
 
   # Applies default GCP firewall rules to allow inbound traffic on ports 80 and 443
   tags = ["http-server", "https-server"]
@@ -50,7 +50,7 @@ resource "google_compute_instance" "gdc_vms" {
   boot_disk {
     initialize_params {
       image = data.google_compute_image.ubuntu.self_link
-      size  = 100
+      size  = local.hardware_variants[var.hardware_variant].boot_disk_size
       type  = "pd-ssd"
     }
   }
