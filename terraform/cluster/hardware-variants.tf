@@ -21,12 +21,16 @@ locals {
       cpu_platform   = "Intel Ice Lake"
       data_disk_size = 1600 # 1.6 TB SSD
       boot_disk_size = 100
+      boot_disk_type = "pd-ssd"
+      data_disk_type = "pd-ssd"
     }
     g1-large = {
       machine_type   = "n2-custom-64-131072" # 64 vCPU, 128 GB RAM
       cpu_platform   = "Intel Ice Lake"
       data_disk_size = 3200 # 3.2 TB SSD
       boot_disk_size = 100
+      boot_disk_type = "pd-ssd"
+      data_disk_type = "pd-ssd"
     }
 
     # G2 Hardware Variants
@@ -35,24 +39,32 @@ locals {
       cpu_platform   = "Intel Emerald Rapids"
       data_disk_size = 3840 # 3.84 TB SSD
       boot_disk_size = 100
+      boot_disk_type = "hyperdisk-balanced"
+      data_disk_type = "hyperdisk-balanced"
     }
     g2-small-128gb = {
       machine_type   = "n4-standard-32" # 32 vCPU, 128 GB RAM
       cpu_platform   = "Intel Emerald Rapids"
       data_disk_size = 3840 # 3.84 TB SSD
       boot_disk_size = 100
+      boot_disk_type = "hyperdisk-balanced"
+      data_disk_type = "hyperdisk-balanced"
     }
     g2-medium = {
       machine_type   = "n4-custom-48-131072" # 48 vCPU, 128 GB RAM
       cpu_platform   = "Intel Emerald Rapids"
       data_disk_size = 3840 # 3.84 TB SSD
       boot_disk_size = 100
+      boot_disk_type = "hyperdisk-balanced"
+      data_disk_type = "hyperdisk-balanced"
     }
     g2-large = {
       machine_type   = "n4-custom-64-131072" # 64 vCPU, 128 GB RAM
       cpu_platform   = "Intel Emerald Rapids"
       data_disk_size = 3840 # 3.84 TB SSD
       boot_disk_size = 100
+      boot_disk_type = "hyperdisk-balanced"
+      data_disk_type = "hyperdisk-balanced"
     }
   }
 }

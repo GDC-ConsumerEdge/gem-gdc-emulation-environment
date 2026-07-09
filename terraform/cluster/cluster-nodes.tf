@@ -28,7 +28,7 @@ data "google_compute_image" "ubuntu" {
 resource "google_compute_disk" "gdc_data_disks" {
   for_each = local.vms
   name     = "${each.value}-data"
-  type     = "pd-ssd"
+  type     = local.hardware_variants[var.hardware_variant].data_disk_type
   zone     = var.zone
   size     = local.hardware_variants[var.hardware_variant].data_disk_size
   project  = var.project_id
@@ -51,7 +51,7 @@ resource "google_compute_instance" "gdc_vms" {
     initialize_params {
       image = data.google_compute_image.ubuntu.self_link
       size  = local.hardware_variants[var.hardware_variant].boot_disk_size
-      type  = "pd-ssd"
+      type  = local.hardware_variants[var.hardware_variant].boot_disk_type
     }
   }
 
