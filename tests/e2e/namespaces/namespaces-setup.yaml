@@ -11,6 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+# Only create the mocked/non-existing restricted namespaces for the validation test suite.
+# Pre-existing cluster system namespaces (e.g., kube-system, cert-manager, gke-connect)
+# must NEVER be included here to prevent Chainsaw from destroying them during test cleanup.
+
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -44,20 +49,6 @@ kind: Namespace
 metadata:
   labels:
     testsuite: "true"
-  name: anthos-identity-service
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  labels:
-    testsuite: "true"
-  name: cert-manager
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  labels:
-    testsuite: "true"
   name: dataproc-system
 ---
 apiVersion: v1
@@ -79,28 +70,7 @@ kind: Namespace
 metadata:
   labels:
     testsuite: "true"
-  name: gke-connect
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  labels:
-    testsuite: "true"
-  name: gke-managed-metrics-server
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  labels:
-    testsuite: "true"
   name: gke-operators
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  labels:
-    testsuite: "true"
-  name: gke-system
 ---
 apiVersion: v1
 kind: Namespace
@@ -115,27 +85,6 @@ metadata:
   labels:
     testsuite: "true"
   name: iam-system
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  labels:
-    testsuite: "true"
-  name: kube-node-lease
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  labels:
-    testsuite: "true"
-  name: kube-public
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  labels:
-    testsuite: "true"
-  name: kube-system
 ---
 apiVersion: v1
 kind: Namespace
@@ -185,13 +134,6 @@ metadata:
   labels:
     testsuite: "true"
   name: saas-system
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  labels:
-    testsuite: "true"
-  name: vm-system
 ---
 apiVersion: v1
 kind: Namespace

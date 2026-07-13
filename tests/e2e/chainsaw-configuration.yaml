@@ -22,6 +22,6 @@ spec:
     cleanup: 1m
     delete: 1m
     error: 1m
-    exec: 1m
+    exec: 5m
   skipDelete: false
   parallel: 5
