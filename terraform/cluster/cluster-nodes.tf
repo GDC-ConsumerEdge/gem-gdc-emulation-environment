@@ -28,21 +28,21 @@ data "google_compute_image" "ubuntu" {
 resource "google_compute_disk" "gdc_data_disks" {
   for_each = local.vms
   name     = "${each.value}-data"
-  type     = local.hardware_variants[var.hardware_variant].data_disk_type
+  type     = local.hardware_config.data_disk_type
   zone     = var.zone
-  size     = local.hardware_variants[var.hardware_variant].data_disk_size
+  size     = local.hardware_config.data_disk_size
   project  = var.project_id
 }
 
 resource "google_compute_instance" "gdc_vms" {
   for_each     = local.vms
   name         = each.value
-  machine_type = local.hardware_variants[var.hardware_variant].machine_type
+  machine_type = local.hardware_config.machine_type
   zone         = var.zone
   project      = var.project_id
 
   # Match GDCc hardware offering CPU platform
-  min_cpu_platform = local.hardware_variants[var.hardware_variant].cpu_platform
+  min_cpu_platform = local.hardware_config.cpu_platform
 
   # Applies default GCP firewall rules to allow inbound traffic on ports 80 and 443
   tags = ["http-server", "https-server"]
@@ -50,8 +50,8 @@ resource "google_compute_instance" "gdc_vms" {
   boot_disk {
     initialize_params {
       image = data.google_compute_image.ubuntu.self_link
-      size  = local.hardware_variants[var.hardware_variant].boot_disk_size
-      type  = local.hardware_variants[var.hardware_variant].boot_disk_type
+      size  = local.hardware_config.boot_disk_size
+      type  = local.hardware_config.boot_disk_type
     }
   }
 

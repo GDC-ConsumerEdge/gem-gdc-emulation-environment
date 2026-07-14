@@ -66,5 +66,28 @@ locals {
       boot_disk_type = "hyperdisk-balanced"
       data_disk_type = "hyperdisk-balanced"
     }
+
+    # Small, low cost, single developer GEM variant.
+    dev-and-test = {
+      machine_type   = "n4-standard-4" # 4 vCPU, 16 GB RAM
+      cpu_platform   = "Intel Emerald Rapids"
+      data_disk_size = 150 # 150 GiB SSD
+      boot_disk_size = 100
+      boot_disk_type = "hyperdisk-balanced"
+      data_disk_type = "hyperdisk-balanced"
+    }
+  }
+
+  selected_hardware_variant = contains(keys(local.hardware_variants), var.hardware_variant) ? var.hardware_variant : "g2-small-64gb"
+  hardware_config           = local.hardware_variants[local.selected_hardware_variant]
+}
+
+
+resource "terraform_data" "hardware_variant_validation" {
+  lifecycle {
+    precondition {
+      condition     = contains(keys(local.hardware_variants), var.hardware_variant)
+      error_message = "🚨 ERROR: The hardware_variant value '${var.hardware_variant}' must be one of: ${join(", ", keys(local.hardware_variants))}."
+    }
   }
 }

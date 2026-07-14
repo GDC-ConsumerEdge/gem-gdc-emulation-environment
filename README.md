@@ -144,6 +144,7 @@ the `-var="hardware_variant="` argument.
 | `g2-small-128gb` | 32 vCPU | 128 GB | 3.84 TB SSD |
 | `g2-medium` | 48 vCPU | 128 GB | 3.84 TB SSD |
 | `g2-large` | 64 vCPU | 128 GB | 3.84 TB SSD |
+| `dev-and-test` | 4 vCPU | 16 GB | 150 GB SSD |
 
 **A Note on Virtualization:**
 If your GCP Project enforces Shielded VMs (Secure Boot), the GEM cluster will seamlessly fall back to QEMU software emulation. However, this strips Hyper-V CPU features, causing GDC `VirtualMachine` objects with `osType: Windows` to fail scheduling. If you need Windows guests, you must either deploy in a project without Secure Boot (to enable hardware KVM) or temporarily set `osType: Linux` on the Windows VM manifest as a workaround.

@@ -156,7 +156,7 @@ run "validate_hardware_variant_validation_fail" {
   }
 
   expect_failures = [
-    var.hardware_variant
+    terraform_data.hardware_variant_validation
   ]
 }
 
