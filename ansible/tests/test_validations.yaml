@@ -22,7 +22,7 @@
           ansible.builtin.assert:
             that:
               - "('my-safe-cluster' | length) <= 26"
-            fail_msg: "🚨 ERROR: Cluster name is too long!"
+            fail_msg: "🚫 ERROR: Cluster name is too long!"
         - name: Log Success
           ansible.builtin.debug:
             msg: "🟢 Compliant check passed successfully."

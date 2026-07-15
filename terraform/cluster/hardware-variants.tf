@@ -13,7 +13,7 @@
 # limitations under the License.
 
 locals {
-  # Definitive mappings for official GDC connected hardware offerings to GCE resources
+  # Mappings for official GDC connected hardware offerings to GCE resources
   hardware_variants = {
     # G1 Hardware Variants
     g1-medium = {
@@ -67,7 +67,9 @@ locals {
       data_disk_type = "hyperdisk-balanced"
     }
 
-    # Small, low cost, single developer GEM variant.
+    # Small, low cost, single developer GEM variant. This variant would be useful for
+    # container workload testing, but probably does not have enough resources for
+    # running virtual machines.
     dev-and-test = {
       machine_type   = "n4-standard-4" # 4 vCPU, 16 GB RAM
       cpu_platform   = "Intel Emerald Rapids"
@@ -87,7 +89,7 @@ resource "terraform_data" "hardware_variant_validation" {
   lifecycle {
     precondition {
       condition     = contains(keys(local.hardware_variants), var.hardware_variant)
-      error_message = "🚨 ERROR: The hardware_variant value '${var.hardware_variant}' must be one of: ${join(", ", keys(local.hardware_variants))}."
+      error_message = "🚫 ERROR: The hardware_variant value '${var.hardware_variant}' must be one of: ${join(", ", keys(local.hardware_variants))}."
     }
   }
 }

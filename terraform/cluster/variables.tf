@@ -38,7 +38,7 @@ variable "cluster_name" {
   default = "gem-cluster-1"
   validation {
     condition     = length(var.cluster_name) <= 26
-    error_message = "🚨 ERROR: The cluster_name value must be 26 characters or fewer to prevent GCE VM hostnames from exceeding the strict 63-character Kubernetes metadata label limits."
+    error_message = "🚫 ERROR: The cluster_name value must be 26 characters or fewer to prevent GCE VM hostnames from exceeding the strict 63-character Kubernetes metadata label limits."
   }
 }
 
