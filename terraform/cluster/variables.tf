@@ -38,7 +38,7 @@ variable "cluster_name" {
   default = "gem-cluster-1"
   validation {
     condition     = length(var.cluster_name) <= 26
-    error_message = "🚨 ERROR: The cluster_name value must be 26 characters or fewer to prevent GCE VM hostnames from exceeding the strict 63-character Kubernetes metadata label limits."
+    error_message = "🚫 ERROR: The cluster_name value must be 26 characters or fewer to prevent GCE VM hostnames from exceeding the strict 63-character Kubernetes metadata label limits."
   }
 }
 
@@ -47,11 +47,10 @@ variable "bmctl_version" {
   default = "1.33.300-gke.60"
 }
 
-variable "machine_type" {
-  type = string
-  # 32 vCPU, 128GB RAM
-  default = "n2-standard-32"
-
+variable "hardware_variant" {
+  type        = string
+  description = "The target GDC hardware offering variant to emulate (see hardware-variants.tf for available options)."
+  default     = "g2-small-64gb"
 }
 
 variable "gce_network" {

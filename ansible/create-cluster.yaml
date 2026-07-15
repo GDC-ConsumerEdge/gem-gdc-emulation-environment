@@ -35,7 +35,7 @@
         that:
           - (lookup('env', 'CLUSTER_NAME') | length) <= 26
         fail_msg: >-
-          🚨 ERROR: CLUSTER_NAME '{{ lookup('env', 'CLUSTER_NAME') }}' is too long
+          🚫 ERROR: CLUSTER_NAME '{{ lookup('env', 'CLUSTER_NAME') }}' is too long
           ({{ lookup('env', 'CLUSTER_NAME') | length }} characters). GEM cluster names must be 26
           characters or fewer to prevent GCE VM hostnames from exceeding Kubernetes' strict
           63-character metadata label limits.

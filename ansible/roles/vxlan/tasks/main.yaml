@@ -54,14 +54,47 @@
   ansible.builtin.set_fact:
     vxlan_defs_list: "{{ vxlan_definitions | from_yaml }}"
 
-- name: Template declarative systemd virtual network devices (.netdev)
+# To prevent a race condition with the 'gem-cron-overlay-sync.sh' background cron job
+# on the Admin Workstation and Edge Router, we leverage a staging directory. By staging,
+# uploading, and then copying them to their final destination, we ensure the overlay-sync
+# cron job doesn't clean up the files before they're written to /etc/systemd
+- name: Ensure VXLAN staging directory exists
+  ansible.builtin.file:
+    path: /tmp/gem-vxlan-staging
+    state: directory
+    mode: "0700"
+
+- name: Template declarative systemd virtual network devices (.netdev) to staging
   ansible.builtin.template:
     src: vxlan.netdev.j2
-    dest: "/etc/systemd/network/10-{{ item.iface }}.netdev"
+    dest: "/tmp/gem-vxlan-staging/10-{{ item.iface }}.netdev"
     mode: "0644"
-    owner: root
-    group: root
   loop: "{{ vxlan_defs_list }}"
+
+- name: Template declarative systemd network profiles (.network) to staging
+  ansible.builtin.template:
+    src: vxlan.network.j2
+    dest: "/tmp/gem-vxlan-staging/10-{{ item.iface }}.network"
+    mode: "0644"
+  loop: "{{ vxlan_defs_list }}"
+
+- name: Copy generated .netdev configurations to GCS overlay sync bucket
+  ansible.builtin.command: >
+    gcloud storage cp
+    /tmp/gem-vxlan-staging/10-{{ item.iface }}.netdev
+    gs://gem-{{ gcp_project_id }}-overlay-sync/{{ inventory_hostname }}/
+  loop: "{{ vxlan_defs_list }}"
+  when: inventory_hostname in ['gem_admin_ws', 'edge_router_host']
+  changed_when: true
+
+- name: Copy generated .network configurations to GCS overlay sync bucket
+  ansible.builtin.command: >
+    gcloud storage cp
+    /tmp/gem-vxlan-staging/10-{{ item.iface }}.network
+    gs://gem-{{ gcp_project_id }}-overlay-sync/{{ inventory_hostname }}/
+  loop: "{{ vxlan_defs_list }}"
+  when: inventory_hostname in ['gem_admin_ws', 'edge_router_host']
+  changed_when: true
 
 - name: Ensure /etc/systemd/network directory has correct execute and read permissions
   ansible.builtin.file:
@@ -71,32 +104,30 @@
     owner: root
     group: root
 
-- name: Template declarative systemd network profiles (.network)
-  ansible.builtin.template:
-    src: vxlan.network.j2
-    dest: "/etc/systemd/network/10-{{ item.iface }}.network"
+- name: Apply declarative systemd virtual network devices (.netdev) to networkd
+  ansible.builtin.copy:
+    src: "/tmp/gem-vxlan-staging/10-{{ item.iface }}.netdev"
+    dest: "/etc/systemd/network/10-{{ item.iface }}.netdev"
+    remote_src: true
     mode: "0644"
     owner: root
     group: root
   loop: "{{ vxlan_defs_list }}"
 
-- name: Copy generated .netdev configurations to GCS overlay sync bucket
-  ansible.builtin.command: >
-    gcloud storage cp
-    /etc/systemd/network/10-{{ item.iface }}.netdev
-    gs://gem-{{ gcp_project_id }}-overlay-sync/{{ inventory_hostname }}/
+- name: Apply declarative systemd network profiles (.network) to networkd
+  ansible.builtin.copy:
+    src: "/tmp/gem-vxlan-staging/10-{{ item.iface }}.network"
+    dest: "/etc/systemd/network/10-{{ item.iface }}.network"
+    remote_src: true
+    mode: "0644"
+    owner: root
+    group: root
   loop: "{{ vxlan_defs_list }}"
-  when: inventory_hostname in ['gem_admin_ws', 'edge_router_host']
-  changed_when: true
 
-- name: Copy generated .network configurations to GCS overlay sync bucket
-  ansible.builtin.command: >
-    gcloud storage cp
-    /etc/systemd/network/10-{{ item.iface }}.network
-    gs://gem-{{ gcp_project_id }}-overlay-sync/{{ inventory_hostname }}/
-  loop: "{{ vxlan_defs_list }}"
-  when: inventory_hostname in ['gem_admin_ws', 'edge_router_host']
-  changed_when: true
+- name: Clean up VXLAN staging directory
+  ansible.builtin.file:
+    path: /tmp/gem-vxlan-staging
+    state: absent
 
 - name: Restart systemd-networkd to initialize VXLAN interfaces
   ansible.builtin.systemd:

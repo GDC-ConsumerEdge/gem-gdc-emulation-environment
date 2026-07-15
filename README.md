@@ -128,6 +128,23 @@ ansible-playbook create-cluster.yaml
 # Or, build a GEM cluster emulating GDC version 1.11.1
 ansible-playbook create-cluster.yaml --extra-vars "emulate_gdc_version=1.11.1"
 ```
+#### GDC Hardware Configurations
+
+GEM supports emulating official Google Distributed Cloud (GDC)
+[hardware configurations](https://docs.cloud.google.com/distributed-cloud/connected/latest/docs/requirements#hardware)
+directly via Terraform. Set the `hardware_variant` variable in your `cluster` module's
+`terraform.tfvars` file to choose a hardware configuration, or specify at build time with
+the `-var="hardware_variant="` argument.
+
+| Hardware Variant (specifications per node) | vCPUs | Memory | Data Disk Size |
+| :--- | :--- | :--- | :--- |
+| `g1-medium` | 32 vCPU | 64 GB | 1.6 TB SSD |
+| `g1-large` | 64 vCPU | 128 GB | 3.2 TB SSD |
+| `g2-small-64gb` *(Default)*  | 32 vCPU | 64 GB | 3.84 TB SSD |
+| `g2-small-128gb` | 32 vCPU | 128 GB | 3.84 TB SSD |
+| `g2-medium` | 48 vCPU | 128 GB | 3.84 TB SSD |
+| `g2-large` | 64 vCPU | 128 GB | 3.84 TB SSD |
+| `dev-and-test` | 4 vCPU | 16 GB | 150 GB SSD |
 
 **A Note on Virtualization:**
 If your GCP Project enforces Shielded VMs (Secure Boot), the GEM cluster will seamlessly fall back to QEMU software emulation. However, this strips Hyper-V CPU features, causing GDC `VirtualMachine` objects with `osType: Windows` to fail scheduling. If you need Windows guests, you must either deploy in a project without Secure Boot (to enable hardware KVM) or temporarily set `osType: Linux` on the Windows VM manifest as a workaround.
