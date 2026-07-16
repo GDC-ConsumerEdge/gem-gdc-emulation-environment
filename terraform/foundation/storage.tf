@@ -23,7 +23,8 @@ resource "google_storage_bucket" "overlay_sync" {
 
 # Grant GCE Default Service Account admin access to this bucket
 resource "google_storage_bucket_iam_member" "overlay_sync_accessor" {
-  bucket = google_storage_bucket.overlay_sync.name
-  role   = "roles/storage.objectAdmin"
-  member = "serviceAccount:${data.google_project.project.number}-compute@developer.gserviceaccount.com"
+  bucket     = google_storage_bucket.overlay_sync.name
+  role       = "roles/storage.objectAdmin"
+  member     = "serviceAccount:${data.google_project.project.number}-compute@developer.gserviceaccount.com"
+  depends_on = [google_project_service.apis]
 }

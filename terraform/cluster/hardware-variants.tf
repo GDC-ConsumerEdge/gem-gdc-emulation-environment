@@ -71,7 +71,7 @@ locals {
     # container workload testing, but probably does not have enough resources for
     # running virtual machines.
     dev-and-test = {
-      machine_type   = "n4-standard-4" # 4 vCPU, 16 GB RAM
+      machine_type   = "n4-standard-8" # 8 vCPU, 32 GB RAM
       cpu_platform   = "Intel Emerald Rapids"
       data_disk_size = 150 # 150 GiB SSD
       boot_disk_size = 100

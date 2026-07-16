@@ -35,6 +35,9 @@ export CLUSTER_NAME=gem-cluster-1
 export PROJECT_ID=your-gcp-project-id
 export TF_STATE_BUCKET=gem-${PROJECT_ID}-tfstate
 
+# The GCP zone into which GEM instances will be provisioned.
+export GEM_GCP_ZONE=us-east4-b
+
 # The local directory of this repo
 export REPO_ROOT=~/src/gem-gdc-emulation-environment
 
@@ -98,6 +101,28 @@ cd ${REPO_ROOT}/ansible
 ansible-playbook admin-workstation.yaml
 ```
 
+### Deploy the GEM Edge Router
+To access services running inside your GEM cluster including HTTP, RDP, VNC, or other
+TCP-based protocols, the GEM Edge Router is the proxy through which this traffic will pass.
+
+The Edge Router has network connectivity to each GEM cluster in your environment, including
+to all VXLAN secondary networks. This enables the Edge Router to be the ingress path from
+your local workstation to anything running within a GEM environment.
+
+```bash
+cd ${REPO_ROOT}/terraform/edge-router
+
+terraform init \
+  -backend-config="bucket=${TF_STATE_BUCKET}" \
+  -backend-config="prefix=edge-router/state" \
+  -backend-config="impersonate_service_account=${PROVISIONING_SA_EMAIL}"
+
+terraform apply
+
+cd ${REPO_ROOT}/ansible
+ansible-playbook edge-router.yaml
+```
+
 ### Provision and Deploy a GEM Cluster
 You can deploy as many isolated GEM clusters as your GCP quota allows by changing the `CLUSTER_NAME`.
 
@@ -117,7 +142,11 @@ terraform init \
   -backend-config="prefix=clusters/${CLUSTER_NAME}/state" \
   -backend-config="impersonate_service_account=${PROVISIONING_SA_EMAIL}"
 
+# Provision the GEM cluster nodes using the g2-small-64gb hardware variant (the default)
 terraform apply -var="cluster_name=${CLUSTER_NAME}"
+
+# Or, provision the GEM cluster nodes using the g1-medium hardware variant
+terraform apply -var="cluster_name=${CLUSTER_NAME}" -var="hardware_variant=g1-medium"
 
 
 cd ${REPO_ROOT}/ansible
@@ -125,8 +154,8 @@ cd ${REPO_ROOT}/ansible
 # Build a GEM cluster, emulating the latest available version
 ansible-playbook create-cluster.yaml
 
-# Or, build a GEM cluster emulating GDC version 1.11.1
-ansible-playbook create-cluster.yaml --extra-vars "emulate_gdc_version=1.11.1"
+# Or, build a GEM cluster emulating GDC version 1.12.1
+ansible-playbook create-cluster.yaml --extra-vars "emulate_gdc_version=1.12.1"
 ```
 #### GDC Hardware Configurations
 
@@ -149,27 +178,6 @@ the `-var="hardware_variant="` argument.
 **A Note on Virtualization:**
 If your GCP Project enforces Shielded VMs (Secure Boot), the GEM cluster will seamlessly fall back to QEMU software emulation. However, this strips Hyper-V CPU features, causing GDC `VirtualMachine` objects with `osType: Windows` to fail scheduling. If you need Windows guests, you must either deploy in a project without Secure Boot (to enable hardware KVM) or temporarily set `osType: Linux` on the Windows VM manifest as a workaround.
 
-### Deploy the GEM Edge Router
-To access services running inside your GEM cluster including HTTP, RDP, VNC, or other
-TCP-based protocols, the GEM Edge Router is the proxy through which this traffic will pass.
-
-The Edge Router has network connectivity to each GEM cluster in your environment, including
-to all VXLAN secondary networks. This enables the Edge Router to be the ingress path from
-your local workstation to anything running within a GEM environment.
-
-```bash
-cd ${REPO_ROOT}/terraform/edge-router
-
-terraform init \
-  -backend-config="bucket=${TF_STATE_BUCKET}" \
-  -backend-config="prefix=edge-router/state" \
-  -backend-config="impersonate_service_account=${PROVISIONING_SA_EMAIL}"
-
-terraform apply
-
-cd ${REPO_ROOT}/ansible
-ansible-playbook edge-router.yaml
-```
 
 ## Accessing Your Cluster
 
@@ -377,7 +385,7 @@ terraform destroy -var="cluster_name=${CLUSTER_NAME}"
 
 ## End-to-end Cluster Validation and Conformance
 
-This project leverages [Kyverno Chainsaw](https://kyverno.github.io/chainsaw/0.2.3/) to validate that the GEM cluster enforces the complex constraints and behaviors of a real GDC Connected environment.
+This project leverages [Kyverno Chainsaw](https://kyverno.github.io/chainsaw/latest/) to validate that the GEM cluster enforces the complex constraints and behaviors of a real GDC Connected environment.
 
 ### Running Tests
 To run the full test suite against your active cluster:
@@ -407,28 +415,6 @@ To emulate this behavior in GEM, future work will implement:
 * **Support for Secondary L2 networks**: Add support for up to 10 secondary L2 networks within a single GEM cluster.
 
 * **Strict API Emulation**: Develop a custom translation controller to watch for proprietary GDC multi-network resources and translate them into functional open-source proxy configurations.
-
-
-### Better Ingress for Networking within the Cluster
-
-As GEM is running within GCP, the methods used to access the Services running within a GDC cluster will differ from GDC.
-
-As an example, because GDC is integrated within an on-prem network and has a MetalLB VIP pool with network-routeable
-IP addresses (e.g. 192.168.200.0/28) a GDC end-user will simply connect to http://192.168.200.x to access their application
-running on GDC.
-
-This exact access pattern will not be possible with GEM, but a easy to use and reliable remote access tunnel will be developed, enabling seamless end-user connectivity to all services running in the cluster. This will include at a minimum:
-* HTTP(S)
-* RDP
-* VNC
-* SSH
-
-### Automated GEM cluster provisioning and management
-To manage the GEM cluster lifecycle for many hundreds of clusters, GEM will leverage the
-existing [Edge Parameter Store](https://github.com/GDC-ConsumerEdge/parameter-store) and
-[Automated Cluster Provisioner](https://github.com/GDC-ConsumerEdge/automated-cluster-provisioner)
-projects. Integration with these two projects will enable self-service cluster management
-and fully-automated cluster creation and deletion.
 
 
 ## License
