@@ -65,7 +65,7 @@ During configuration, Ansible will automatically:
 
 ## 🛠️ Troubleshooting
 
-### Tunnel Error: `connect failed: No route to host`
+### Tunnel ERROR: `connect failed: No route to host`
 If attempting to connect via `gem-tunnel.sh` returns a `connect failed: No route to host` error, the Edge Router is unable to bridge traffic into the VXLAN.
 
 #### Check the Underlay IP

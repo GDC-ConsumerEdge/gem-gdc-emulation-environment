@@ -18,7 +18,7 @@
   vars:
     gcp_project: "{{ gcp_project_id }}"
     ws_name: "gem-admin-ws"
-    gcp_zone: "us-central1-a"
+
   tasks:
     - name: Ensure GCP SSH Key exists locally
       ansible.builtin.stat:

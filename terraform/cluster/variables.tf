@@ -17,13 +17,13 @@ variable "project_id" {
 }
 
 variable "region" {
-  type    = string
-  default = "us-central1"
+  type = string
+
 }
 
 variable "zone" {
-  type    = string
-  default = "us-central1-a"
+  type = string
+
 }
 
 # This variable is used by the Ansible playbooks

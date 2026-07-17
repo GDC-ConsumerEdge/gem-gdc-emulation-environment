@@ -28,7 +28,7 @@ resource "google_project_iam_member" "builder_roles" {
     "roles/storage.objectAdmin",        # Terraform state in GCS
     "roles/iap.tunnelResourceAccessor", # IAP tunnel to workstation + nodes
     "roles/logging.logWriter",          # Custom SA requirement for Cloud Build
-    "roles/artifactregistry.reader",    # Pull the builder image
+    "roles/artifactregistry.writer",    # Build and push the builder image
     "roles/compute.viewer",             # Pre-flight conflict checks on VMs
     "roles/gkehub.viewer",              # Pre-flight conflict checks on fleet
   ])

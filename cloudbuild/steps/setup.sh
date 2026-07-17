@@ -19,6 +19,13 @@
 
 set -euo pipefail
 
+if [[ ! "${GEM_GCP_ZONE:-}" =~ ^[a-z]+-[a-z0-9]+-[a-z]$ ]]; then
+    echo "🚫 ERROR: Invalid or missing GEM_GCP_ZONE. Please provide a valid GCP zone (e.g. 'us-east1-a')." >&2
+    exit 1
+fi
+GEM_GCP_REGION="${GEM_GCP_ZONE%-*}"
+GEM_TF_STATE_LOCATION="${GEM_TF_STATE_LOCATION_IN:-$GEM_GCP_REGION}"
+
 TF_STATE_BUCKET="${TF_STATE_BUCKET_IN:-gem-${PROJECT_ID}-tfstate}"
 
 # The build SA is intentionally under-privileged and it provisions new clusters by
@@ -35,6 +42,11 @@ export PROVISIONING_SA_EMAIL="${PROVISIONING_SA_EMAIL}"
 export EMULATE_GDC_VERSION="${EMULATE_GDC_VERSION:-}"
 export HARDWARE_VARIANT="${HARDWARE_VARIANT:-g2-small-64gb}"
 export DESTROY_ON_FAILURE="${DESTROY_ON_FAILURE:-false}"
+export GEM_GCP_ZONE="${GEM_GCP_ZONE}"
+export GEM_GCP_REGION="${GEM_GCP_REGION}"
+export GEM_TF_STATE_LOCATION="${GEM_TF_STATE_LOCATION}"
+export TF_VAR_zone="${GEM_GCP_ZONE}"
+export TF_VAR_region="${GEM_GCP_REGION}"
 ENV
 
 echo "PROJECT_ID         = ${PROJECT_ID}"
@@ -43,6 +55,8 @@ echo "TF_STATE_BUCKET    = ${TF_STATE_BUCKET}"
 echo "EMULATE_GDC_VERSION= ${EMULATE_GDC_VERSION:-<latest>}"
 echo "HARDWARE_VARIANT   = ${HARDWARE_VARIANT:-g2-small-64gb}"
 echo "DESTROY_ON_FAILURE = ${DESTROY_ON_FAILURE:-false}"
+echo "GEM_GCP_ZONE       = ${GEM_GCP_ZONE}"
+echo "GEM_GCP_REGION     = ${GEM_GCP_REGION}"
 
 # SSH key from Secret Manager -> ~/.ssh/google_compute_engine (the path the
 # Ansible playbooks and ansible/ansible.cfg expect.
@@ -61,4 +75,4 @@ SSHCFG
 chmod 600 /workspace/.ssh/config
 
 gcloud config set project "${PROJECT_ID}" --quiet
-gcloud config set compute/zone us-central1-a --quiet
+gcloud config set compute/zone "${GEM_GCP_ZONE}" --quiet

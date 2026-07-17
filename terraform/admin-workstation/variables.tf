@@ -23,13 +23,13 @@ variable "provisioning_sa_email" {
 }
 
 variable "zone" {
-  type    = string
-  default = "us-central1-a"
+  type = string
+
 }
 
 variable "region" {
-  type    = string
-  default = "us-central1"
+  type = string
+
 }
 
 variable "gce_network" {

@@ -34,7 +34,8 @@ substitutions:
   _HARDWARE_VARIANT: "g2-small-64gb" # Default to this hardware variant
   _PROVISIONING_SA_EMAIL: "" # empty = impersonate tf-provisioner@${PROJECT_ID} (default, set in setup.sh)
   _DESTROY_ON_FAILURE: "true"
-  _AR_LOCATION: us-central1
+  _GEM_GCP_ZONE: "" # Must provide dynamically
+  _AR_LOCATION: "" # Must provide dynamically
   _AR_REPO: gem
   _BUILDER_TAG: latest
   _SSH_SECRET_NAME: gem-cluster-builder-ssh-key
@@ -77,6 +78,7 @@ steps:
       - "EMULATE_GDC_VERSION=${_EMULATE_GDC_VERSION}"
       - "HARDWARE_VARIANT=${_HARDWARE_VARIANT}"
       - "DESTROY_ON_FAILURE=${_DESTROY_ON_FAILURE}"
+      - "GEM_GCP_ZONE=${_GEM_GCP_ZONE}"
     secretEnv: ["SSH_PRIVATE_KEY"]
     args: ["cloudbuild/steps/setup.sh"]
 

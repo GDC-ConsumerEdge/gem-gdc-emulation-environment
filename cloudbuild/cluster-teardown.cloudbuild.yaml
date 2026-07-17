@@ -17,6 +17,7 @@ substitutions:
   _CLUSTER_NAME: gem-cluster-1
   _TF_STATE_BUCKET: "" # Derived as gem-${PROJECT_ID}-tfstate if empty
   _PROVISIONING_SA_EMAIL: "" # Derived via setup.sh if empty
+  _GEM_GCP_ZONE: "" # Required
   _AR_LOCATION: us-central1
   _AR_REPO: gem
   _BUILDER_TAG: latest
@@ -53,6 +54,7 @@ steps:
       - "CLUSTER_NAME=${_CLUSTER_NAME}"
       - "TF_STATE_BUCKET_IN=${_TF_STATE_BUCKET}"
       - "PROVISIONING_SA_EMAIL=${_PROVISIONING_SA_EMAIL}"
+      - "GEM_GCP_ZONE=${_GEM_GCP_ZONE}"
     secretEnv: ["SSH_PRIVATE_KEY"]
     args: ["cloudbuild/steps/setup.sh"]
 

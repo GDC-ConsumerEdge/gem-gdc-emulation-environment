@@ -16,7 +16,7 @@
 # cluster-build pipeline.
 resource "google_artifact_registry_repository" "gem" {
   repository_id = var.artifact_registry_repository
-  location      = var.region
+  location      = var.ar_location
   format        = "DOCKER"
   description   = "GEM build artifacts (Cloud Build builder image)"
   project       = var.project_id

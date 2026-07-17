@@ -97,13 +97,24 @@ get_tf_json() {
 GEM_WS_NAME=$(get_tf_output "admin-workstation" "workstation_name")
 GEM_WS_INTERNAL_IP=$(get_tf_output "admin-workstation" "workstation_ip")
 GCP_PROJECT=$(get_tf_output "admin-workstation" "project_id")
-GCP_ZONE=$(get_tf_output "admin-workstation" "zone")
+GEM_GCP_ZONE=$(get_tf_output "admin-workstation" "zone")
 
 # Fallback if somehow missing
 if [ -z "$GCP_PROJECT" ]; then
   GCP_PROJECT=$(get_tf_output "foundation" "project_id")
 fi
 GCP_PROJECT_NUMBER=$(get_tf_output "foundation" "project_number")
+
+# If Terraform state did not have the zone, fallback to the environment variable.
+if [ -z "$GEM_GCP_ZONE" ]; then
+  GEM_GCP_ZONE="${GEM_GCP_ZONE:-}"
+fi
+
+if [[ ! "${GEM_GCP_ZONE:-}" =~ ^[a-z]+-[a-z0-9]+-[a-z]$ ]]; then
+  echo "🚫 ERROR: Invalid or missing GEM_GCP_ZONE. Please provide a valid GCP zone (e.g. 'us-east1-a')." >&2
+  exit 1
+fi
+GEM_GCP_REGION="${GEM_GCP_ZONE%-*}"
 
 # Fetch Cluster details (Optional)
 # shellcheck disable=SC2034
@@ -164,12 +175,13 @@ cat <<EOF
 {
   "all": {
     "vars": {
-      "ansible_ssh_common_args": "-i ~/.ssh/google_compute_engine -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ControlMaster=auto -o ControlPersist=30m -o ConnectionAttempts=100 -o ProxyCommand='gcloud compute start-iap-tunnel %h %p --listen-on-stdin --project=${GCP_PROJECT} --zone=${GCP_ZONE}'",
+      "ansible_ssh_common_args": "-i ~/.ssh/google_compute_engine -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ControlMaster=auto -o ControlPersist=30m -o ConnectionAttempts=100 -o ProxyCommand='gcloud compute start-iap-tunnel %h %p --listen-on-stdin --project=${GCP_PROJECT} --zone=${GEM_GCP_ZONE}'",
       "ansible_python_interpreter": "/usr/bin/python3",
       "ansible_user": "${GCP_USER}",
       "gcp_project_id": "${GCP_PROJECT}",
       "gcp_project_number": "${GCP_PROJECT_NUMBER}",
-      "gcp_zone": "${GCP_ZONE}",
+      "gcp_zone": "${GEM_GCP_ZONE}",
+      "gcp_region": "${GEM_GCP_REGION}",
       "tf_cluster_name": "${CLUSTER_NAME}",
 $(if [ -n "$BMCTL_VERSION" ]; then echo "      \"bmctl_version\": \"${BMCTL_VERSION}\","; fi)
       "vxlan_id": "${VXLAN_ID}",
