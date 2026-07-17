@@ -22,13 +22,7 @@ spec:
       url: "https://cloud-images.ubuntu.com/releases/focal/release/ubuntu-20.04-server-cloudimg-amd64.img"
   size: 20Gi
   storageClassName: robin-vm-repl-2-block-immediate
-  # pvc:
-  #   accessModes:
-  #     - ReadWriteOnce
-  #   resources:
-  #     requests:
-  #       storage: 10Gi
-  #   storageClassName: robin-repl-2
+
 ---
 apiVersion: vm.cluster.gke.io/v1
 kind: VirtualMachine
@@ -40,7 +34,7 @@ spec:
     cpu:
       vcpus: 2
     memory:
-      capacity: 4Gi
+      capacity: 2Gi
   disks:
     - boot: true
       driver: virtio
@@ -49,28 +43,3 @@ spec:
     - name: eth0
       networkName: pod-network
       default: true
-# spec:
-#   running: true
-#   template:
-#     metadata:
-#       labels:
-#         kubevirt.io/domain: ubuntu-vm
-#     spec:
-#       domain:
-#         devices:
-#           disks:
-#             - name: datadisk
-#               disk: {}
-#           interfaces:
-#             - name: default
-#               masquerade: {}
-#         resources:
-#           requests:
-#             memory: 1024Mi
-#       networks:
-#         - name: default
-#           pod: {}
-#       volumes:
-#         - name: datadisk
-#           dataVolume:
-#             name: ubuntu-dv
