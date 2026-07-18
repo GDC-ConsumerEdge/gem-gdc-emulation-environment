@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.11](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/compare/gem-v0.1.10...gem-v0.1.11) (2026-07-18)
+
+
+### Features
+
+* **gem:** add support for user-specified GCP region and zone ([#32](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/issues/32)) ([b409bb7](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/b409bb7bce3da46b757b89f5fa4cd0e413c91156))
+
+
+### Bug Fixes
+
+* **gem:** update the dev-and-test hardware variant to support larger workloads ([#30](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/issues/30)) ([5e348c5](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/5e348c5f0f34ba35e1365ec2d5ae33fda7081959))
+* **gem:** update the dev-and-test hardware variant to support VM-based workloads ([b409bb7](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/b409bb7bce3da46b757b89f5fa4cd0e413c91156))
+* **terraform:** resolve IAM member race condition for overlay sync bucket ([b409bb7](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/b409bb7bce3da46b757b89f5fa4cd0e413c91156))
+
 ## [0.1.10](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/compare/gem-v0.1.9...gem-v0.1.10) (2026-07-15)
 
 
