@@ -17,13 +17,13 @@ variable "project_id" {
 }
 
 variable "region" {
-  type    = string
-  default = "us-central1"
+  type = string
+
 }
 
 variable "zone" {
-  type    = string
-  default = "us-central1-a"
+  type = string
+
 }
 
 variable "provisioning_sa_email" {
@@ -45,4 +45,9 @@ variable "ssh_secret_name" {
   type        = string
   description = "Secret Manager secret name that holds the workstation/cluster SSH private key. The workstation publishes the key on first provision; Cloud Build reads it at submit time."
   default     = "gem-cluster-builder-ssh-key"
+}
+
+variable "ar_location" {
+  type        = string
+  description = "Region where the Artifact Registry will be created"
 }

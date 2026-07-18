@@ -31,3 +31,8 @@ output "artifact_registry_repo" {
   description = "Artifact Registry repository hosting the GEM builder image."
   value       = "${google_artifact_registry_repository.gem.location}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.gem.repository_id}"
 }
+
+output "artifact_registry_location" {
+  description = "Artifact Registry location"
+  value       = google_artifact_registry_repository.gem.location
+}

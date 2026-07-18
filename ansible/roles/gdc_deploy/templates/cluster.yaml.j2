@@ -86,7 +86,7 @@ spec:
       addresses:
       - {{ vxlan_base_ip }}.50-{{ vxlan_base_ip }}.70
   clusterOperations:
-    location: us-central1
+    location: {{ gcp_region }}
     projectID: {{ gcp_project_id }}
   storage:
     lvpNodeMounts:

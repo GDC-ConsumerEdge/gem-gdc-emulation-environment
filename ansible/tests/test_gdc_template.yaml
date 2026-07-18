@@ -33,6 +33,7 @@
   vars:
     cluster_name: test-cluster
     gcp_project_id: "test-project"
+    gcp_region: "us-east4"
     gem_home: "/home/gdc"
     vxlan_base_ip: "10.200.0"
     pod_cidr_blocks: "10.0.0.0/17"
@@ -76,6 +77,7 @@
     cluster_name: test-cluster-v2
     emulate_gdc_version: "1.11.1"
     gcp_project_id: "test-project"
+    gcp_region: "us-east4"
     gem_home: "/home/gdc"
     vxlan_base_ip: "10.200.0"
     pod_cidr_blocks: "10.0.0.0/17"

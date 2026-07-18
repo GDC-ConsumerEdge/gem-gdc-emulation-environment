@@ -26,14 +26,23 @@ REQUIRED_ENV_VARS=(
   "REPO_ROOT"
   "PROVISIONING_SA_EMAIL"
   "IMPERSONATE_SA_EMAIL"
+  "GEM_GCP_ZONE"
 )
 
 for var in "${REQUIRED_ENV_VARS[@]}"; do
   if [[ -z "${!var:-}" ]]; then
-    echo "🚨 Environment variable $var is not set." >&2
+    echo "🚨 Environment variable $var is not set. Exiting." >&2
     exit 1
   fi
 done
+
+if [[ ! "${GEM_GCP_ZONE:-}" =~ ^[a-z]+-[a-z0-9]+-[a-z]$ ]]; then
+    echo "🚫 ERROR: Invalid or missing GEM_GCP_ZONE. Please provide a valid GCP zone (e.g. 'us-east1-a')." >&2
+    exit 1
+fi
+GEM_GCP_REGION="${GEM_GCP_ZONE%-*}"
+GEM_TF_STATE_LOCATION="${GEM_TF_STATE_LOCATION:-$GEM_GCP_REGION}"
+GEM_AR_LOCATION="${GEM_AR_LOCATION:-$GEM_GCP_REGION}"
 
 echo "🔄 Enabling essential APIs..."
 gcloud services enable cloudresourcemanager.googleapis.com serviceusage.googleapis.com iamcredentials.googleapis.com --project="${PROJECT_ID}"
@@ -57,6 +66,7 @@ ROLES=(
   "roles/compute.admin"
   "roles/resourcemanager.projectIamAdmin"
   "roles/serviceusage.serviceUsageAdmin"
+  "roles/secretmanager.admin"
 )
 
 for role in "${ROLES[@]}"; do
@@ -82,32 +92,43 @@ echo "🔄 Generating terraform.tfvars files..."
 cat <<EOF > "${REPO_ROOT}/terraform/foundation/terraform.tfvars"
 project_id            = "${PROJECT_ID}"
 provisioning_sa_email = "${PROVISIONING_SA_EMAIL}"
+zone                  = "${GEM_GCP_ZONE}"
+region                = "${GEM_GCP_REGION}"
 EOF
 
 cat <<EOF > "${REPO_ROOT}/terraform/admin-workstation/terraform.tfvars"
 project_id            = "${PROJECT_ID}"
 provisioning_sa_email = "${PROVISIONING_SA_EMAIL}"
+zone                  = "${GEM_GCP_ZONE}"
+region                = "${GEM_GCP_REGION}"
 EOF
 
 cat <<EOF > "${REPO_ROOT}/terraform/edge-router/terraform.tfvars"
 project_id            = "${PROJECT_ID}"
 provisioning_sa_email = "${PROVISIONING_SA_EMAIL}"
+zone                  = "${GEM_GCP_ZONE}"
+region                = "${GEM_GCP_REGION}"
 EOF
 
 cat <<EOF > "${REPO_ROOT}/terraform/cluster/terraform.tfvars"
 project_id            = "${PROJECT_ID}"
 provisioning_sa_email = "${PROVISIONING_SA_EMAIL}"
 cluster_name          = "${CLUSTER_NAME}"
+zone                  = "${GEM_GCP_ZONE}"
+region                = "${GEM_GCP_REGION}"
 EOF
 
 cat <<EOF > "${REPO_ROOT}/terraform/cloudbuild/terraform.tfvars"
 project_id            = "${PROJECT_ID}"
 provisioning_sa_email = "${PROVISIONING_SA_EMAIL}"
+zone                  = "${GEM_GCP_ZONE}"
+region                = "${GEM_GCP_REGION}"
+ar_location           = "${GEM_AR_LOCATION}"
 EOF
 echo "✅ terraform.tfvars created successfully."
 
 echo "🔄 Creating Terraform state bucket..."
-gcloud storage buckets create "gs://${TF_STATE_BUCKET}" --project="${PROJECT_ID}" --location="us-central1" || true
+gcloud storage buckets create "gs://${TF_STATE_BUCKET}" --project="${PROJECT_ID}" --location="${GEM_TF_STATE_LOCATION}" || true
 gcloud storage buckets update "gs://${TF_STATE_BUCKET}" --versioning || true
 
 echo "🔄 Generating backend.tf files..."

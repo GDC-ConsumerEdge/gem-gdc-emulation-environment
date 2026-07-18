@@ -117,6 +117,7 @@ required roles.
       "roles/compute.admin"
       "roles/resourcemanager.projectIamAdmin"
       "roles/serviceusage.serviceUsageAdmin"
+      "roles/secretmanager.admin"
     )
 
     for role in "${ROLES[@]}"; do
@@ -338,18 +339,24 @@ Navigate to each Terraform directory and create the required `terraform.tfvars` 
 cat <<EOF > "${REPO_ROOT}/terraform/foundation/terraform.tfvars"
 project_id            = "${PROJECT_ID}"
 provisioning_sa_email = "${PROVISIONING_SA_EMAIL}"
+zone                  = "${GEM_GCP_ZONE}"
+region                = "${GEM_GCP_REGION}"
 EOF
 
 # Workstation Var File
 cat <<EOF > "${REPO_ROOT}/terraform/admin-workstation/terraform.tfvars"
 project_id            = "${PROJECT_ID}"
 provisioning_sa_email = "${PROVISIONING_SA_EMAIL}"
+zone                  = "${GEM_GCP_ZONE}"
+region                = "${GEM_GCP_REGION}"
 EOF
 
 # Edge Router Var File
 cat <<EOF > "${REPO_ROOT}/terraform/edge-router/terraform.tfvars"
 project_id            = "${PROJECT_ID}"
 provisioning_sa_email = "${PROVISIONING_SA_EMAIL}"
+zone                  = "${GEM_GCP_ZONE}"
+region                = "${GEM_GCP_REGION}"
 EOF
 
 # Cluster Var File
@@ -357,7 +364,18 @@ cat <<EOF > "${REPO_ROOT}/terraform/cluster/terraform.tfvars"
 project_id            = "${PROJECT_ID}"
 provisioning_sa_email = "${PROVISIONING_SA_EMAIL}"
 cluster_name          = "${CLUSTER_NAME}"
+zone                  = "${GEM_GCP_ZONE}"
+region                = "${GEM_GCP_REGION}"
 hardware_variant      = "g2-small-64gb" # Options: g1-medium, g1-large, g2-small-64gb, g2-small-128gb, g2-medium, g2-large, dev-and-test
+EOF
+
+# Cloud Build Var File
+cat <<EOF > "${REPO_ROOT}/terraform/cloudbuild/terraform.tfvars"
+project_id            = "${PROJECT_ID}"
+provisioning_sa_email = "${PROVISIONING_SA_EMAIL}"
+zone                  = "${GEM_GCP_ZONE}"
+region                = "${GEM_GCP_REGION}"
+ar_location           = "${GEM_AR_LOCATION}"
 EOF
 ```
 

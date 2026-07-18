@@ -20,7 +20,7 @@ source /workspace/state/env
 conflict=0
 for n in 1 2 3; do
   vm="${CLUSTER_NAME}-${n}"
-  if gcloud compute instances describe "${vm}" --zone=us-central1-a --format="value(name)" --quiet >/dev/null 2>&1; then
+  if gcloud compute instances describe "${vm}" --zone="${GEM_GCP_ZONE}" --format="value(name)" --quiet >/dev/null 2>&1; then
     echo "🚨 Pre-flight: VM ${vm} already exists in ${PROJECT_ID}."
     conflict=1
   fi
