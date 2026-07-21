@@ -1,0 +1,86 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: secondary-networking-suite
+spec:
+  steps:
+    - name: 1. Deploy Secondary Network CR
+      try:
+        - apply:
+            file: 01-network.yaml
+        - assert:
+            resource:
+              apiVersion: networking.gke.io/v1
+              kind: Network
+              metadata:
+                name: test-vlan-123
+
+    - name: 2. Deploy Backend Pod Attached to Secondary Network
+      try:
+        - apply:
+            file: 02-server.yaml
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Pod
+              metadata:
+                name: test-server
+              status:
+                phase: Running
+
+    - name: 3. Deploy Gateway API Resources
+      try:
+        - apply:
+            file: 03-gateway-api.yaml
+        - assert:
+            resource:
+              apiVersion: gateway.networking.k8s.io/v1
+              kind: Gateway
+              metadata:
+                name: example-cluster-ip-gateway
+              status:
+                addresses:
+                  - type: IPAddress
+
+    - name: 4. Deploy LoadBalancer Service on Secondary Network
+      try:
+        - apply:
+            file: 04-loadbalancer.yaml
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: secondary-lb-service
+              status:
+                loadBalancer:
+                  ingress:
+                    - ip: ?*
+
+    - name: 5. Verify End-to-End Multi-Network Connectivity
+      try:
+        - apply:
+            file: 05-client-job.yaml
+            template: true
+        - assert:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: test-client
+              status:
+                succeeded: 1

@@ -1,0 +1,69 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+apiVersion: networking.gke.io/v1
+kind: GKEGatewayCIDR
+metadata:
+  name: test-vlan-123
+spec:
+  ip4cidr: 192.168.123.0/24
+  network: test-vlan-123
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: gke-clusterip
+spec:
+  controllerName: "networking.gke.io/cluster-ip"
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: example-cluster-ip-gateway
+  annotations:
+    networking.gke.io/network: test-vlan-123
+spec:
+  gatewayClassName: gke-clusterip
+  listeners:
+    - name: example-service
+      protocol: TCP
+      port: 80
+      allowedRoutes:
+        kinds:
+          - kind: GKEL4Route
+---
+apiVersion: networking.gke.io/v1
+kind: GKEEndpointSelector
+metadata:
+  name: front-end-pods
+spec:
+  network: test-vlan-123
+  selector:
+    matchLabels:
+      app: test-svc
+---
+apiVersion: networking.gke.io/v1
+kind: GKEL4Route
+metadata:
+  name: service-route
+spec:
+  parentRefs:
+    - name: example-cluster-ip-gateway
+  rules:
+    - name: example-service
+      backendRefs:
+        - kind: GKEEndpointSelector
+          port: 80
+          group: networking.gke.io
+          name: front-end-pods
