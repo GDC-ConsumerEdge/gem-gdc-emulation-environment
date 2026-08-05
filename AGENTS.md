@@ -63,8 +63,9 @@ Storage (see [docs/storage.md](docs/storage.md)):
 *   **Gatekeeper mutations are the emulation**: Unmodified GDC manifests request `robin` StorageClasses and RWX volumes. Gatekeeper rewrites `robin` → `topolvm.io`, forces `WaitForFirstConsumer`, and downgrades `ReadWriteMany` → `ReadWriteOnce` (TopoLVM is RWO-only). Keep these in sync if you touch storage emulation.
 *   **Partition boundary coupling**: `node_storage_size` (default `100GB`) is the split point between the `node_storage` partition created by Terraform cloud-init (`terraform/cluster/cluster-nodes.tf`) and the TopoLVM partition created by the Ansible `cluster_nodes` role. The two are defined in different tools and **must** agree, or you get a gap or overlap on the disk.
 
-Platform:
+Platform & Tooling:
 
+*   **Prefer Native Declarations**: Always use native declarative operations and features provided by the tooling (such as Kyverno Chainsaw `patch`/`apply`/`assert` operations, Terraform resources, or Ansible modules) rather than shelling out to raw scripts or CLI commands (`kubectl`, `gcloud`, etc.) whenever possible.
 *   **QEMU Fallback**: If the GCP project enforces Shielded VMs (Secure Boot), nested virtualization (KVM) fails and the cluster falls back to QEMU software emulation, which breaks Windows VM scheduling (no Hyper-V features). Workaround: set `osType: Linux` for all VMs when using QEMU.
 *   **Storage capacity vs. usable emulation**: The cluster provides ~3.9 TB aggregate raw storage (~1.3 TB per node via TopoLVM). Real GDC with Robin SDS typically yields only ~1.3 TB usable due to 3-way replication. GEM does not enforce this lower limit, to allow testing larger single volumes.
 

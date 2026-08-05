@@ -54,15 +54,9 @@ spec:
                 name: test-secondary-network-gateway
               (length(status.addresses || `[]`) > `0`): true
       finally:
-        - patch:
-            resource:
-              apiVersion: networking.gke.io/v1
-              kind: GKEL4Route
-              metadata:
-                name: test-secondary-network-l4route
-            patch:
-              metadata:
-                finalizers: null
+        - script:
+            content: |
+              kubectl patch gkel4route test-secondary-network-l4route --type=merge -p '{"metadata":{"finalizers":null}}' 2>/dev/null || true
 
     - name: 4. Deploy LoadBalancer Service on Secondary Network
       try:
@@ -79,15 +73,9 @@ spec:
                   ingress:
                     - (ip != null && ip != ''): true
       finally:
-        - patch:
-            resource:
-              apiVersion: networking.gke.io/v1
-              kind: GKEL4Route
-              metadata:
-                name: test-secondary-network-l4route
-            patch:
-              metadata:
-                finalizers: null
+        - script:
+            content: |
+              kubectl patch gkel4route test-secondary-network-l4route --type=merge -p '{"metadata":{"finalizers":null}}' 2>/dev/null || true
 
     - name: 5. Verify End-to-End Multi-Network Connectivity
       try:
@@ -102,6 +90,14 @@ spec:
                 name: test-secondary-network-client
               ((status.succeeded || `0`) > `0`): true
       finally:
+        - script:
+            content: |
+              kubectl patch gkel4route test-secondary-network-l4route --type=merge -p '{"metadata":{"finalizers":null}}' 2>/dev/null || true
+              kubectl patch gateway test-secondary-network-gateway --type=merge -p '{"metadata":{"finalizers":null}}' 2>/dev/null || true
+              kubectl patch network test-secondary-network --type=merge -p '{"metadata":{"finalizers":null}}' 2>/dev/null || true
+
+    - name: 6. Clean up Resource Finalizers
+      try:
         - patch:
             resource:
               apiVersion: networking.gke.io/v1
