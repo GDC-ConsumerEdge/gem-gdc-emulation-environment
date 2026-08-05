@@ -29,11 +29,7 @@ spec:
               kind: Network
               metadata:
                 name: test-secondary-network
-              status:
-                conditions:
-                  - type: Ready
-                    reason: NetworkReady
-                    status: "True"
+              (status.conditions[?type=='CoreDNSReady'].status | [0] == 'True'): true
 
     - name: 2. Deploy Backend Pod Attached to Secondary Network
       try:
