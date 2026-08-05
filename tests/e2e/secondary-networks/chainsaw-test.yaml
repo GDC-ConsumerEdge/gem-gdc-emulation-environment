@@ -52,9 +52,7 @@ spec:
               kind: Gateway
               metadata:
                 name: test-secondary-network-gateway
-              status:
-                addresses:
-                  - type: IPAddress
+              (status.addresses[0].type == 'IPAddress'): true
 
     - name: 4. Deploy LoadBalancer Service on Secondary Network
       try:

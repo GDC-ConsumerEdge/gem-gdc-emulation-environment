@@ -21,20 +21,13 @@ spec:
   network: test-secondary-network
 ---
 apiVersion: gateway.networking.k8s.io/v1
-kind: GatewayClass
-metadata:
-  name: test-secondary-network-gatewayclass
-spec:
-  controllerName: "networking.gke.io/cluster-ip"
----
-apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
   name: test-secondary-network-gateway
   annotations:
     networking.gke.io/network: test-secondary-network
 spec:
-  gatewayClassName: test-secondary-network-gatewayclass
+  gatewayClassName: gke-cluster-ip
   listeners:
     - name: test-secondary-network-service
       protocol: TCP
