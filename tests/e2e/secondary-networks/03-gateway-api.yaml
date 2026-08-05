@@ -37,6 +37,16 @@ spec:
           - kind: GKEL4Route
 ---
 apiVersion: networking.gke.io/v1
+kind: GKEEndpointSelector
+metadata:
+  name: test-secondary-network-endpointselector
+spec:
+  network: test-secondary-network
+  selector:
+    matchLabels:
+      app: test-secondary-network-svc
+---
+apiVersion: networking.gke.io/v1
 kind: GKEL4Route
 metadata:
   name: test-secondary-network-l4route
@@ -50,13 +60,3 @@ spec:
           port: 80
           group: networking.gke.io
           name: test-secondary-network-endpointselector
----
-apiVersion: networking.gke.io/v1
-kind: GKEEndpointSelector
-metadata:
-  name: test-secondary-network-endpointselector
-spec:
-  network: test-secondary-network
-  selector:
-    matchLabels:
-      app: test-secondary-network-svc
