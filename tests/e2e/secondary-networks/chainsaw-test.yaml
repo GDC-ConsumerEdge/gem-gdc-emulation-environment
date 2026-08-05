@@ -104,8 +104,6 @@ spec:
               kind: GKEL4Route
               metadata:
                 name: test-secondary-network-l4route
-            patch:
-              metadata:
                 finalizers: null
         - patch:
             resource:
@@ -113,8 +111,6 @@ spec:
               kind: Gateway
               metadata:
                 name: test-secondary-network-gateway
-            patch:
-              metadata:
                 finalizers: null
         - patch:
             resource:
@@ -122,6 +118,4 @@ spec:
               kind: Network
               metadata:
                 name: test-secondary-network
-            patch:
-              metadata:
                 finalizers: null
