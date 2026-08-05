@@ -34,14 +34,13 @@ spec:
           args:
             - |
               set -e
+              NAMESPACE=$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace 2>/dev/null || echo "default")
+              TARGET_URL="http://test-secondary-network-gateway.${NAMESPACE}.gkegw.cluster.local"
               echo "Testing Multi-Network Gateway API DNS ($TARGET_URL)..."
               until curl -s -f --connect-timeout 3 "$TARGET_URL"; do
                 echo "Waiting for Gateway API endpoint..."
                 sleep 2
               done
               echo "Gateway API DNS & HTTP reachability successful!"
-          env:
-            - name: TARGET_URL
-              value: (join('.', ['http://test-secondary-network-gateway', $namespace, 'gkegw.cluster.local']))
       restartPolicy: Never
   backoffLimit: 4

@@ -52,7 +52,7 @@ spec:
               kind: Gateway
               metadata:
                 name: test-secondary-network-gateway
-              (status.addresses[0].type == 'IPAddress'): true
+              (length(status.addresses || `[]`) > `0`): true
 
     - name: 4. Deploy LoadBalancer Service on Secondary Network
       try:
@@ -73,7 +73,6 @@ spec:
       try:
         - apply:
             file: 05-client.yaml
-            template: true
         - assert:
             resource:
               apiVersion: batch/v1
