@@ -42,6 +42,6 @@ spec:
               echo "Gateway API DNS & HTTP reachability successful!"
           env:
             - name: TARGET_URL
-              value: "http://test-secondary-network-gateway.($namespace).gkegw.cluster.local"
+              value: (join('.', ['http://test-secondary-network-gateway', $namespace, 'gkegw.cluster.local']))
       restartPolicy: Never
   backoffLimit: 4
