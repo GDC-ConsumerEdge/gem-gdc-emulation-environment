@@ -31,7 +31,8 @@ spec:
                 name: test-secondary-network
               status:
                 conditions:
-                  - type: CoreDNSReady
+                  - type: Ready
+                    reason: NetworkReady
                     status: "True"
 
     - name: 2. Deploy Backend Pod Attached to Secondary Network
