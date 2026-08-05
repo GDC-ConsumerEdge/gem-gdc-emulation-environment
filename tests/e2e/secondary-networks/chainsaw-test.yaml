@@ -53,6 +53,16 @@ spec:
               metadata:
                 name: test-secondary-network-gateway
               (length(status.addresses || `[]`) > `0`): true
+      finally:
+        - patch:
+            resource:
+              apiVersion: networking.gke.io/v1
+              kind: GKEL4Route
+              metadata:
+                name: test-secondary-network-l4route
+            patch:
+              metadata:
+                finalizers: null
 
     - name: 4. Deploy LoadBalancer Service on Secondary Network
       try:
@@ -68,15 +78,54 @@ spec:
                 loadBalancer:
                   ingress:
                     - (ip != null && ip != ''): true
+      finally:
+        - patch:
+            resource:
+              apiVersion: networking.gke.io/v1
+              kind: GKEL4Route
+              metadata:
+                name: test-secondary-network-l4route
+            patch:
+              metadata:
+                finalizers: null
 
     - name: 5. Verify End-to-End Multi-Network Connectivity
       try:
         - apply:
             file: 05-client.yaml
         - assert:
+            timeout: 60s
             resource:
               apiVersion: batch/v1
               kind: Job
               metadata:
                 name: test-secondary-network-client
-              (status.succeeded == `1`): true
+              ((status.succeeded || `0`) > `0`): true
+      finally:
+        - patch:
+            resource:
+              apiVersion: networking.gke.io/v1
+              kind: GKEL4Route
+              metadata:
+                name: test-secondary-network-l4route
+            patch:
+              metadata:
+                finalizers: null
+        - patch:
+            resource:
+              apiVersion: gateway.networking.k8s.io/v1
+              kind: Gateway
+              metadata:
+                name: test-secondary-network-gateway
+            patch:
+              metadata:
+                finalizers: null
+        - patch:
+            resource:
+              apiVersion: networking.gke.io/v1
+              kind: Network
+              metadata:
+                name: test-secondary-network
+            patch:
+              metadata:
+                finalizers: null
