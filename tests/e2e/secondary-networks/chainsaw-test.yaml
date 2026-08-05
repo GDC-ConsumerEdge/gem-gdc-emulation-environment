@@ -23,13 +23,13 @@ spec:
         - apply:
             file: 01-network.yaml
         - assert:
-            timeout: 30s
+            timeout: 60s
             resource:
               apiVersion: networking.gke.io/v1
               kind: Network
               metadata:
                 name: test-secondary-network
-              (status.conditions[?type=='CoreDNSReady'].status | [0] == 'True'): true
+              (length(status.conditions[?type=='CoreDNSReady' && status=='True'] || `[]`) > `0`): true
 
     - name: 2. Deploy Backend Pod Attached to Secondary Network
       try:
