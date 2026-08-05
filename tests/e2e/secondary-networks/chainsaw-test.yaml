@@ -69,7 +69,7 @@ spec:
               status:
                 loadBalancer:
                   ingress:
-                    - ip: ?*
+                    - (ip != null && ip != ''): true
 
     - name: 5. Verify End-to-End Multi-Network Connectivity
       try:
@@ -82,5 +82,4 @@ spec:
               kind: Job
               metadata:
                 name: test-secondary-network-client
-              status:
-                succeeded: 1
+              (status.succeeded == `1`): true
