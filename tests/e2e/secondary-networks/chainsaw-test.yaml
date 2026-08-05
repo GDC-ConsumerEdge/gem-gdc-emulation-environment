@@ -27,7 +27,7 @@ spec:
               apiVersion: networking.gke.io/v1
               kind: Network
               metadata:
-                name: test-vlan-123
+                name: test-secondary-network
 
     - name: 2. Deploy Backend Pod Attached to Secondary Network
       try:
@@ -38,7 +38,7 @@ spec:
               apiVersion: v1
               kind: Pod
               metadata:
-                name: test-server
+                name: test-secondary-network-server
               status:
                 phase: Running
 
@@ -51,7 +51,7 @@ spec:
               apiVersion: gateway.networking.k8s.io/v1
               kind: Gateway
               metadata:
-                name: example-cluster-ip-gateway
+                name: test-secondary-network-gateway
               status:
                 addresses:
                   - type: IPAddress
@@ -65,7 +65,7 @@ spec:
               apiVersion: v1
               kind: Service
               metadata:
-                name: secondary-lb-service
+                name: test-secondary-network-lb
               status:
                 loadBalancer:
                   ingress:
@@ -74,13 +74,13 @@ spec:
     - name: 5. Verify End-to-End Multi-Network Connectivity
       try:
         - apply:
-            file: 05-client-job.yaml
+            file: 05-client.yaml
             template: true
         - assert:
             resource:
               apiVersion: batch/v1
               kind: Job
               metadata:
-                name: test-client
+                name: test-secondary-network-client
               status:
                 succeeded: 1

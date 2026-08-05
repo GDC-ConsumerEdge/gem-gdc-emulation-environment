@@ -15,12 +15,17 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: test-client
+  name: test-secondary-network-client
 spec:
   template:
     metadata:
       annotations:
-        networking.gke.io/interfaces: '[{"interfaceName":"eth1","network":"test-vlan-123"}]'
+        networking.gke.io/default-interface: eth0
+        networking.gke.io/interfaces: |
+          [
+            {"interfaceName":"eth0","network":"pod-network"},
+            {"interfaceName":"eth1","network":"test-secondary-network"}
+          ]
     spec:
       containers:
         - name: curl

@@ -15,28 +15,28 @@
 apiVersion: networking.gke.io/v1
 kind: GKEGatewayCIDR
 metadata:
-  name: test-vlan-123
+  name: test-secondary-network
 spec:
-  ip4cidr: 192.168.123.0/24
-  network: test-vlan-123
+  ip4cidr: 172.31.255.0/24
+  network: test-secondary-network
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: GatewayClass
 metadata:
-  name: gke-clusterip
+  name: test-secondary-network-gatewayclass
 spec:
   controllerName: "networking.gke.io/cluster-ip"
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
-  name: example-cluster-ip-gateway
+  name: test-secondary-network-gateway
   annotations:
-    networking.gke.io/network: test-vlan-123
+    networking.gke.io/network: test-secondary-network
 spec:
-  gatewayClassName: gke-clusterip
+  gatewayClassName: test-secondary-network-gatewayclass
   listeners:
-    - name: example-service
+    - name: test-secondary-network-service
       protocol: TCP
       port: 80
       allowedRoutes:
@@ -44,26 +44,26 @@ spec:
           - kind: GKEL4Route
 ---
 apiVersion: networking.gke.io/v1
-kind: GKEEndpointSelector
-metadata:
-  name: front-end-pods
-spec:
-  network: test-vlan-123
-  selector:
-    matchLabels:
-      app: test-svc
----
-apiVersion: networking.gke.io/v1
 kind: GKEL4Route
 metadata:
-  name: service-route
+  name: test-secondary-network-l4route
 spec:
   parentRefs:
-    - name: example-cluster-ip-gateway
+    - name: test-secondary-network-gateway
   rules:
-    - name: example-service
+    - name: test-secondary-network-service
       backendRefs:
         - kind: GKEEndpointSelector
           port: 80
           group: networking.gke.io
-          name: front-end-pods
+          name: test-secondary-network-endpointselector
+---
+apiVersion: networking.gke.io/v1
+kind: GKEEndpointSelector
+metadata:
+  name: test-secondary-network-endpointselector
+spec:
+  network: test-secondary-network
+  selector:
+    matchLabels:
+      app: test-secondary-network-svc
