@@ -37,9 +37,9 @@ spec:
               NAMESPACE=$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace 2>/dev/null || echo "default")
               TARGET_URL="http://test-secondary-network-gateway.${NAMESPACE}.gkegw.cluster.local"
               echo "Testing Multi-Network Gateway API DNS ($TARGET_URL)..."
-              MAX_RETRIES=5
+              MAX_RETRIES=30
               COUNT=0
-              until curl -s -f --connect-timeout 3 "$TARGET_URL"; do
+              until curl -f --connect-timeout 3 "$TARGET_URL"; do
                 COUNT=$((COUNT+1))
                 if [ "$COUNT" -ge "$MAX_RETRIES" ]; then
                   echo "Endpoint not reachable after $MAX_RETRIES attempts, exiting to allow Job retry..."

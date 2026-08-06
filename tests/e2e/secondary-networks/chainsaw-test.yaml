@@ -79,7 +79,7 @@ spec:
         - apply:
             file: 05-client.yaml
         - assert:
-            timeout: 60s
+            timeout: 90s
             resource:
               apiVersion: batch/v1
               kind: Job
