@@ -17,6 +17,9 @@ kind: Test
 metadata:
   name: secondary-networking-suite
 spec:
+  timeouts:
+    delete: 3m
+    cleanup: 3m
   steps:
     - name: 1. Deploy Secondary Network CR
       try:

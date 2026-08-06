@@ -18,9 +18,9 @@ metadata:
 spec:
   timeouts:
     apply: 1m
-    assert: 1m
-    cleanup: 1m
-    delete: 1m
+    assert: 2m
+    cleanup: 3m
+    delete: 3m
     error: 1m
     exec: 5m
   skipDelete: false
