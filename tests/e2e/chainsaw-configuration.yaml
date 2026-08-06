@@ -19,8 +19,8 @@ spec:
   timeouts:
     apply: 1m
     assert: 2m
-    cleanup: 3m
-    delete: 3m
+    cleanup: 5m
+    delete: 5m
     error: 1m
     exec: 5m
   skipDelete: false
