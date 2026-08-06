@@ -11,13 +11,29 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-- name: Create working directory for secondary networks
+- name: Create working directory for secondary networks and operator manifests
   ansible.builtin.file:
-    path: "{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/secondary-networks"
+    path: "{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/secondary-networks/crds"
     state: directory
     owner: "{{ gem_user }}"
     group: "{{ gem_user }}"
     mode: "0755"
+
+- name: Copy Secondary Network CRDs
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../operators/gem-nf-operator/crds/"
+    dest: "{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/secondary-networks/crds/"
+    owner: "{{ gem_user }}"
+    group: "{{ gem_user }}"
+    mode: "0644"
+
+- name: Apply Secondary Network Custom Resource Definitions
+  ansible.builtin.shell: |
+    export KUBECONFIG="{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/{{ cluster_name }}-kubeconfig"
+    kubectl apply -f {{ gem_home }}/bmctl-workspace/{{ cluster_name }}/secondary-networks/crds/
+  register: secondary_networks_crd_apply
+  changed_when: "'created' in secondary_networks_crd_apply.stdout or 'configured' in secondary_networks_crd_apply.stdout"
+
 - name: Render Network Custom Resources
   ansible.builtin.template:
     src: network.yaml.j2
@@ -26,25 +42,12 @@
     group: "{{ gem_user }}"
     mode: "0644"
   loop: "{{ secondary_networks }}"
-- name: Render ClusterCIDRConfig Custom Resources
-  ansible.builtin.template:
-    src: clustercidrconfig.yaml.j2
-    dest: "{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/secondary-networks/clustercidr-{{ item.name }}.yaml"
-    owner: "{{ gem_user }}"
-    group: "{{ gem_user }}"
-    mode: "0644"
-  loop: "{{ secondary_networks }}"
-- name: Render MetalLB IPAddressPool and L2Advertisement
-  ansible.builtin.template:
-    src: metallb.yaml.j2
-    dest: "{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/secondary-networks/metallb-{{ item.name }}.yaml"
-    owner: "{{ gem_user }}"
-    group: "{{ gem_user }}"
-    mode: "0644"
-  loop: "{{ secondary_networks }}"
-- name: Apply Secondary Network Manifests
+  when: secondary_networks is defined
+
+- name: Apply Secondary Network Custom Resources
   ansible.builtin.shell: |
     export KUBECONFIG="{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/{{ cluster_name }}-kubeconfig"
-    kubectl apply -f {{ gem_home }}/bmctl-workspace/{{ cluster_name }}/secondary-networks/
-  register: secondary_networks_kubectl_apply
-  changed_when: "'created' in secondary_networks_kubectl_apply.stdout or 'configured' in secondary_networks_kubectl_apply.stdout"
+    kubectl apply -f {{ gem_home }}/bmctl-workspace/{{ cluster_name }}/secondary-networks/network-*.yaml
+  register: secondary_networks_network_cr_apply
+  changed_when: "'created' in secondary_networks_network_cr_apply.stdout or 'configured' in secondary_networks_network_cr_apply.stdout"
+  when: secondary_networks is defined

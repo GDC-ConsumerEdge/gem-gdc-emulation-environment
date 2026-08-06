@@ -54,14 +54,14 @@ secondary_networks:
     gateway: "172.16.10.1"
     vip_pool: "172.16.10.200-172.16.10.250"
     pod_cidr: "172.16.100.0/16"
-    per_node_ipam_size: 18
+    per_node_ipam_size: 24
   - name: "vlan-456"
     vlan_id: 456
     subnet: "192.168.45.0/24"
     gateway: "192.168.45.1"
     vip_pool: "192.168.45.200-192.168.45.250"
     pod_cidr: "192.168.100.0/16"
-    per_node_ipam_size: 18
+    per_node_ipam_size: 24
 
 # To prevent virtual interface naming collisions when deploying multiple clusters sharing
 # similar prefixes (e.g., gem-cluster-1 vs gem-cluster-2), we slice the first 4 digits of
