@@ -1,0 +1,62 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+apiVersion: networking.gke.io/v1
+kind: GKEGatewayCIDR
+metadata:
+  name: test-secondary-network
+spec:
+  ip4cidr: 21.0.119.224/27
+  network: test-secondary-network
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: test-secondary-network-gateway
+  annotations:
+    networking.gke.io/network: test-secondary-network
+spec:
+  gatewayClassName: gke-cluster-ip
+  listeners:
+    - name: test-secondary-network-service
+      protocol: TCP
+      port: 80
+      allowedRoutes:
+        kinds:
+          - kind: GKEL4Route
+---
+apiVersion: networking.gke.io/v1
+kind: GKEEndpointSelector
+metadata:
+  name: test-secondary-network-endpointselector
+spec:
+  network: test-secondary-network
+  selector:
+    matchLabels:
+      app: test-secondary-network-svc
+---
+apiVersion: networking.gke.io/v1
+kind: GKEL4Route
+metadata:
+  name: test-secondary-network-l4route
+spec:
+  parentRefs:
+    - name: test-secondary-network-gateway
+  rules:
+    - name: test-secondary-network-service
+      backendRefs:
+        - kind: GKEEndpointSelector
+          port: 80
+          group: networking.gke.io
+          name: test-secondary-network-endpointselector

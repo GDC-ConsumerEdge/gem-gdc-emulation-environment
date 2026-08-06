@@ -12,15 +12,35 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# ==============================================================================
+# TEST SUITE: Cross-Node Secondary Network & Gateway API Connectivity
+#
+# DESCRIPTION:
+#   Validates secondary network provisioning, multi-node L3 routing, Gateway API
+#   datapath forwarding, and end-to-end HTTP connectivity when client and server
+#   pods are scheduled on DIFFERENT physical/virtual nodes via Kubernetes podAntiAffinity.
+#
+# EXPECTED RESULTS:
+#   - GEM Emulation Environment (GCE):
+#       PASS (Expected). Fully validates GEM's dynamic VXLAN overlay mesh, interface
+#       tagging (gdcenet0.<vlan_id>), and multi-node kernel forwarding across GCE VMs.
+#   - Physical GDC Connected:
+#       - PASS when configured with a real, physically trunked VLAN ID on the Top-of-Rack
+#         (ToR) switches (e.g. fuel-network-3421, pci-network-3430).
+#       - FAIL (Connection Timeout) if run with an untrunked/synthetic VLAN ID (e.g. VLAN 123)
+#         because physical switches drop 802.1Q tagged frames for unconfigured VLANs.
+# ==============================================================================
+
 apiVersion: chainsaw.kyverno.io/v1alpha1
 kind: Test
 metadata:
-  name: secondary-networking-suite
+  name: secondary-networking-cross-node
 spec:
   timeouts:
     delete: 3m
     cleanup: 3m
   steps:
+    # Create the Secondary Network CR and wait for GDC NetworkReady status.
     - name: 1. Deploy Secondary Network CR
       try:
         - apply:
@@ -37,10 +57,13 @@ spec:
                   - type: Ready
                     status: "True"
 
+    # Deploy Gateway API resources (GKEGatewayCIDR, Gateway, GKEEndpointSelector, GKEL4Route).
+    # NOTE: GKEGatewayCIDR must be created BEFORE backend pods so GDC's mutating webhook
+    # can inject the gateway routing table entries into newly scheduled pods.
     - name: 2. Deploy Gateway API Resources
       try:
         - apply:
-            file: 03-gateway-api.yaml
+            file: 02-gateway-api.yaml
         - assert:
             resource:
               apiVersion: gateway.networking.k8s.io/v1
@@ -49,10 +72,11 @@ spec:
                 name: test-secondary-network-gateway
               (length(status.addresses || `[]`) > `0`): true
 
+    # Deploy Backend NGINX Server Pod attached to the secondary network (eth1).
     - name: 3. Deploy Backend Pod Attached to Secondary Network
       try:
         - apply:
-            file: 02-server.yaml
+            file: 03-server.yaml
         - assert:
             resource:
               apiVersion: v1
@@ -62,6 +86,7 @@ spec:
               status:
                 phase: Running
 
+    # Deploy LoadBalancer Service on the secondary network and verify VIP allocation.
     - name: 4. Deploy LoadBalancer Service on Secondary Network
       try:
         - apply:
@@ -77,7 +102,9 @@ spec:
                   ingress:
                     - (ip != null && ip != ''): true
 
-    - name: 5. Verify End-to-End Multi-Network Connectivity
+    # Deploy Client Curl Job with podAntiAffinity forcing it onto a DIFFERENT node than the server.
+    # Verifies cross-node VXLAN data plane forwarding and Gateway API DNS/HTTP reachability.
+    - name: 5. Verify Cross-Node End-to-End Multi-Network Connectivity
       try:
         - apply:
             file: 05-client.yaml
