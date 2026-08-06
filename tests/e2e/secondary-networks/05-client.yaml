@@ -27,6 +27,16 @@ spec:
             {"interfaceName":"eth1","network":"test-secondary-network"}
           ]
     spec:
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - test-secondary-network-svc
+              topologyKey: kubernetes.io/hostname
       containers:
         - name: curl
           image: curlimages/curl
