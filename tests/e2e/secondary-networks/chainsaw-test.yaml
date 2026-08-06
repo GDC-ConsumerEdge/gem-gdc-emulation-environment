@@ -34,7 +34,19 @@ spec:
                   - type: Ready
                     status: "True"
 
-    - name: 2. Deploy Backend Pod Attached to Secondary Network
+    - name: 2. Deploy Gateway API Resources
+      try:
+        - apply:
+            file: 03-gateway-api.yaml
+        - assert:
+            resource:
+              apiVersion: gateway.networking.k8s.io/v1
+              kind: Gateway
+              metadata:
+                name: test-secondary-network-gateway
+              (length(status.addresses || `[]`) > `0`): true
+
+    - name: 3. Deploy Backend Pod Attached to Secondary Network
       try:
         - apply:
             file: 02-server.yaml
@@ -46,18 +58,6 @@ spec:
                 name: test-secondary-network-server
               status:
                 phase: Running
-
-    - name: 3. Deploy Gateway API Resources
-      try:
-        - apply:
-            file: 03-gateway-api.yaml
-        - assert:
-            resource:
-              apiVersion: gateway.networking.k8s.io/v1
-              kind: Gateway
-              metadata:
-                name: test-secondary-network-gateway
-              (length(status.addresses || `[]`) > `0`): true
 
     - name: 4. Deploy LoadBalancer Service on Secondary Network
       try:
