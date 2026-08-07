@@ -43,6 +43,12 @@ jobs:
               - 'terraform/**'
             ansible:
               - 'ansible/**'
+            golang:
+              - 'operators/**'
+              - '**/*.go'
+              - '**/go.mod'
+              - '**/go.sum'
+              - '.golangci.yml'
 
       - name: Setup Go
         uses: actions/setup-go@v6
@@ -57,8 +63,16 @@ jobs:
 
       - name: Run Linters and Validators
         env:
-          SKIP: terraform_fmt,terraform_tflint,terraform_validate,ansible-lint
+          SKIP: terraform_fmt,terraform_tflint,terraform_validate,ansible-lint,golangci-lint
         uses: pre-commit/action@v3.0.1
+
+      - name: Run Golang Linters
+        if: steps.changes.outputs.golang == 'true'
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.64.6
+          working-directory: operators/gem-nf-operator
+          args: --timeout=5m --config=../../.golangci.yml
 
       - name: Terraform Init Mocks
         if: steps.changes.outputs.terraform == 'true'
@@ -77,13 +91,13 @@ jobs:
       - name: Run Terraform Pre-Commit Checks
         if: steps.changes.outputs.terraform == 'true'
         env:
-          SKIP: trailing-whitespace,end-of-file-fixer,check-yaml,check-added-large-files,yamlfmt,gitleaks,addlicense,shellcheck,ansible-lint
+          SKIP: trailing-whitespace,end-of-file-fixer,check-yaml,check-added-large-files,yamlfmt,gitleaks,addlicense,shellcheck,ansible-lint,golangci-lint
         uses: pre-commit/action@v3.0.1
 
       - name: Run Ansible Pre-Commit Checks
         if: steps.changes.outputs.ansible == 'true'
         env:
-          SKIP: trailing-whitespace,end-of-file-fixer,check-yaml,check-added-large-files,yamlfmt,gitleaks,addlicense,shellcheck,terraform_fmt,terraform_tflint,terraform_validate
+          SKIP: trailing-whitespace,end-of-file-fixer,check-yaml,check-added-large-files,yamlfmt,gitleaks,addlicense,shellcheck,terraform_fmt,terraform_tflint,terraform_validate,golangci-lint
         uses: pre-commit/action@v3.0.1
 
   unit-tests:
