@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 - name: Create working directory for secondary networks and operator manifests
   ansible.builtin.file:
     path: "{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/secondary-networks/crds"
@@ -33,6 +34,31 @@
     kubectl apply -f {{ gem_home }}/bmctl-workspace/{{ cluster_name }}/secondary-networks/crds/
   register: secondary_networks_crd_apply
   changed_when: "'created' in secondary_networks_crd_apply.stdout or 'configured' in secondary_networks_crd_apply.stdout"
+
+- name: Build and install gem-nf-operator daemon on Admin Workstation
+  ansible.builtin.shell: |
+    go build -o /usr/local/bin/gem-nf-operator main.go
+  args:
+    chdir: "{{ playbook_dir }}/../operators/gem-nf-operator"
+  become: true
+  changed_when: true
+
+- name: Template systemd service unit for gem-nf-operator workstation daemon
+  ansible.builtin.template:
+    src: gem-nf-operator.service.j2
+    dest: "/etc/systemd/system/gem-nf-operator-{{ cluster_name }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+
+- name: Enable and start gem-nf-operator workstation daemon
+  ansible.builtin.systemd:
+    name: "gem-nf-operator-{{ cluster_name }}.service"
+    enabled: true
+    state: restarted
+    daemon_reload: true
+  become: true
 
 - name: Render Network Custom Resources
   ansible.builtin.template:
