@@ -29,10 +29,12 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 )
 
 const (
@@ -157,7 +159,7 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// Reconcile CoreDNS entry for Gateway DNS resolution (*.gkegw.cluster.local)
 	r.reconcileCoreDNS(ctx, gw.GetName(), gw.GetNamespace(), gwIP)
 
-	return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+	return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
 }
 
 func (r *GatewayReconciler) determineGatewayIP(ctx context.Context, gw *unstructured.Unstructured, networkName string) string {
@@ -443,10 +445,38 @@ func (r *GatewayReconciler) cleanupSyntheticResources(ctx context.Context, gw *u
 	_ = r.Delete(ctx, slice)
 }
 
+func (r *GatewayReconciler) findGatewaysForNamespaceObject(ctx context.Context, obj client.Object) []ctrl.Request {
+	gwList := &unstructured.UnstructuredList{}
+	gwList.SetGroupVersionKind(GatewayGVK)
+	if err := r.List(ctx, gwList, client.InNamespace(obj.GetNamespace())); err != nil {
+		return nil
+	}
+	var reqs []ctrl.Request
+	for _, gw := range gwList.Items {
+		reqs = append(reqs, ctrl.Request{
+			NamespacedName: types.NamespacedName{
+				Namespace: gw.GetNamespace(),
+				Name:      gw.GetName(),
+			},
+		})
+	}
+	return reqs
+}
+
 func (r *GatewayReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	gwObj := &unstructured.Unstructured{}
 	gwObj.SetGroupVersionKind(GatewayGVK)
+
+	routeObj := &unstructured.Unstructured{}
+	routeObj.SetGroupVersionKind(GKEL4RouteGVK)
+
+	epSelectorObj := &unstructured.Unstructured{}
+	epSelectorObj.SetGroupVersionKind(GKEEndpointSelectorGVK)
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(gwObj).
+		Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(r.findGatewaysForNamespaceObject)).
+		Watches(routeObj, handler.EnqueueRequestsFromMapFunc(r.findGatewaysForNamespaceObject)).
+		Watches(epSelectorObj, handler.EnqueueRequestsFromMapFunc(r.findGatewaysForNamespaceObject)).
 		Complete(r)
 }

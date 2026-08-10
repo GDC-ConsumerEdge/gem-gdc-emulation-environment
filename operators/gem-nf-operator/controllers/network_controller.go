@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -48,7 +49,7 @@ var (
 		Kind:    "NetworkAttachmentDefinition",
 	}
 	ClusterCIDRConfigGVK = schema.GroupVersionKind{
-		Group:   "baremetal.cluster.gke.io",
+		Group:   "networking.gke.io",
 		Version: "v1alpha1",
 		Kind:    "ClusterCIDRConfig",
 	}
@@ -183,17 +184,41 @@ func (r *NetworkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 }
 
 func (r *NetworkReconciler) reconcileNetAttachDef(ctx context.Context, owner *unstructured.Unstructured, ifaceName, mtu string) error {
+	gateway4, _, _ := unstructured.NestedString(owner.Object, "spec", "gateway4")
+	prefixLen, found, _ := unstructured.NestedInt64(owner.Object, "spec", "l2NetworkConfig", "prefixLength4")
+	if !found || prefixLen == 0 {
+		prefixLen = 24
+	}
+
+	var ipamConfig string
+	if gateway4 != "" {
+		ip := net.ParseIP(gateway4)
+		if ip != nil && ip.To4() != nil {
+			mask := net.CIDRMask(int(prefixLen), 32)
+			netIP := ip.To4().Mask(mask)
+			subnetCIDR := fmt.Sprintf("%s/%d", netIP.String(), prefixLen)
+			ipamConfig = fmt.Sprintf(`{
+    "type": "host-local",
+    "subnet": "%s",
+    "gateway": "%s"
+  }`, subnetCIDR, gateway4)
+		}
+	}
+	if ipamConfig == "" {
+		ipamConfig = `{
+    "type": "host-local",
+    "subnet": "usePodCidr"
+  }`
+	}
+
 	cniConfig := fmt.Sprintf(`{
   "cniVersion": "0.3.1",
   "type": "macvlan",
   "master": "%s",
   "mode": "bridge",
   "mtu": %s,
-  "ipam": {
-    "type": "host-local",
-    "subnet": "usePodCidr"
-  }
-}`, ifaceName, mtu)
+  "ipam": %s
+}`, ifaceName, mtu, ipamConfig)
 
 	nsList := &corev1.NamespaceList{}
 	if err := r.List(ctx, nsList); err != nil {

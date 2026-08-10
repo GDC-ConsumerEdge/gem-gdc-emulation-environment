@@ -21,6 +21,9 @@ metadata:
   annotations:
     networking.gke.io/gdce-vlan-id: "{{ item.vlan_id }}"
     networking.gke.io/gdce-vlan-mtu: "1410"
+    networking.gke.io/gdce-lb-service-vip-cidrs: '["{{ item.vip_pool }}"]'
+    networking.gke.io/gke-gateway-pod-cidr: "{{ item.pod_cidr }}"
+    networking.gke.io/gdce-per-node-ipam-size: "{{ item.per_node_ipam_size }}"
 spec:
   type: L2
   IPAMMode: Internal

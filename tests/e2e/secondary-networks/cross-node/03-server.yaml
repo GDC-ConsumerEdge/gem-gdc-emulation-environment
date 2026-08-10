@@ -19,11 +19,11 @@ metadata:
   labels:
     app: test-secondary-network-svc
   annotations:
+    k8s.v1.cni.cncf.io/networks: '[{"name":"vlan-456","interface":"eth1"}]'
     networking.gke.io/default-interface: eth0
     networking.gke.io/interfaces: |
       [
-        {"interfaceName":"eth0","network":"pod-network"},
-        {"interfaceName":"eth1","network":"vlan-456"}
+        {"interfaceName":"eth0","network":"pod-network"}
       ]
 spec:
   terminationGracePeriodSeconds: 0

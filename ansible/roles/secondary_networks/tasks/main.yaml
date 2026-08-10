@@ -106,3 +106,16 @@
   register: secondary_networks_network_cr_apply
   changed_when: "'created' in secondary_networks_network_cr_apply.stdout or 'configured' in secondary_networks_network_cr_apply.stdout"
   when: secondary_networks is defined
+
+- name: Ensure CoreDNS supports .gkegw.cluster.local Gateway API DNS resolution
+  ansible.builtin.shell: |
+    set -o pipefail
+    export KUBECONFIG="{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/{{ cluster_name }}-kubeconfig"
+    COREFILE=$(kubectl get configmap coredns-config -n kube-system -o jsonpath='{.data.Corefile}' 2>/dev/null || true)
+    if [ -n "$COREFILE" ] && ! echo "$COREFILE" | grep -q "rewrite name suffix .gkegw.cluster.local"; then
+      UPDATED_COREFILE=$(echo "$COREFILE" | sed '/ready/a \    rewrite name suffix .gkegw.cluster.local .svc.cluster.local')
+      kubectl create configmap coredns-config -n kube-system --from-literal=Corefile="$UPDATED_COREFILE" --dry-run=client -o yaml | kubectl apply -f -
+      kubectl delete pod -n kube-system -l k8s-app=kube-dns || true
+    fi
+  register: secondary_networks_coredns_gkegw_config
+  changed_when: "'configured' in secondary_networks_coredns_gkegw_config.stdout"

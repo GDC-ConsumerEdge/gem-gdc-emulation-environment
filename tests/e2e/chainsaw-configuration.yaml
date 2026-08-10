@@ -24,4 +24,4 @@ spec:
     error: 1m
     exec: 5m
   skipDelete: false
-  parallel: 5
+  parallel: 2

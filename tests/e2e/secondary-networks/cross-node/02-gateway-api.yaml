@@ -12,14 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-apiVersion: networking.gke.io/v1
-kind: GKEGatewayCIDR
-metadata:
-  name: vlan-456
-spec:
-  ip4cidr: 192.168.45.224/27
-  network: vlan-456
----
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
