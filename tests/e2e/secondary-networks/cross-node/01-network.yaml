@@ -15,15 +15,15 @@
 apiVersion: networking.gke.io/v1
 kind: Network
 metadata:
-  name: test-secondary-network
+  name: vlan-456
   annotations:
-    networking.gke.io/gdce-vlan-id: "123"
+    networking.gke.io/gdce-vlan-id: "456"
     networking.gke.io/gdce-vlan-mtu: "1500"
 spec:
   type: L3
   nodeInterfaceMatcher:
-    interfaceName: "gdcenet0.123"
-  gateway4: "21.0.119.254"
+    interfaceName: "gdcenet0.456"
+  gateway4: "192.168.45.254"
   IPAMMode: Internal
   dnsConfig:
     nameservers:

@@ -15,7 +15,7 @@
 apiVersion: networking.gke.io/v1
 kind: Network
 metadata:
-  name: test-secondary-network
+  name: vlan-123
   annotations:
     networking.gke.io/gdce-vlan-id: "123"
     networking.gke.io/gdce-vlan-mtu: "1500"

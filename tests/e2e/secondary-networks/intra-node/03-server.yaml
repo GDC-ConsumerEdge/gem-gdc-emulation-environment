@@ -23,9 +23,10 @@ metadata:
     networking.gke.io/interfaces: |
       [
         {"interfaceName":"eth0","network":"pod-network"},
-        {"interfaceName":"eth1","network":"test-secondary-network"}
+        {"interfaceName":"eth1","network":"vlan-123"}
       ]
 spec:
+  terminationGracePeriodSeconds: 0
   containers:
     - name: nginx
       image: nginx:alpine

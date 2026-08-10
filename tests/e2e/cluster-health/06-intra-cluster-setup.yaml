@@ -19,6 +19,7 @@ metadata:
   labels:
     app: nginx-server
 spec:
+  terminationGracePeriodSeconds: 0
   containers:
     - name: nginx
       image: nginx:alpine
@@ -58,6 +59,7 @@ metadata:
   labels:
     app: nginx-client
 spec:
+  terminationGracePeriodSeconds: 0
   containers:
     - name: client
       image: curlimages/curl:latest
@@ -81,6 +83,7 @@ metadata:
   labels:
     app: nginx-client
 spec:
+  terminationGracePeriodSeconds: 0
   containers:
     - name: client
       image: curlimages/curl:latest

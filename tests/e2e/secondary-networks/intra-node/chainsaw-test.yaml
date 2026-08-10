@@ -51,11 +51,14 @@ spec:
               apiVersion: networking.gke.io/v1
               kind: Network
               metadata:
-                name: test-secondary-network
+                name: vlan-123
               status:
                 conditions:
                   - type: Ready
                     status: "True"
+                  - type: CoreDNSReady
+                    status: "True"
+      cleanup: []
 
     # Deploy Gateway API resources (GKEGatewayCIDR, Gateway, GKEEndpointSelector, GKEL4Route).
     # NOTE: GKEGatewayCIDR must be created BEFORE backend pods so GDC's mutating webhook
@@ -78,6 +81,7 @@ spec:
         - apply:
             file: 03-server.yaml
         - assert:
+            timeout: 60s
             resource:
               apiVersion: v1
               kind: Pod
@@ -92,6 +96,7 @@ spec:
         - apply:
             file: 04-loadbalancer.yaml
         - assert:
+            timeout: 60s
             resource:
               apiVersion: v1
               kind: Service

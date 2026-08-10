@@ -15,17 +15,17 @@
 apiVersion: networking.gke.io/v1
 kind: GKEGatewayCIDR
 metadata:
-  name: test-secondary-network
+  name: vlan-123
 spec:
   ip4cidr: 21.0.119.224/27
-  network: test-secondary-network
+  network: vlan-123
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
   name: test-secondary-network-gateway
   annotations:
-    networking.gke.io/network: test-secondary-network
+    networking.gke.io/network: vlan-123
 spec:
   gatewayClassName: gke-cluster-ip
   listeners:
@@ -41,7 +41,7 @@ kind: GKEEndpointSelector
 metadata:
   name: test-secondary-network-endpointselector
 spec:
-  network: test-secondary-network
+  network: vlan-123
   selector:
     matchLabels:
       app: test-secondary-network-svc

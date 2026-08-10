@@ -17,7 +17,7 @@ kind: Service
 metadata:
   name: test-secondary-network-lb
   annotations:
-    networking.gke.io/network: test-secondary-network
+    networking.gke.io/network: vlan-123
 spec:
   type: LoadBalancer
   selector:
