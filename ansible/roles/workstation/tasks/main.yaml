@@ -15,6 +15,7 @@
   ansible.builtin.apt:
     name:
       - acl
+      - golang-go
     state: present
     update_cache: true
 - name: Ensure GEM platform user exists

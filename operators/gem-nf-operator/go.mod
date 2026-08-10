@@ -1,6 +1,6 @@
 module github.com/GoogleCloudPlatform/gem/operators/gem-nf-operator
 
-go 1.26
+go 1.23.0
 
 require (
 	github.com/go-logr/logr v1.4.2

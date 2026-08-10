@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -28,6 +29,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 )
 
 const (
@@ -193,16 +195,27 @@ func (r *NetworkReconciler) reconcileNetAttachDef(ctx context.Context, owner *un
   }
 }`, ifaceName, mtu)
 
-	nad := &unstructured.Unstructured{}
-	nad.SetGroupVersionKind(NetAttachDefGVK)
-	nad.SetName(owner.GetName())
-	nad.SetNamespace("default")
-
-	nad.Object["spec"] = map[string]interface{}{
-		"config": cniConfig,
+	nsList := &corev1.NamespaceList{}
+	if err := r.List(ctx, nsList); err != nil {
+		return err
 	}
 
-	return r.applyOrUpdate(ctx, nad)
+	for _, ns := range nsList.Items {
+		if !ns.DeletionTimestamp.IsZero() {
+			continue
+		}
+		nad := &unstructured.Unstructured{}
+		nad.SetGroupVersionKind(NetAttachDefGVK)
+		nad.SetName(owner.GetName())
+		nad.SetNamespace(ns.GetName())
+		nad.Object["spec"] = map[string]interface{}{
+			"config": cniConfig,
+		}
+		if err := r.applyOrUpdate(ctx, nad); err != nil {
+			r.Log.Error(err, "Failed to apply NetworkAttachmentDefinition", "namespace", ns.GetName())
+		}
+	}
+	return nil
 }
 
 func (r *NetworkReconciler) reconcileMetalLB(ctx context.Context, owner *unstructured.Unstructured, vipPool []string, ifaceName string) error {
@@ -279,5 +292,19 @@ func (r *NetworkReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	netObj.SetGroupVersionKind(NetworkGVK)
 	return ctrl.NewControllerManagedBy(mgr).
 		For(netObj).
+		Watches(&corev1.Namespace{}, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []ctrl.Request {
+			netList := &unstructured.UnstructuredList{}
+			netList.SetGroupVersionKind(NetworkGVK)
+			if err := r.List(ctx, netList); err != nil {
+				return nil
+			}
+			var reqs []ctrl.Request
+			for _, item := range netList.Items {
+				reqs = append(reqs, ctrl.Request{
+					NamespacedName: client.ObjectKey{Name: item.GetName()},
+				})
+			}
+			return reqs
+		})).
 		Complete(r)
 }

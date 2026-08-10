@@ -21,7 +21,7 @@ Type=simple
 User={{ gem_user }}
 Group={{ gem_user }}
 Environment=KUBECONFIG={{ gem_home }}/bmctl-workspace/{{ cluster_name }}/{{ cluster_name }}-kubeconfig
-ExecStart=/usr/local/bin/gem-nf-operator --metrics-bind-address=:{{ 8080 + (host_octet | default(1) | int) }} --health-probe-bind-address=:{{ 8081 + (host_octet | default(1) | int) }}
+ExecStart=/usr/local/bin/gem-nf-operator --metrics-bind-address=0 --health-probe-bind-address=0
 Restart=always
 RestartSec=5s
 LimitNOFILE=65536

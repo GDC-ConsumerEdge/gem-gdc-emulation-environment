@@ -59,7 +59,7 @@ spec:
                   type: object
                   properties:
                     prefixLength4:
-                      type: string
+                      x-kubernetes-int-or-string: true
             status:
               type: object
               x-kubernetes-preserve-unknown-fields: true

@@ -26,9 +26,9 @@ spec:
   IPAMMode: Internal
   nodeInterfaceMatcher:
     interfaceName: gdcenet0.{{ item.vlan_id }}
-  gateway4: {{ item.gateway }}
+  gateway4: "{{ item.gateway }}"
   l2NetworkConfig:
-    prefixLength4: {{ item.subnet | split('/') | last }}
+    prefixLength4: {{ item.subnet | split('/') | last | int }}
   dnsConfig:
     nameservers:
       - 8.8.8.8

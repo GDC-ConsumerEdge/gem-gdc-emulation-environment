@@ -39,11 +39,9 @@ func main() {
 	var metricsAddr string
 	var enableLeaderElection bool
 	var probeAddr string
-	var kubeconfigPath string
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
-	flag.StringVar(&kubeconfigPath, "kubeconfig", "", "Path to a kubeconfig file. Optional if KUBECONFIG env is set.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. Enabling this will ensure there is only one active controller manager.")
 	opts := zap.Options{
@@ -54,10 +52,10 @@ func main() {
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
-	// Load Kubernetes REST config (supports explicit --kubeconfig flag, KUBECONFIG env, or in-cluster)
+	// Load Kubernetes REST config (supports built-in --kubeconfig flag, KUBECONFIG env, or in-cluster)
 	restConfig, err := ctrl.GetConfig()
-	if err != nil && kubeconfigPath != "" {
-		setupLog.Error(err, "unable to load kubernetes configuration from environment or flags")
+	if err != nil {
+		setupLog.Error(err, "unable to load kubernetes configuration")
 		os.Exit(1)
 	}
 
