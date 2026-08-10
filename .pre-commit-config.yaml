@@ -27,13 +27,13 @@ repos:
         name: YAML Linter
         files: \.(yaml|yml)$
         args: [--allow-multiple-documents]
-        exclude: ^ansible/roles/.*/templates/
+        exclude: ^(ansible/roles/.*/templates/|operators/gem-nf-operator/crds/)
       - id: check-added-large-files
   - repo: https://github.com/google/yamlfmt
     rev: v0.21.0
     hooks:
       - id: yamlfmt
-        exclude: ^ansible/roles/.*/templates/
+        exclude: ^(ansible/roles/.*/templates/|operators/gem-nf-operator/crds/)
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.30.0
     hooks:
@@ -54,7 +54,7 @@ repos:
       - id: ansible-lint
         name: Ansible Linter
         files: ^ansible/.*\.(yaml|yml)$
-        exclude: ^(policies/|tests/)
+        exclude: ^(policies/|tests/|operators/)
         always_run: false
         additional_dependencies:
           - ansible
