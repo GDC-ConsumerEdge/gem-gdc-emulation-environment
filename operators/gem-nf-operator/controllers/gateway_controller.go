@@ -156,8 +156,8 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// Reconcile matching GKEL4Routes and EndpointSelectors
 	r.reconcileRoutesAndEndpoints(ctx, gw, gwIP, targetNetwork)
 
-	// Reconcile CoreDNS entry for Gateway DNS resolution (*.gkegw.cluster.local)
-	r.reconcileCoreDNS(ctx, gw.GetName(), gw.GetNamespace(), gwIP)
+	// Reconcile CoreDNS rewrite for Gateway DNS resolution (*.gkegw.cluster.local)
+	r.reconcileCoreDNS(ctx)
 
 	return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
 }
@@ -388,16 +388,46 @@ func (r *GatewayReconciler) reconcileEndpointSliceForSelector(ctx context.Contex
 	_ = r.applyEndpointSlice(ctx, slice)
 }
 
-func (r *GatewayReconciler) reconcileCoreDNS(ctx context.Context, gwName, namespace, gwIP string) {
-	// Updates CoreDNS custom hosts entry for *.gkegw.cluster.local
-	dnsDomain := fmt.Sprintf("%s.%s.gkegw.cluster.local", gwName, namespace)
+func (r *GatewayReconciler) reconcileCoreDNS(ctx context.Context) {
+	// Ensures CoreDNS rewrites *.gkegw.cluster.local queries to the synthesized service in *.svc.cluster.local
 	cm := &corev1.ConfigMap{}
-	if err := r.Get(ctx, client.ObjectKey{Namespace: "kube-system", Name: "coredns-custom"}, cm); err == nil {
-		if cm.Data == nil {
-			cm.Data = make(map[string]string)
+	if err := r.Get(ctx, client.ObjectKey{Namespace: "kube-system", Name: "coredns-config"}, cm); err != nil {
+		r.Log.Error(err, "Failed to get coredns-config from kube-system")
+	} else {
+		corefile := cm.Data["Corefile"]
+		if corefile != "" && !strings.Contains(corefile, ".gkegw.cluster.local") {
+			lines := strings.Split(corefile, "\n")
+			var newLines []string
+			for _, line := range lines {
+				newLines = append(newLines, line)
+				if strings.Contains(line, "ready") {
+					newLines = append(newLines, "    rewrite name suffix .gkegw.cluster.local .svc.cluster.local")
+				}
+			}
+			cm.Data["Corefile"] = strings.Join(newLines, "\n")
+			if err := r.Update(ctx, cm); err != nil {
+				r.Log.Error(err, "Failed to update coredns-config with .gkegw.cluster.local rewrite rule")
+			} else {
+				r.Log.Info("Successfully updated coredns-config with .gkegw.cluster.local rewrite rule")
+			}
 		}
-		cm.Data["gkegw.override"] = fmt.Sprintf("%s %s\n", gwIP, dnsDomain)
-		_ = r.Update(ctx, cm)
+	}
+
+	cmTmpl := &corev1.ConfigMap{}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: "kube-system", Name: "coredns-template"}, cmTmpl); err == nil {
+		tmplData := cmTmpl.Data["coredns-template"]
+		if tmplData != "" && !strings.Contains(tmplData, ".gkegw.cluster.local") {
+			lines := strings.Split(tmplData, "\n")
+			var newLines []string
+			for _, line := range lines {
+				newLines = append(newLines, line)
+				if strings.Contains(line, "ready") {
+					newLines = append(newLines, "    rewrite name suffix .gkegw.cluster.local .svc.cluster.local")
+				}
+			}
+			cmTmpl.Data["coredns-template"] = strings.Join(newLines, "\n")
+			_ = r.Update(ctx, cmTmpl)
+		}
 	}
 }
 
