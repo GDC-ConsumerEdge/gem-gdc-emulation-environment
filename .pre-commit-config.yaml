@@ -29,10 +29,12 @@ repos:
         args: [--allow-multiple-documents]
         exclude: ^(ansible/roles/.*/templates/|operators/gem-nf-operator/crds/)
       - id: check-added-large-files
+        name: Check for large files
   - repo: https://github.com/google/yamlfmt
     rev: v0.21.0
     hooks:
       - id: yamlfmt
+        name: YAML Formatter
         exclude: ^(ansible/roles/.*/templates/|operators/gem-nf-operator/crds/)
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.30.0
