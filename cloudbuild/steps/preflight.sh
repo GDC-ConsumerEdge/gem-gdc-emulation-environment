@@ -17,6 +17,17 @@ set -euo pipefail
 # shellcheck source=/dev/null
 source /workspace/state/env
 
+# Compute Engine FQDN format: <node-name>.<zone>.c.<project_id>.internal
+# Node name: ${CLUSTER_NAME}-<1|2|3> (len(CLUSTER_NAME) + 2)
+# Suffix: .${GEM_GCP_ZONE}.c.${PROJECT_ID}.internal (len(zone) + len(project) + 13)
+# Total FQDN length = len(CLUSTER_NAME) + len(GEM_GCP_ZONE) + len(PROJECT_ID) + 15
+fqdn_len=$(( ${#CLUSTER_NAME} + ${#GEM_GCP_ZONE} + ${#PROJECT_ID} + 15 ))
+if [[ "${fqdn_len}" -gt 63 ]]; then
+  max_len=$(( 63 - ${#GEM_GCP_ZONE} - ${#PROJECT_ID} - 15 ))
+  echo "🚫 ERROR: CLUSTER_NAME '${CLUSTER_NAME}' is too long (${#CLUSTER_NAME} chars). With project '${PROJECT_ID}' and zone '${GEM_GCP_ZONE}', node FQDNs would be ${fqdn_len} characters, exceeding the Kubernetes 63-character label limit. Maximum allowed CLUSTER_NAME length is ${max_len} characters." >&2
+  exit 1
+fi
+
 conflict=0
 for n in 1 2 3; do
   vm="${CLUSTER_NAME}-${n}"

@@ -65,6 +65,7 @@ Storage (see [docs/storage.md](docs/storage.md)):
 
 Platform & Tooling:
 
+*   **Cluster Name Length & Kubernetes 63-char Hostname Limit**: GCE VM FQDNs take the form `<cluster_name>-<node>.<zone>.c.<project_id>.internal`. Kubernetes node registration fails if the FQDN exceeds **63 characters** (`metadata.labels: Invalid value: must be no more than 63 characters`), causing `bmctl` node pool timeouts. Cluster name length must satisfy `len(cluster_name) <= 63 - len(zone) - len(project_id) - 15` (typically $\le 16$ characters in longer GCP projects).
 *   **Prefer Native Declarations**: Always use native declarative operations and features provided by the tooling (such as Kyverno Chainsaw `patch`/`apply`/`assert` operations, Terraform resources, or Ansible modules) rather than shelling out to raw scripts or CLI commands (`kubectl`, `gcloud`, etc.) whenever possible.
 *   **QEMU Fallback**: If the GCP project enforces Shielded VMs (Secure Boot), nested virtualization (KVM) fails and the cluster falls back to QEMU software emulation, which breaks Windows VM scheduling (no Hyper-V features). Workaround: set `osType: Linux` for all VMs when using QEMU.
 *   **Storage capacity vs. usable emulation**: The cluster provides ~3.9 TB aggregate raw storage (~1.3 TB per node via TopoLVM). Real GDC with Robin SDS typically yields only ~1.3 TB usable due to 3-way replication. GEM does not enforce this lower limit, to allow testing larger single volumes.
