@@ -26,6 +26,7 @@ destroy_args=(
   -input=false
   -var="project_id=${PROJECT_ID}"
   -var="cluster_name=${CLUSTER_NAME}"
+  -var="zone=${GEM_GCP_ZONE}"
 )
 
 if [[ -n "${PROVISIONING_SA_EMAIL}" ]]; then
