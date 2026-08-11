@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"strconv"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -34,7 +35,20 @@ import (
 )
 
 const (
+	// NetworkFinalizer prevents deletion of the Network until its child resources are cleaned up.
 	NetworkFinalizer = "networking.gke.io/network-finalizer"
+
+	// Annotation keys for GDCE network configuration.
+	AnnotationVLANID          = "networking.gke.io/gdce-vlan-id"
+	AnnotationVLANMTU         = "networking.gke.io/gdce-vlan-mtu"
+	AnnotationLBServiceVIPs   = "networking.gke.io/gdce-lb-service-vip-cidrs"
+	AnnotationGatewayPodCIDR  = "networking.gke.io/gke-gateway-pod-cidr"
+	AnnotationPerNodeIPAMSize = "networking.gke.io/gdce-per-node-ipam-size"
+
+	// Default values for GDCE network emulation.
+	DefaultVLANMTU         = "1410"
+	DefaultPrefixLength    = 24
+	DefaultPerNodeMaskSize = 24
 )
 
 var (
@@ -65,13 +79,15 @@ var (
 	}
 )
 
-// NetworkReconciler reconciles a networking.gke.io Network object
+// NetworkReconciler reconciles networking.gke.io Network custom resources by dynamically provisioning
+// corresponding Multus NetworkAttachmentDefinitions, MetalLB IPAddressPools, and ClusterCIDRConfigs.
 type NetworkReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 	Log    logr.Logger
 }
 
+// Reconcile processes a Network custom resource.
 func (r *NetworkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := r.Log.WithValues("network", req.Name)
 
@@ -82,10 +98,10 @@ func (r *NetworkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// Handle Finalizer / Deletion
+	// Handle resource deletion and finalizer cleanup.
 	if !netObj.GetDeletionTimestamp().IsZero() {
 		if controllerutil.ContainsFinalizer(netObj, NetworkFinalizer) {
-			log.Info("Cleaning up child resources for Network", "name", netObj.GetName())
+			log.Info("Cleaning up resources for Network", "name", netObj.GetName())
 			controllerutil.RemoveFinalizer(netObj, NetworkFinalizer)
 			if err := r.Update(ctx, netObj); err != nil {
 				return ctrl.Result{}, err
@@ -94,7 +110,7 @@ func (r *NetworkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, nil
 	}
 
-	// Add Finalizer
+	// Ensure finalizer is present.
 	if !controllerutil.ContainsFinalizer(netObj, NetworkFinalizer) {
 		controllerutil.AddFinalizer(netObj, NetworkFinalizer)
 		if err := r.Update(ctx, netObj); err != nil {
@@ -102,16 +118,15 @@ func (r *NetworkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
-	// Extract Network Spec & Annotations
 	annotations := netObj.GetAnnotations()
 	if annotations == nil {
 		annotations = make(map[string]string)
 	}
 
-	vlanID := annotations["networking.gke.io/gdce-vlan-id"]
-	vlanMTU := annotations["networking.gke.io/gdce-vlan-mtu"]
+	vlanID := annotations[AnnotationVLANID]
+	vlanMTU := annotations[AnnotationVLANMTU]
 	if vlanMTU == "" {
-		vlanMTU = "1410"
+		vlanMTU = DefaultVLANMTU
 	}
 
 	spec, _, _ := unstructured.NestedMap(netObj.Object, "spec")
@@ -124,31 +139,33 @@ func (r *NetworkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		ifaceName = fmt.Sprintf("gdcenet0.%s", vlanID)
 	}
 
-	// Reconcile NetworkAttachmentDefinition (Multus)
+	// Reconcile Multus NetworkAttachmentDefinition across all active namespaces.
 	if ifaceName != "" {
 		if err := r.reconcileNetAttachDef(ctx, netObj, ifaceName, vlanMTU); err != nil {
 			log.Error(err, "Failed to reconcile NetworkAttachmentDefinition")
 		}
 	}
 
-	// Reconcile MetalLB IPAddressPool if VIP pool annotation or spec exists
-	if lbVIPsJSON, ok := annotations["networking.gke.io/gdce-lb-service-vip-cidrs"]; ok && lbVIPsJSON != "" {
+	// Reconcile MetalLB IPAddressPool & L2Advertisement in kube-system if VIP pool is configured.
+	if lbVIPsJSON, ok := annotations[AnnotationLBServiceVIPs]; ok && lbVIPsJSON != "" {
 		var vipList []string
 		if err := json.Unmarshal([]byte(lbVIPsJSON), &vipList); err == nil && len(vipList) > 0 {
 			if err := r.reconcileMetalLB(ctx, netObj, vipList, ifaceName); err != nil {
 				log.Error(err, "Failed to reconcile MetalLB IPAddressPool")
 			}
+		} else if err != nil {
+			log.Error(err, "Failed to parse VIP pool annotation JSON", "raw", lbVIPsJSON)
 		}
 	}
 
-	// Reconcile ClusterCIDRConfig if pod CIDR is present
-	if podCIDR, ok := annotations["networking.gke.io/gke-gateway-pod-cidr"]; ok && podCIDR != "" {
-		if err := r.reconcileClusterCIDRConfig(ctx, netObj, podCIDR, annotations["networking.gke.io/gdce-per-node-ipam-size"]); err != nil {
+	// Reconcile ClusterCIDRConfig if secondary pod CIDR allocation is requested.
+	if podCIDR, ok := annotations[AnnotationGatewayPodCIDR]; ok && podCIDR != "" {
+		if err := r.reconcileClusterCIDRConfig(ctx, netObj, podCIDR, annotations[AnnotationPerNodeIPAMSize]); err != nil {
 			log.Error(err, "Failed to reconcile ClusterCIDRConfig")
 		}
 	}
 
-	// Update Status Conditions
+	// Update status conditions to indicate readiness.
 	now := metav1.Now().Rfc3339Copy().Format(time.RFC3339)
 	conditions := []interface{}{
 		map[string]interface{}{
@@ -176,18 +193,19 @@ func (r *NetworkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	if err := r.Status().Update(ctx, netObj); err != nil {
-		// If status subresource fails, try direct update
 		_ = r.Update(ctx, netObj)
 	}
 
 	return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 }
 
+// reconcileNetAttachDef generates a NetworkAttachmentDefinition in every active namespace,
+// configuring the macvlan CNI and host-local IPAM using the Network spec's gateway and prefix.
 func (r *NetworkReconciler) reconcileNetAttachDef(ctx context.Context, owner *unstructured.Unstructured, ifaceName, mtu string) error {
 	gateway4, _, _ := unstructured.NestedString(owner.Object, "spec", "gateway4")
 	prefixLen, found, _ := unstructured.NestedInt64(owner.Object, "spec", "l2NetworkConfig", "prefixLength4")
-	if !found || prefixLen == 0 {
-		prefixLen = 24
+	if !found || prefixLen <= 0 || prefixLen > 32 {
+		prefixLen = DefaultPrefixLength
 	}
 
 	var ipamConfig string
@@ -243,6 +261,7 @@ func (r *NetworkReconciler) reconcileNetAttachDef(ctx context.Context, owner *un
 	return nil
 }
 
+// reconcileMetalLB manages IPAddressPool and L2Advertisement resources in kube-system for secondary VIPs.
 func (r *NetworkReconciler) reconcileMetalLB(ctx context.Context, owner *unstructured.Unstructured, vipPool []string, ifaceName string) error {
 	pool := &unstructured.Unstructured{}
 	pool.SetGroupVersionKind(IPAddressPoolGVK)
@@ -276,10 +295,13 @@ func (r *NetworkReconciler) reconcileMetalLB(ctx context.Context, owner *unstruc
 	return r.applyOrUpdate(ctx, l2Adv)
 }
 
+// reconcileClusterCIDRConfig ensures GKE secondary Pod IPAM configuration exists for the network.
 func (r *NetworkReconciler) reconcileClusterCIDRConfig(ctx context.Context, owner *unstructured.Unstructured, podCIDR, maskSize string) error {
-	perNodeMask := 24
+	perNodeMask := DefaultPerNodeMaskSize
 	if maskSize != "" {
-		fmt.Sscanf(maskSize, "%d", &perNodeMask)
+		if parsed, err := strconv.Atoi(maskSize); err == nil && parsed > 0 && parsed <= 32 {
+			perNodeMask = parsed
+		}
 	}
 
 	cidrConfig := &unstructured.Unstructured{}
@@ -297,6 +319,7 @@ func (r *NetworkReconciler) reconcileClusterCIDRConfig(ctx context.Context, owne
 	return r.applyOrUpdate(ctx, cidrConfig)
 }
 
+// applyOrUpdate creates or updates an unstructured resource idempotently.
 func (r *NetworkReconciler) applyOrUpdate(ctx context.Context, obj *unstructured.Unstructured) error {
 	existing := &unstructured.Unstructured{}
 	existing.SetGroupVersionKind(obj.GroupVersionKind())
@@ -312,9 +335,13 @@ func (r *NetworkReconciler) applyOrUpdate(ctx context.Context, obj *unstructured
 	return r.Update(ctx, obj)
 }
 
+// SetupWithManager sets up the Network controller with the controller manager.
 func (r *NetworkReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	netObj := &unstructured.Unstructured{}
 	netObj.SetGroupVersionKind(NetworkGVK)
+
+	// Reconcile all Networks whenever a new Namespace is created so NetworkAttachmentDefinitions
+	// are immediately available in the new namespace.
 	return ctrl.NewControllerManagedBy(mgr).
 		For(netObj).
 		Watches(&corev1.Namespace{}, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []ctrl.Request {
