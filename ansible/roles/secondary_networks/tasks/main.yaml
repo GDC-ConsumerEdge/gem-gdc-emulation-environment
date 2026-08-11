@@ -54,8 +54,8 @@
 
 - name: Copy gem-nf-operator source code to Admin Workstation
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../operators/gem-nf-operator"
-    dest: "{{ gem_home }}/operators/"
+    src: "{{ playbook_dir }}/../operators/gem-nf-operator/"
+    dest: "{{ gem_home }}/operators/gem-nf-operator/"
     owner: "{{ gem_user }}"
     group: "{{ gem_user }}"
     mode: "0755"

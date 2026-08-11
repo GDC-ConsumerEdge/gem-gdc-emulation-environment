@@ -38,14 +38,15 @@ const (
 	// NetworkFinalizer prevents deletion of the Network until its child resources are cleaned up.
 	NetworkFinalizer = "networking.gke.io/network-finalizer"
 
-	// Annotation keys for GDCE network configuration.
+	// Annotation keys for GEM network configuration.
+	AnnotationNetworkTarget   = "networking.gke.io/network"
 	AnnotationVLANID          = "networking.gke.io/gdce-vlan-id"
 	AnnotationVLANMTU         = "networking.gke.io/gdce-vlan-mtu"
 	AnnotationLBServiceVIPs   = "networking.gke.io/gdce-lb-service-vip-cidrs"
 	AnnotationGatewayPodCIDR  = "networking.gke.io/gke-gateway-pod-cidr"
 	AnnotationPerNodeIPAMSize = "networking.gke.io/gdce-per-node-ipam-size"
 
-	// Default values for GDCE network emulation.
+	// Default values for GEM network emulation.
 	DefaultVLANMTU         = "1410"
 	DefaultPrefixLength    = 24
 	DefaultPerNodeMaskSize = 24
@@ -163,6 +164,11 @@ func (r *NetworkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		if err := r.reconcileClusterCIDRConfig(ctx, netObj, podCIDR, annotations[AnnotationPerNodeIPAMSize]); err != nil {
 			log.Error(err, "Failed to reconcile ClusterCIDRConfig")
 		}
+	}
+
+	// Reconcile Services requesting this secondary network to bind to the MetalLB address pool.
+	if err := r.reconcileServices(ctx, netObj.GetName()); err != nil {
+		log.Error(err, "Failed to reconcile secondary network Services")
 	}
 
 	// Update status conditions to indicate readiness.
@@ -319,6 +325,30 @@ func (r *NetworkReconciler) reconcileClusterCIDRConfig(ctx context.Context, owne
 	return r.applyOrUpdate(ctx, cidrConfig)
 }
 
+// reconcileServices binds Services annotated with networking.gke.io/network to the corresponding MetalLB pool.
+func (r *NetworkReconciler) reconcileServices(ctx context.Context, networkName string) error {
+	svcList := &corev1.ServiceList{}
+	if err := r.List(ctx, svcList); err != nil {
+		return err
+	}
+
+	targetPool := fmt.Sprintf("%s-pool", networkName)
+	for _, svc := range svcList.Items {
+		if netName, ok := svc.Annotations[AnnotationNetworkTarget]; ok && netName == networkName {
+			if svc.Annotations == nil {
+				svc.Annotations = make(map[string]string)
+			}
+			if svc.Annotations["metallb.universe.tf/address-pool"] != targetPool {
+				svc.Annotations["metallb.universe.tf/address-pool"] = targetPool
+				if err := r.Update(ctx, &svc); err != nil {
+					r.Log.Error(err, "Failed to bind Service to MetalLB address pool", "service", svc.Name, "namespace", svc.Namespace)
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // applyOrUpdate creates or updates an unstructured resource idempotently.
 func (r *NetworkReconciler) applyOrUpdate(ctx context.Context, obj *unstructured.Unstructured) error {
 	existing := &unstructured.Unstructured{}
@@ -341,7 +371,7 @@ func (r *NetworkReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	netObj.SetGroupVersionKind(NetworkGVK)
 
 	// Reconcile all Networks whenever a new Namespace is created so NetworkAttachmentDefinitions
-	// are immediately available in the new namespace.
+	// are immediately available in the new namespace, or whenever a Service requests secondary networking.
 	return ctrl.NewControllerManagedBy(mgr).
 		For(netObj).
 		Watches(&corev1.Namespace{}, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []ctrl.Request {
@@ -357,6 +387,14 @@ func (r *NetworkReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				})
 			}
 			return reqs
+		})).
+		Watches(&corev1.Service{}, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []ctrl.Request {
+			if netName, ok := o.GetAnnotations()[AnnotationNetworkTarget]; ok && netName != "" {
+				return []ctrl.Request{
+					{NamespacedName: client.ObjectKey{Name: netName}},
+				}
+			}
+			return nil
 		})).
 		Complete(r)
 }

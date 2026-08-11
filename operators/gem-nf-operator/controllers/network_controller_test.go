@@ -44,7 +44,7 @@ func TestNetworkReconciler_Reconcile_CompleteNetwork(t *testing.T) {
 	nsProd := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "prod"}}
 	nsKubeSystem := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "kube-system"}}
 
-	// Define a complete Network custom resource with all GDCE annotations
+	// Define a complete Network custom resource with all GEM annotations
 	netObj := &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "networking.gke.io/v1",
@@ -308,5 +308,65 @@ func TestNetworkReconciler_Reconcile_TerminatingNamespaceSkipped(t *testing.T) {
 	err = fakeClient.Get(ctx, types.NamespacedName{Namespace: "terminating-ns", Name: "vlan-555"}, nad)
 	if err == nil {
 		t.Errorf("Expected NetAttachDef NOT to be created in terminating namespace")
+	}
+}
+
+func TestNetworkReconciler_Reconcile_ServiceBinding(t *testing.T) {
+	scheme := setupNetworkTestScheme()
+
+	nsDefault := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}}
+	netObj := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "networking.gke.io/v1",
+			"kind":       "Network",
+			"metadata": map[string]interface{}{
+				"name": "vlan-123",
+				"annotations": map[string]interface{}{
+					AnnotationVLANID:        "123",
+					AnnotationLBServiceVIPs: `["172.16.12.200-172.16.12.250"]`,
+				},
+			},
+		},
+	}
+
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-lb-svc",
+			Namespace: "default",
+			Annotations: map[string]string{
+				AnnotationNetworkTarget: "vlan-123",
+			},
+		},
+		Spec: corev1.ServiceSpec{
+			Type: corev1.ServiceTypeLoadBalancer,
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(nsDefault, netObj, svc).
+		Build()
+
+	reconciler := &NetworkReconciler{
+		Client: fakeClient,
+		Scheme: scheme,
+		Log:    logr.Discard(),
+	}
+
+	ctx := context.Background()
+	_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "vlan-123"}})
+	if err != nil {
+		t.Fatalf("Reconcile returned error: %v", err)
+	}
+
+	updatedSvc := &corev1.Service{}
+	err = fakeClient.Get(ctx, types.NamespacedName{Namespace: "default", Name: "test-lb-svc"}, updatedSvc)
+	if err != nil {
+		t.Fatalf("Failed to get updated Service: %v", err)
+	}
+
+	poolAnnotation := updatedSvc.Annotations["metallb.universe.tf/address-pool"]
+	if poolAnnotation != "vlan-123-pool" {
+		t.Errorf("Expected metallb.universe.tf/address-pool: vlan-123-pool, got %q", poolAnnotation)
 	}
 }
