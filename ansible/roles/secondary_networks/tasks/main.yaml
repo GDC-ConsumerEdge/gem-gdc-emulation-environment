@@ -115,7 +115,6 @@
   ansible.builtin.shell: |
     set -o pipefail
     export KUBECONFIG="{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/{{ cluster_name }}-kubeconfig"
-    kubectl scale deployment clusterdns-controller -n kube-system --replicas=0 || true
     COREFILE=$(kubectl get configmap coredns-config -n kube-system -o jsonpath='{.data.Corefile}' 2>/dev/null || true)
     if [ -n "$COREFILE" ] && ! echo "$COREFILE" | grep -q "rewrite name suffix .gkegw.cluster.local"; then
       UPDATED_COREFILE=$(echo "$COREFILE" | sed '/ready/a \    rewrite name suffix .gkegw.cluster.local .svc.cluster.local')
