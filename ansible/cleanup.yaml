@@ -47,10 +47,8 @@
       ansible.builtin.file:
         path: "{{ gem_home }}/bmctl-workspace/{{ cluster_name }}"
         state: absent
-- name: Clean up VXLAN networking on Workstation and Edge Router
-  hosts:
-    - workstation
-    - edge_router
+- name: Clean up VXLAN networking on Workstation
+  hosts: workstation
   become: true
   vars:
     firewall_service: "vxlan-tcpmss-{{ cluster_name }}.service"
@@ -78,12 +76,17 @@
     - name: Remove declarative systemd-networkd configuration files from GCS overlay sync bucket
       ansible.builtin.shell: >
         gcloud storage rm
-        "gs://gem-{{ gcp_project_id }}-overlay-sync/{{ inventory_hostname }}/*{{ (cluster_name | replace('-', '') | truncate(6, True, '', 0)) }}*"
+        "gs://gem-{{ gcp_project_id }}-overlay-sync/gem_admin_ws/*{{ (cluster_name | replace('-', '') | truncate(6, True, '', 0)) }}*"
+        "gs://gem-{{ gcp_project_id }}-overlay-sync/edge_router_host/*{{ (cluster_name | replace('-', '') | truncate(6, True, '', 0)) }}*"
         || true
+      args:
+        executable: /bin/bash
       changed_when: true
     - name: Remove declarative systemd-networkd configuration files
       ansible.builtin.shell: >
         rm -f /etc/systemd/network/*{{ (cluster_name | replace('-', '') | truncate(6, True, '', 0)) }}*
+      args:
+        executable: /bin/bash
       changed_when: true
     - name: Restart systemd-networkd to synchronize active kernel netdevs
       ansible.builtin.systemd:

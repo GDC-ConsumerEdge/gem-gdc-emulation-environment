@@ -31,4 +31,6 @@
   ansible.builtin.shell: |
     export KUBECONFIG="{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/{{ cluster_name }}-kubeconfig"
     kubectl apply -f {{ gem_home }}/bmctl-workspace/{{ cluster_name }}/gvisor/runtimeclass.yaml
+  args:
+    executable: /bin/bash
   changed_when: true

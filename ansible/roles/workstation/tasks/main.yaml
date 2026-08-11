@@ -239,6 +239,8 @@
           --project={{ gcp_project_id }}
           --impersonate-service-account=tf-provisioner@{{ gcp_project_id }}.iam.gserviceaccount.com
         stdin: "{{ (workstation_privkey_file.content | b64decode) }}"
+      args:
+        executable: /bin/bash
       when: >
         workstation_ssh_secret_current.rc != 0 or
         workstation_ssh_secret_current.stdout != (workstation_privkey_file.content | b64decode)

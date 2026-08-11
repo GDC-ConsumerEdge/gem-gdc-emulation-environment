@@ -32,6 +32,8 @@
   ansible.builtin.shell: |
     export KUBECONFIG="{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/{{ cluster_name }}-kubeconfig"
     kubectl apply -f {{ gem_home }}/bmctl-workspace/{{ cluster_name }}/secondary-networks/crds/
+  args:
+    executable: /bin/bash
   register: secondary_networks_crd_apply
   changed_when: "'created' in secondary_networks_crd_apply.stdout or 'configured' in secondary_networks_crd_apply.stdout"
 
@@ -103,6 +105,8 @@
         kubectl apply -f "$f"
       fi
     done
+  args:
+    executable: /bin/bash
   register: secondary_networks_network_cr_apply
   changed_when: "'created' in secondary_networks_network_cr_apply.stdout or 'configured' in secondary_networks_network_cr_apply.stdout"
   when: secondary_networks is defined
@@ -118,5 +122,7 @@
       kubectl create configmap coredns-config -n kube-system --from-literal=Corefile="$UPDATED_COREFILE" --dry-run=client -o yaml | kubectl apply -f -
       kubectl delete pod -n kube-system -l k8s-app=kube-dns || true
     fi
+  args:
+    executable: /bin/bash
   register: secondary_networks_coredns_gkegw_config
   changed_when: "'configured' in secondary_networks_coredns_gkegw_config.stdout"
