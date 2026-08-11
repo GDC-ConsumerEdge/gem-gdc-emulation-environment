@@ -71,7 +71,7 @@ jobs:
         uses: golangci/golangci-lint-action@v6
         with:
           version: v1.64.6
-          working-directory: operators/gem-nf-operator
+          working-directory: operators/gem-network-operator
           args: --timeout=5m --config=../../.golangci.yml
 
       - name: Terraform Init Mocks

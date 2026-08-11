@@ -13,7 +13,7 @@
 # limitations under the License.
 
 [Unit]
-Description=GEM Secondary Network Operator (gem-nf-operator) for cluster {{ cluster_name }}
+Description=GEM Secondary Network Operator (gem-network-operator) for cluster {{ cluster_name }}
 After=network.target
 
 [Service]
@@ -21,7 +21,7 @@ Type=simple
 User={{ gem_user }}
 Group={{ gem_user }}
 Environment=KUBECONFIG={{ gem_home }}/bmctl-workspace/{{ cluster_name }}/{{ cluster_name }}-kubeconfig
-ExecStart=/usr/local/bin/gem-nf-operator --metrics-bind-address=0 --health-probe-bind-address=0
+ExecStart=/usr/local/bin/gem-network-operator --metrics-bind-address=0 --health-probe-bind-address=0
 Restart=always
 RestartSec=5s
 LimitNOFILE=65536

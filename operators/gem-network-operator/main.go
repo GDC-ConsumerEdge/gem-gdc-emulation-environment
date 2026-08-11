@@ -18,7 +18,7 @@ import (
 	"flag"
 	"os"
 
-	"github.com/GoogleCloudPlatform/gem/operators/gem-nf-operator/controllers"
+	"github.com/GoogleCloudPlatform/gem/operators/gem-network-operator/controllers"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -67,7 +67,7 @@ func main() {
 		},
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "gem-nf-operator.gke.io",
+		LeaderElectionID:       "gem-network-operator.gke.io",
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
@@ -92,7 +92,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	setupLog.Info("starting manager for gem-nf-operator")
+	setupLog.Info("starting manager for gem-network-operator")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)

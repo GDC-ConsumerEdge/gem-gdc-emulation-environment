@@ -14,24 +14,24 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: gem-nf-operator
+  name: gem-network-operator
   namespace: kube-system
   labels:
-    app.kubernetes.io/name: gem-nf-operator
+    app.kubernetes.io/name: gem-network-operator
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: gem-nf-operator
+      app.kubernetes.io/name: gem-network-operator
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: gem-nf-operator
+        app.kubernetes.io/name: gem-network-operator
     spec:
-      serviceAccountName: gem-nf-operator
+      serviceAccountName: gem-network-operator
       containers:
         - name: manager
-          image: gcr.io/gke-release/gem-nf-operator:latest
+          image: gcr.io/gke-release/gem-network-operator:latest
           imagePullPolicy: IfNotPresent
           command:
             - /manager

@@ -406,7 +406,7 @@ func (r *GatewayReconciler) reconcileEndpointSliceForSelector(ctx context.Contex
 			Namespace: gw.GetNamespace(),
 			Labels: map[string]string{
 				discoveryv1.LabelServiceName: gw.GetName(),
-				discoveryv1.LabelManagedBy:   "gem-nf-operator",
+				discoveryv1.LabelManagedBy:   "gem-network-operator",
 			},
 		},
 		AddressType: discoveryv1.AddressTypeIPv4,

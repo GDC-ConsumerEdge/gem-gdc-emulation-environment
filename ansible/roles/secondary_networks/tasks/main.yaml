@@ -22,7 +22,7 @@
 
 - name: Copy Secondary Network CRDs
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../operators/gem-nf-operator/crds/"
+    src: "{{ playbook_dir }}/../operators/gem-network-operator/crds/"
     dest: "{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/secondary-networks/crds/"
     owner: "{{ gem_user }}"
     group: "{{ gem_user }}"
@@ -52,36 +52,36 @@
     group: "{{ gem_user }}"
     mode: "0755"
 
-- name: Copy gem-nf-operator source code to Admin Workstation
+- name: Copy gem-network-operator source code to Admin Workstation
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../operators/gem-nf-operator/"
-    dest: "{{ gem_home }}/operators/gem-nf-operator/"
+    src: "{{ playbook_dir }}/../operators/gem-network-operator/"
+    dest: "{{ gem_home }}/operators/gem-network-operator/"
     owner: "{{ gem_user }}"
     group: "{{ gem_user }}"
     mode: "0755"
 
-- name: Build and install gem-nf-operator binary on Admin Workstation
+- name: Build and install gem-network-operator binary on Admin Workstation
   ansible.builtin.command:
-    cmd: go build -o /usr/local/bin/gem-nf-operator main.go
-    chdir: "{{ gem_home }}/operators/gem-nf-operator"
+    cmd: go build -o /usr/local/bin/gem-network-operator main.go
+    chdir: "{{ gem_home }}/operators/gem-network-operator"
   environment:
     GOPATH: "{{ gem_home }}/go"
     GOCACHE: "{{ gem_home }}/.cache/go-build"
   become: true
   changed_when: true
 
-- name: Template systemd service unit for gem-nf-operator workstation daemon
+- name: Template systemd service unit for gem-network-operator workstation daemon
   ansible.builtin.template:
-    src: gem-nf-operator.service.j2
-    dest: "/etc/systemd/system/gem-nf-operator-{{ cluster_name }}.service"
+    src: gem-network-operator.service.j2
+    dest: "/etc/systemd/system/gem-network-operator-{{ cluster_name }}.service"
     owner: root
     group: root
     mode: "0644"
   become: true
 
-- name: Enable and start gem-nf-operator workstation daemon
+- name: Enable and start gem-network-operator workstation daemon
   ansible.builtin.systemd:
-    name: "gem-nf-operator-{{ cluster_name }}.service"
+    name: "gem-network-operator-{{ cluster_name }}.service"
     enabled: true
     state: restarted
     daemon_reload: true

@@ -47,20 +47,59 @@ cluster_node_taints:
     effect: "PreferNoSchedule"
 # OPA Gatekeeper release version for validation and mutation
 gatekeeper_version: "v3.22.2"
+
+# Secondary networks are an optional configuration, and not required for GEM to function.
+# If you do have a need for a secondary network(s), they are to be defined here.
+# Up to 10 secondary networks are supported, and some examples are provided below.
 secondary_networks:
   - name: "vlan-123"
     vlan_id: 123
-    subnet: "172.16.10.0/24"
-    gateway: "172.16.10.1"
-    vip_pool: "172.16.10.200-172.16.10.250"
-    pod_cidr: "172.16.100.0/16"
+    subnet: "172.16.12.0/24"
+    gateway: "172.16.12.1"
+    vip_pool: "172.16.12.200-172.16.12.250"
+    pod_cidr: "10.12.0.0/22" # 1024 addresses
+    per_node_ipam_size: 24
+  - name: "vlan-234"
+    vlan_id: 234
+    subnet: "172.16.23.0/24"
+    gateway: "172.16.23.1"
+    vip_pool: "172.16.23.200-172.16.23.250"
+    pod_cidr: "10.23.0.0/22"
+    per_node_ipam_size: 24
+  - name: "vlan-345"
+    vlan_id: 345
+    subnet: "172.16.34.0/24"
+    gateway: "172.16.34.1"
+    vip_pool: "172.16.34.200-172.16.34.250"
+    pod_cidr: "10.34.0.0/22"
     per_node_ipam_size: 24
   - name: "vlan-456"
     vlan_id: 456
     subnet: "192.168.45.0/24"
     gateway: "192.168.45.1"
     vip_pool: "192.168.45.200-192.168.45.250"
-    pod_cidr: "192.168.100.0/16"
+    pod_cidr: "10.45.0.0/22"
+    per_node_ipam_size: 24
+  - name: "vlan-789"
+    vlan_id: 789
+    subnet: "192.168.78.0/24"
+    gateway: "192.168.78.1"
+    vip_pool: "192.168.78.200-192.168.78.250"
+    pod_cidr: "10.78.0.0/22"
+    per_node_ipam_size: 24
+  - name: "vlan-890"
+    vlan_id: 890
+    subnet: "192.168.89.0/24"
+    gateway: "192.168.89.1"
+    vip_pool: "192.168.89.200-192.168.89.250"
+    pod_cidr: "10.89.0.0/22"
+    per_node_ipam_size: 24
+  - name: "vlan-901"
+    vlan_id: 901
+    subnet: "192.168.90.0/24"
+    gateway: "192.168.90.1"
+    vip_pool: "192.168.90.200-192.168.90.250"
+    pod_cidr: "10.90.0.0/22"
     per_node_ipam_size: 24
 
 # To prevent virtual interface naming collisions when deploying multiple clusters sharing

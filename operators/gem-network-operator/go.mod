@@ -1,4 +1,4 @@
-module github.com/GoogleCloudPlatform/gem/operators/gem-nf-operator
+module github.com/GoogleCloudPlatform/gem/operators/gem-network-operator
 
 go 1.23.0
 
