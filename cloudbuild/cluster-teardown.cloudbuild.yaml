@@ -18,7 +18,7 @@ substitutions:
   _TF_STATE_BUCKET: "" # Derived as gem-${PROJECT_ID}-tfstate if empty
   _PROVISIONING_SA_EMAIL: "" # Derived via setup.sh if empty
   _GEM_GCP_ZONE: "" # Required
-  _AR_LOCATION: us-central1
+  _AR_LOCATION: "" # Must provide dynamically
   _AR_REPO: gem
   _BUILDER_TAG: latest
   _SSH_SECRET_NAME: gem-cluster-builder-ssh-key
