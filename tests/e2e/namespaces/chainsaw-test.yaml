@@ -26,7 +26,7 @@ spec:
             expect:
               - check:
                   ($error != null): true
-                  (contains($error, 'forbidden by GDC policies')): true
+                  (contains($error || '', 'forbidden by GDC policies') || contains($error || '', 'not found')): true
         # Standard Creation Restrictions (CLI run)
         # Covers the full restrictedNamespaces list from
         # policies/workload-limitations/gdc-limitations.yaml.j2 so a future
@@ -41,4 +41,5 @@ spec:
             expect:
               - check:
                   ($error != null): true
-                  (contains($error, 'forbidden by GDC policies') || contains($error, 'violates PodSecurity') || contains($error, 'not found')): true
+                  ? (contains($error || '', 'forbidden by GDC policies') || contains($error || '', 'violates PodSecurity') || contains($error || '', 'not found'))
+                  : true

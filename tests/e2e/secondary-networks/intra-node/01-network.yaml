@@ -19,7 +19,7 @@ metadata:
   annotations:
     networking.gke.io/gdce-vlan-id: "123"
     networking.gke.io/gdce-vlan-mtu: "1410"
-    networking.gke.io/gdce-lb-service-vip-cidrs: '["172.16.10.200-172.16.10.250"]'
+    networking.gke.io/gdce-lb-service-vip-cidrs: '["172.16.12.200-172.16.12.250"]'
     networking.gke.io/gke-gateway-pod-cidr: "172.16.100.0/16"
     networking.gke.io/gdce-per-node-ipam-size: "24"
 spec:
@@ -27,7 +27,7 @@ spec:
   IPAMMode: Internal
   nodeInterfaceMatcher:
     interfaceName: gdcenet0.123
-  gateway4: "172.16.10.1"
+  gateway4: "172.16.12.1"
   l2NetworkConfig:
     prefixLength4: 24
   dnsConfig:
@@ -39,7 +39,7 @@ kind: GKEGatewayCIDR
 metadata:
   name: vlan-123
 spec:
-  ip4cidr: 172.16.10.224/27
+  ip4cidr: 172.16.12.224/27
   network: vlan-123
 ---
 apiVersion: k8s.cni.cncf.io/v1
@@ -56,7 +56,7 @@ spec:
       "mtu": 1410,
       "ipam": {
         "type": "host-local",
-        "subnet": "172.16.10.0/24",
-        "gateway": "172.16.10.1"
+        "subnet": "172.16.12.0/24",
+        "gateway": "172.16.12.1"
       }
     }

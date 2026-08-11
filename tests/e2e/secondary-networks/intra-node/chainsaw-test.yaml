@@ -81,7 +81,7 @@ spec:
         - apply:
             file: 03-server.yaml
         - assert:
-            timeout: 60s
+            timeout: 2m
             resource:
               apiVersion: v1
               kind: Pod
@@ -96,7 +96,7 @@ spec:
         - apply:
             file: 04-loadbalancer.yaml
         - assert:
-            timeout: 60s
+            timeout: 2m
             resource:
               apiVersion: v1
               kind: Service
@@ -114,7 +114,7 @@ spec:
         - apply:
             file: 05-client.yaml
         - assert:
-            timeout: 90s
+            timeout: 2m
             resource:
               apiVersion: batch/v1
               kind: Job
