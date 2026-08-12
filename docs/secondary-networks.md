@@ -76,7 +76,7 @@ metadata:
     networking.gke.io/gdce-vlan-id: "123"
     networking.gke.io/gdce-vlan-mtu: "1500"
 spec:
-  type: L3
+  type: L2
   nodeInterfaceMatcher:
     interfaceName: "gdcenet0.123"
   gateway4: "21.0.119.254"
@@ -85,6 +85,8 @@ spec:
     nameservers:
       - 8.8.8.8
 ```
+
+> **GEM note:** `spec.type` (`L2`/`L3`) is accepted for schema fidelity with real GDC manifests but is not currently read by `gem-network-operator` — GEM always emulates the network as an L2 macvlan segment regardless of the declared type. `gdce-vlan-mtu` is likewise informational; the VXLAN transport interface itself is fixed at `1410` (see [docs/gem-networking.md](gem-networking.md)) independent of what a `Network` requests.
 
 ### 2. `GKEGatewayCIDR`
 Defines the CIDR block from which Virtual IPs (VIPs) are allocated for Gateway listeners on this secondary network.
@@ -203,6 +205,11 @@ Through extensive end-to-end validation on physical GDC and GEM environments, se
 
 * **Reasoning:** GDC's internal Gateway DNS controller synchronizes new `.gkegw.cluster.local` records across CoreDNS instances in 20–35 seconds after Gateway status reaches `Programmed: True`.
 
+### ⚠️ Constraint 5: Don't Disable `clusterdns-controller` to "Fix" CoreDNS Races
+> **Rule:** Never scale the pre-existing `clusterdns-controller` deployment to zero when reconciling the `coredns-config` ConfigMap for Gateway API DNS.
+
+* **Reasoning:** Both `gem-network-operator` (its `GatewayReconciler.reconcileCoreDNS`) and Ansible's CoreDNS task idempotently append the `.gkegw.cluster.local` rewrite rule to `coredns-config`/`coredns-template`, and both do so alongside the cluster's existing `clusterdns-controller`/`clusterdns-webhook` component, which also reconciles that ConfigMap. An earlier attempt disabled `clusterdns-controller` to sidestep the apparent race; this broke `clusterdns-webhook` functionality and was reverted. The correct approach — already implemented — is to leave `clusterdns-controller` running and make the CoreDNS edit idempotent (only append the rewrite rule if it's not already present).
+
 ---
 
 ## 5. End-to-End Test Architecture (Chainsaw)
@@ -236,10 +243,12 @@ secondary_networks:
     vlan_id: 123
     subnet: "21.0.119.0/24"
     gateway: "21.0.119.254"
-    vip_pool: "21.0.119.64/26"
+    vip_pool: "21.0.119.64-21.0.119.126"  # MetalLB IP range, not CIDR — see note below
     gateway_cidr: "21.0.119.224/27"
     pod_cidr: "21.0.119.128/25"
 ```
+
+> **GEM note:** `vip_pool` is a MetalLB-style address **range** string (`start-end`), not CIDR notation. It's passed through as-is: rendered into the `Network`'s `networking.gke.io/gdce-lb-service-vip-cidrs` annotation (a JSON array of strings, despite the "cidrs" name) and then directly into the generated `IPAddressPool.spec.addresses`. See `ansible/group_vars/all.yaml` for real examples (e.g. `"172.16.12.200-172.16.12.250"`).
 
 ### 2. Node Interface Generation (`systemd-networkd`)
 * **NetDev Profile** (`/etc/systemd/network/10-gdcenet0.<vlan_id>.netdev`):

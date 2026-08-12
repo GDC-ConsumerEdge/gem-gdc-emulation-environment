@@ -45,6 +45,7 @@ GEM is built from independent components, each provisioned by Terraform and conf
 | GEM Clusters (3-node GDC-like environments) | `terraform/cluster`, `ansible/roles/{cluster_nodes,gdc_deploy,gvisor,gvisor_node}` | [docs/project-setup.md](docs/project-setup.md) |
 | Edge Router (Traefik proxy to MetalLB VIPs) | `terraform/edge-router`, `ansible/roles/edge_router` | [docs/edge-router.md](docs/edge-router.md) |
 | Networking & VXLAN overlay | `ansible/roles/{vxlan,secondary_networks}` | [docs/gem-networking.md](docs/gem-networking.md) |
+| Secondary Networks & Multi-Network Gateway API (`gem-network-operator`) | `operators/gem-network-operator`, `ansible/roles/secondary_networks` | [docs/secondary-networks.md](docs/secondary-networks.md), [docs/gem-network-operator-implementation.md](docs/gem-network-operator-implementation.md) |
 | Storage (TopoLVM + Gatekeeper mutations) | `ansible/roles/{topolvm,gatekeeper}`, `policies/storage` | [docs/storage.md](docs/storage.md) |
 | Cloud Build pipelines | `cloudbuild/`, `terraform/cloudbuild` | [docs/cloud-build.md](docs/cloud-build.md) |
 | Project / GCP setup | `project-setup.sh` | [docs/project-setup.md](docs/project-setup.md) |
@@ -57,6 +58,8 @@ Networking (see [docs/gem-networking.md](docs/gem-networking.md)):
 *   **MTU is 1410**: GCP VPC caps MTU at 1460 and VXLAN adds 50 bytes of overhead, so all overlay interfaces **must** use an MTU of **1410**. TCP MSS clamping on the primary VXLAN interface is required, or large TLS payloads are silently dropped (mysterious handshake freezes).
 *   **Interface naming is load-bearing**: Nodes use `vxlan0` and `gdcenet0.<vlan_id>` so unmodified GDC `Network` CRs discover them. Shared hosts (workstation, edge router) use `vx-<truncated_cluster>-<vni>` and `sec-<truncated_cluster>-<vlan_id>`. Do not rename without updating every consumer.
 *   **Hostname Assumption**: The VXLAN scripts assume hostnames end in a number (e.g., `node1`) to derive IP octets. Do not change node naming without updating the scripts.
+*   **`gem-network-operator` runs per-cluster on the shared Admin Workstation**: Multiple clusters' operator instances coexist on one host, so the systemd unit disables metrics/health-probe binding (`--metrics-bind-address=0 --health-probe-bind-address=0`) to avoid port collisions. Do not re-enable these without giving each cluster's instance a unique port.
+*   **Don't touch `clusterdns-controller` when editing CoreDNS for Gateway API**: `gem-network-operator` and the pre-existing `clusterdns-controller`/`clusterdns-webhook` both reconcile the `coredns-config` ConfigMap. Scaling `clusterdns-controller` to zero to avoid the race (previously tried) breaks it; the fix was to leave it running and just append the `.gkegw.cluster.local` rewrite rule idempotently. See [docs/secondary-networks.md](docs/secondary-networks.md).
 
 Storage (see [docs/storage.md](docs/storage.md)):
 
@@ -79,4 +82,6 @@ Platform & Tooling:
 *   **Idempotent VXLAN**: The VXLAN service task uses `state: started` to avoid interface flapping on repeated playbook runs.
 
 ## 🗺️ Future Work
-*   **Gateway API on Secondary Networks**: Native Gateway APIs don't see Multus secondary interfaces. Future work involves either strict API emulation of proprietary GDC CRDs or functional emulation using OSS Gateway API with an EndpointSlice mutator.
+*   **`ClusterCIDRConfig` reconciliation is dead code**: `gem-network-operator` creates `networking.gke.io/v1alpha1 ClusterCIDRConfig` objects, but no CRD of that kind is installed anywhere, so the reconcile step silently fails. Either install the CRD and wire it up for real, or remove the reconciliation path.
+*   **Gateway VIP allocation is not real allocation**: `gem-network-operator` always assigns the first host address of the matching `GKEGatewayCIDR` rather than tracking issued IPs. Multiple `Gateway`s pointed at the same CIDR will collide. Fine for the current one-Gateway-per-network test topology; needs real IPAM before supporting more.
+*   **No admission webhook for pod route injection**: unlike physical GDC's `nf-operator`, GEM does not use a mutating webhook to inject secondary-network routes into pods. Instead, `NetworkAttachmentDefinition`s use the `macvlan` CNI plugin with `host-local` IPAM, whose `gateway` key has the CNI plugin install the route itself at pod-init time. Revisit only if a scenario needs routes the CNI plugin can't express.
