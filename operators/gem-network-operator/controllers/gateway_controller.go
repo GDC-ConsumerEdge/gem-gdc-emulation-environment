@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -43,9 +44,6 @@ const (
 
 	// AnnotationNetwork specifies the target networking.gke.io Network for the Gateway.
 	AnnotationNetwork = "networking.gke.io/network"
-
-	// AnnotationPodIPs contains JSON-encoded secondary IP assignments on pods.
-	AnnotationPodIPs = "networking.gke.io/pod-ips"
 
 	// AnnotationNetworkStatus contains Multus CNI network status JSON on pods.
 	AnnotationNetworkStatus = "k8s.v1.cni.cncf.io/network-status"
@@ -76,12 +74,6 @@ var (
 		Kind:    "GKEEndpointSelector",
 	}
 )
-
-// PodIPEntry represents a secondary network IP assignment from the networking.gke.io/pod-ips annotation.
-type PodIPEntry struct {
-	NetworkName string `json:"networkName"`
-	IP          string `json:"ip"`
-}
 
 // GatewayReconciler reconciles Gateway, GKEGatewayCIDR, GKEL4Route, and GKEEndpointSelector resources.
 // It bridges secondary Multus network endpoints into standard Kubernetes Gateway routing by dynamically
@@ -136,7 +128,12 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
+	// Dynamically manage Services and EndpointSlices for attached GKEL4Routes and GKEEndpointSelectors.
+	backendCount := r.reconcileRoutesAndEndpoints(ctx, gw, gwIP, targetNetwork)
+
 	// Update Gateway status addresses and conditions to reflect Accepted and Programmed state.
+	// The Programmed message carries the ready-backend count so an empty Gateway is
+	// distinguishable from a healthy one when reading .status.
 	now := metav1.Now().Rfc3339Copy().Format(time.RFC3339)
 	addresses := []interface{}{
 		map[string]interface{}{
@@ -156,7 +153,7 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			"type":               "Programmed",
 			"status":             "True",
 			"reason":             "Programmed",
-			"message":            "Gateway programmed and IP allocation prepared",
+			"message":            fmt.Sprintf("Gateway programmed; %d ready backend endpoint(s)", backendCount),
 			"lastTransitionTime": now,
 		},
 	}
@@ -171,13 +168,12 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		_ = r.Update(ctx, gw)
 	}
 
-	// Dynamically manage Services and EndpointSlices for attached GKEL4Routes and GKEEndpointSelectors.
-	r.reconcileRoutesAndEndpoints(ctx, gw, gwIP, targetNetwork)
-
 	// Ensure CoreDNS rewrites *.gkegw.cluster.local to *.svc.cluster.local for Gateway service discovery.
 	r.reconcileCoreDNS(ctx)
 
-	return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
+	// Watches on Pods, GKEL4Routes, and GKEEndpointSelectors drive event-based reconciliation;
+	// this periodic requeue is only a drift-correction safety net.
+	return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 }
 
 // determineGatewayIP extracts a static address from Gateway spec or allocates the first usable IP
@@ -227,51 +223,91 @@ func (r *GatewayReconciler) determineGatewayIP(ctx context.Context, gw *unstruct
 	return ""
 }
 
-// reconcileRoutesAndEndpoints evaluates GKEL4Routes in the Gateway's namespace and binds their endpoint selectors.
-func (r *GatewayReconciler) reconcileRoutesAndEndpoints(ctx context.Context, gw *unstructured.Unstructured, gwIP, targetNetwork string) {
+// routeReferencesGateway reports whether the GKEL4Route's spec.parentRefs names the given Gateway.
+// The GKEL4Route CRD's parentRefs entries carry an optional namespace; when set it must match too.
+func routeReferencesGateway(route, gw *unstructured.Unstructured) bool {
+	parentRefs, found, _ := unstructured.NestedSlice(route.Object, "spec", "parentRefs")
+	if !found {
+		return false
+	}
+	for _, ref := range parentRefs {
+		refMap, ok := ref.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		name, _ := refMap["name"].(string)
+		if name != gw.GetName() {
+			continue
+		}
+		if ns, ok := refMap["namespace"].(string); ok && ns != "" && ns != gw.GetNamespace() {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// reconcileRoutesAndEndpoints evaluates the GKEL4Routes bound to this Gateway via spec.parentRefs,
+// aggregates their selected backend endpoints, and writes the Gateway's Service/EndpointSlice once.
+// It returns the number of ready backend endpoints found.
+func (r *GatewayReconciler) reconcileRoutesAndEndpoints(ctx context.Context, gw *unstructured.Unstructured, gwIP, targetNetwork string) int {
 	routeList := &unstructured.UnstructuredList{}
 	routeList.SetGroupVersionKind(GKEL4RouteGVK)
 
 	if err := r.List(ctx, routeList, client.InNamespace(gw.GetNamespace())); err != nil {
-		return
+		return 0
 	}
 
+	seenAddresses := make(map[string]bool)
+	var backendAddresses []string
+	seenPorts := make(map[int32]bool)
+	var ports []int32
+	haveBackendRefs := false
+
 	for _, route := range routeList.Items {
-		rules, found, _ := unstructured.NestedSlice(route.Object, "spec", "rules")
-		if !found {
+		if !routeReferencesGateway(&route, gw) {
 			continue
 		}
 
-		for _, rule := range rules {
-			ruleMap, ok := rule.(map[string]interface{})
-			if !ok {
-				continue
-			}
-
-			backendRefs, found, _ := unstructured.NestedSlice(ruleMap, "backendRefs")
-			if !found {
-				continue
-			}
-
-			for _, bRef := range backendRefs {
-				bMap, ok := bRef.(map[string]interface{})
+		rules, found, _ := unstructured.NestedSlice(route.Object, "spec", "rules")
+		if found {
+			for _, rule := range rules {
+				ruleMap, ok := rule.(map[string]interface{})
 				if !ok {
 					continue
 				}
 
-				epSelectorName, _ := bMap["name"].(string)
-				epPort := int32(80)
-				if p, ok := bMap["port"].(int64); ok && p > 0 && p <= 65535 {
-					epPort = int32(p)
+				backendRefs, found, _ := unstructured.NestedSlice(ruleMap, "backendRefs")
+				if !found {
+					continue
 				}
 
-				if epSelectorName != "" {
-					r.reconcileEndpointSliceForSelector(ctx, gw, &route, epSelectorName, epPort, gwIP, targetNetwork)
+				for _, bRef := range backendRefs {
+					bMap, ok := bRef.(map[string]interface{})
+					if !ok {
+						continue
+					}
+
+					epSelectorName, _ := bMap["name"].(string)
+					epPort := int32(80)
+					if p, ok := bMap["port"].(int64); ok && p > 0 && p <= 65535 {
+						epPort = int32(p)
+					}
+
+					if epSelectorName != "" {
+						haveBackendRefs = true
+						backendAddresses = append(backendAddresses,
+							r.collectEndpointsForSelector(ctx, gw, epSelectorName, targetNetwork, seenAddresses)...)
+						if !seenPorts[epPort] {
+							seenPorts[epPort] = true
+							ports = append(ports, epPort)
+						}
+					}
 				}
 			}
 		}
 
-		// Update GKEL4Route status conditions.
+		// Update GKEL4Route status conditions (only on routes bound to this Gateway).
 		now := metav1.Now().Rfc3339Copy().Format(time.RFC3339)
 		routeStatus := map[string]interface{}{
 			"conditions": []interface{}{
@@ -296,64 +332,84 @@ func (r *GatewayReconciler) reconcileRoutesAndEndpoints(ctx context.Context, gw 
 			_ = r.Update(ctx, &route)
 		}
 	}
+
+	if haveBackendRefs {
+		r.writeServiceAndEndpointSlice(ctx, gw, gwIP, ports, backendAddresses)
+	}
+	return len(backendAddresses)
 }
 
-// reconcileEndpointSliceForSelector discovers backend Pod secondary IPs selected by GKEEndpointSelector
-// and writes them into a dynamic headless Service and custom EndpointSlice.
-func (r *GatewayReconciler) reconcileEndpointSliceForSelector(ctx context.Context, gw, route *unstructured.Unstructured, epSelectorName string, port int32, gwIP, targetNetwork string) {
+// podUsesSecondaryNetworks reports whether a pod carries any secondary-network annotation that
+// makes it relevant to Gateway endpoint discovery.
+func podUsesSecondaryNetworks(pod *corev1.Pod) bool {
+	if pod.Annotations == nil {
+		return false
+	}
+	_, hasInterfaces := pod.Annotations["networking.gke.io/interfaces"]
+	_, hasNetStatus := pod.Annotations[AnnotationNetworkStatus]
+	return hasInterfaces || hasNetStatus
+}
+
+// networkStatusNameMatches compares a Multus network-status entry name (shaped
+// "<namespace>/<net-attach-def-name>" or bare "<net-attach-def-name>") against the target network
+// exactly. Substring matching is unsafe: network "vlan-1" must not match a pod on "vlan-12".
+func networkStatusNameMatches(name, targetNetwork string) bool {
+	if idx := strings.LastIndex(name, "/"); idx >= 0 {
+		name = name[idx+1:]
+	}
+	return name == targetNetwork
+}
+
+// isPodReady reports whether the pod's PodReady condition is True. Pods that are Running but not
+// ready (failing readiness probe, still starting) must not receive Gateway traffic, matching how
+// the standard endpoint controllers treat Service backends.
+func isPodReady(pod *corev1.Pod) bool {
+	for _, cond := range pod.Status.Conditions {
+		if cond.Type == corev1.PodReady {
+			return cond.Status == corev1.ConditionTrue
+		}
+	}
+	return false
+}
+
+// collectEndpointsForSelector discovers backend Pod secondary IPs selected by a GKEEndpointSelector.
+// seenAddresses is shared across selectors so the same IP isn't added twice for one Gateway.
+func (r *GatewayReconciler) collectEndpointsForSelector(ctx context.Context, gw *unstructured.Unstructured, epSelectorName, targetNetwork string, seenAddresses map[string]bool) []string {
 	epSel := &unstructured.Unstructured{}
 	epSel.SetGroupVersionKind(GKEEndpointSelectorGVK)
 	if err := r.Get(ctx, client.ObjectKey{Namespace: gw.GetNamespace(), Name: epSelectorName}, epSel); err != nil {
-		return
+		return nil
 	}
 
 	matchLabels, found, _ := unstructured.NestedStringMap(epSel.Object, "spec", "selector", "matchLabels")
 	if !found || len(matchLabels) == 0 {
-		return
+		return nil
 	}
 
 	podList := &corev1.PodList{}
 	if err := r.List(ctx, podList, client.InNamespace(gw.GetNamespace()), client.MatchingLabels(matchLabels)); err != nil {
-		return
+		return nil
 	}
 
-	seenAddresses := make(map[string]bool)
 	var backendAddresses []string
 
 	for _, pod := range podList.Items {
-		if pod.Status.Phase != corev1.PodRunning {
+		if pod.Status.Phase != corev1.PodRunning || !isPodReady(&pod) {
 			continue
 		}
 
-		// Primary source: parse JSON from networking.gke.io/pod-ips annotation.
-		var foundPodIP bool
-		if podIPsJSON, ok := pod.Annotations[AnnotationPodIPs]; ok && podIPsJSON != "" {
-			var entries []PodIPEntry
-			if err := json.Unmarshal([]byte(podIPsJSON), &entries); err == nil {
-				for _, entry := range entries {
-					if entry.NetworkName == targetNetwork && entry.IP != "" {
-						foundPodIP = true
-						if !seenAddresses[entry.IP] {
-							seenAddresses[entry.IP] = true
-							backendAddresses = append(backendAddresses, entry.IP)
-						}
-					}
-				}
-			}
-		}
-
-		// Fallback source: parse Multus CNI status from k8s.v1.cni.cncf.io/network-status annotation.
-		if !foundPodIP {
-			if netStatusJSON, ok := pod.Annotations[AnnotationNetworkStatus]; ok && netStatusJSON != "" {
-				var statusList []map[string]interface{}
-				if err := json.Unmarshal([]byte(netStatusJSON), &statusList); err == nil {
-					for _, item := range statusList {
-						if name, _ := item["name"].(string); strings.Contains(name, targetNetwork) {
-							if ips, ok := item["ips"].([]interface{}); ok && len(ips) > 0 {
-								if ipStr, ok := ips[0].(string); ok && ipStr != "" && !seenAddresses[ipStr] {
-									seenAddresses[ipStr] = true
-									backendAddresses = append(backendAddresses, ipStr)
-								}
+		// Parse Multus CNI status from the k8s.v1.cni.cncf.io/network-status annotation — the one
+		// source of secondary-IP truth in GEM (nothing writes networking.gke.io/pod-ips here).
+		if netStatusJSON, ok := pod.Annotations[AnnotationNetworkStatus]; ok && netStatusJSON != "" {
+			var statusList []map[string]interface{}
+			if err := json.Unmarshal([]byte(netStatusJSON), &statusList); err == nil {
+				for _, item := range statusList {
+					name, _ := item["name"].(string)
+					if networkStatusNameMatches(name, targetNetwork) {
+						if ips, ok := item["ips"].([]interface{}); ok && len(ips) > 0 {
+							if ipStr, ok := ips[0].(string); ok && ipStr != "" && !seenAddresses[ipStr] {
+								seenAddresses[ipStr] = true
+								backendAddresses = append(backendAddresses, ipStr)
 							}
 						}
 					}
@@ -362,7 +418,29 @@ func (r *GatewayReconciler) reconcileEndpointSliceForSelector(ctx context.Contex
 		}
 	}
 
-	// Create or update dynamic headless Service.
+	return backendAddresses
+}
+
+// writeServiceAndEndpointSlice creates or updates the Gateway's dynamic headless Service and the
+// EndpointSlice carrying the aggregated Multus secondary IPs of all its routes' backends.
+func (r *GatewayReconciler) writeServiceAndEndpointSlice(ctx context.Context, gw *unstructured.Unstructured, gwIP string, ports []int32, backendAddresses []string) {
+	portName := func(p int32) string {
+		if len(ports) == 1 {
+			return "service"
+		}
+		return fmt.Sprintf("service-%d", p)
+	}
+
+	var svcPorts []corev1.ServicePort
+	for _, p := range ports {
+		svcPorts = append(svcPorts, corev1.ServicePort{
+			Name:       portName(p),
+			Port:       p,
+			TargetPort: intstr.FromInt(int(p)),
+			Protocol:   corev1.ProtocolTCP,
+		})
+	}
+
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      gw.GetName(),
@@ -374,21 +452,14 @@ func (r *GatewayReconciler) reconcileEndpointSliceForSelector(ctx context.Contex
 		Spec: corev1.ServiceSpec{
 			ClusterIP:   corev1.ClusterIPNone,
 			ExternalIPs: []string{gwIP},
-			Ports: []corev1.ServicePort{
-				{
-					Name:       "service",
-					Port:       port,
-					TargetPort: intstr.FromInt(int(port)),
-					Protocol:   corev1.ProtocolTCP,
-				},
-			},
+			Ports:       svcPorts,
 		},
 	}
-	_ = r.applyService(ctx, svc)
+	if err := r.applyService(ctx, svc); err != nil {
+		r.Log.Error(err, "Failed to apply dynamic Service for Gateway", "gateway", gw.GetName(), "namespace", gw.GetNamespace())
+	}
 
-	// Create or update dynamic EndpointSlice carrying Multus secondary IPs.
 	protocolTCP := corev1.ProtocolTCP
-	epPortName := "service"
 	ready := true
 	var endpoints []discoveryv1.Endpoint
 	for _, addr := range backendAddresses {
@@ -397,6 +468,16 @@ func (r *GatewayReconciler) reconcileEndpointSliceForSelector(ctx context.Contex
 			Conditions: discoveryv1.EndpointConditions{
 				Ready: &ready,
 			},
+		})
+	}
+
+	var slicePorts []discoveryv1.EndpointPort
+	for i := range ports {
+		name := portName(ports[i])
+		slicePorts = append(slicePorts, discoveryv1.EndpointPort{
+			Name:     &name,
+			Port:     &ports[i],
+			Protocol: &protocolTCP,
 		})
 	}
 
@@ -411,15 +492,11 @@ func (r *GatewayReconciler) reconcileEndpointSliceForSelector(ctx context.Contex
 		},
 		AddressType: discoveryv1.AddressTypeIPv4,
 		Endpoints:   endpoints,
-		Ports: []discoveryv1.EndpointPort{
-			{
-				Name:     &epPortName,
-				Port:     &port,
-				Protocol: &protocolTCP,
-			},
-		},
+		Ports:       slicePorts,
 	}
-	_ = r.applyEndpointSlice(ctx, slice)
+	if err := r.applyEndpointSlice(ctx, slice); err != nil {
+		r.Log.Error(err, "Failed to apply dynamic EndpointSlice for Gateway", "gateway", gw.GetName(), "namespace", gw.GetNamespace())
+	}
 }
 
 // reconcileCoreDNS ensures the Corefile in kube-system contains the rewrite rule for .gkegw.cluster.local.
@@ -443,6 +520,9 @@ func (r *GatewayReconciler) reconcileCoreDNS(ctx context.Context) {
 				r.Log.Error(err, "Failed to update coredns-config with .gkegw.cluster.local rewrite rule")
 			} else {
 				r.Log.Info("Successfully updated coredns-config with .gkegw.cluster.local rewrite rule")
+				// No reload plugin is configured in GEM's Corefile, so CoreDNS keeps serving its
+				// in-memory config until restarted. Bounce it only when the ConfigMap actually changed.
+				r.restartCoreDNS(ctx)
 			}
 		}
 	}
@@ -465,32 +545,51 @@ func (r *GatewayReconciler) reconcileCoreDNS(ctx context.Context) {
 	}
 }
 
-// applyService creates or updates a Service resource.
-func (r *GatewayReconciler) applyService(ctx context.Context, svc *corev1.Service) error {
-	existing := &corev1.Service{}
-	err := r.Get(ctx, client.ObjectKey{Namespace: svc.Namespace, Name: svc.Name}, existing)
-	if err != nil {
-		if client.IgnoreNotFound(err) == nil {
-			return r.Create(ctx, svc)
-		}
-		return err
+// restartCoreDNS deletes the kube-dns pods so their Deployment recreates them with the updated
+// Corefile, mirroring the equivalent Ansible task's `kubectl delete pod -l k8s-app=kube-dns`.
+func (r *GatewayReconciler) restartCoreDNS(ctx context.Context) {
+	podList := &corev1.PodList{}
+	if err := r.List(ctx, podList, client.InNamespace("kube-system"), client.MatchingLabels{"k8s-app": "kube-dns"}); err != nil {
+		r.Log.Error(err, "Failed to list CoreDNS pods for restart")
+		return
 	}
-	svc.ResourceVersion = existing.ResourceVersion
-	return r.Update(ctx, svc)
+	for i := range podList.Items {
+		if err := r.Delete(ctx, &podList.Items[i]); err != nil {
+			r.Log.Error(err, "Failed to delete CoreDNS pod for Corefile reload", "pod", podList.Items[i].Name)
+		}
+	}
 }
 
-// applyEndpointSlice creates or updates an EndpointSlice resource.
-func (r *GatewayReconciler) applyEndpointSlice(ctx context.Context, slice *discoveryv1.EndpointSlice) error {
-	existing := &discoveryv1.EndpointSlice{}
-	err := r.Get(ctx, client.ObjectKey{Namespace: slice.Namespace, Name: slice.Name}, existing)
-	if err != nil {
-		if client.IgnoreNotFound(err) == nil {
-			return r.Create(ctx, slice)
+// applyService creates or updates a Service resource, retrying on optimistic-concurrency conflicts.
+func (r *GatewayReconciler) applyService(ctx context.Context, svc *corev1.Service) error {
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		existing := &corev1.Service{}
+		err := r.Get(ctx, client.ObjectKey{Namespace: svc.Namespace, Name: svc.Name}, existing)
+		if err != nil {
+			if client.IgnoreNotFound(err) == nil {
+				return r.Create(ctx, svc)
+			}
+			return err
 		}
-		return err
-	}
-	slice.ResourceVersion = existing.ResourceVersion
-	return r.Update(ctx, slice)
+		svc.ResourceVersion = existing.ResourceVersion
+		return r.Update(ctx, svc)
+	})
+}
+
+// applyEndpointSlice creates or updates an EndpointSlice resource, retrying on optimistic-concurrency conflicts.
+func (r *GatewayReconciler) applyEndpointSlice(ctx context.Context, slice *discoveryv1.EndpointSlice) error {
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		existing := &discoveryv1.EndpointSlice{}
+		err := r.Get(ctx, client.ObjectKey{Namespace: slice.Namespace, Name: slice.Name}, existing)
+		if err != nil {
+			if client.IgnoreNotFound(err) == nil {
+				return r.Create(ctx, slice)
+			}
+			return err
+		}
+		slice.ResourceVersion = existing.ResourceVersion
+		return r.Update(ctx, slice)
+	})
 }
 
 // cleanupDynamicResources removes dynamic Services and EndpointSlices associated with a Gateway.
@@ -512,8 +611,15 @@ func (r *GatewayReconciler) cleanupDynamicResources(ctx context.Context, gw *uns
 	_ = r.Delete(ctx, slice)
 }
 
-// findGatewaysForNamespaceObject maps an object change in a namespace to reconcile requests for all Gateways in that namespace.
+// findGatewaysForNamespaceObject maps an object change in a namespace to reconcile requests for all
+// Gateways in that namespace. Pod events are filtered to pods that actually participate in
+// secondary networking — without this, every pod create/update/delete anywhere in the cluster
+// would fan out into reconciles of all Gateways in its namespace.
 func (r *GatewayReconciler) findGatewaysForNamespaceObject(ctx context.Context, obj client.Object) []ctrl.Request {
+	if pod, ok := obj.(*corev1.Pod); ok && !podUsesSecondaryNetworks(pod) {
+		return nil
+	}
+
 	gwList := &unstructured.UnstructuredList{}
 	gwList.SetGroupVersionKind(GatewayGVK)
 	if err := r.List(ctx, gwList, client.InNamespace(obj.GetNamespace())); err != nil {

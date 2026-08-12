@@ -87,6 +87,25 @@
     daemon_reload: true
   become: true
 
+- name: Render provisioned-networks ConfigMap for the gem-network-operator guardrail
+  ansible.builtin.template:
+    src: provisioned-networks-configmap.yaml.j2
+    dest: "{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/secondary-networks/provisioned-networks-configmap.yaml"
+    owner: "{{ gem_user }}"
+    group: "{{ gem_user }}"
+    mode: "0644"
+  when: secondary_networks is defined
+
+- name: Apply provisioned-networks ConfigMap
+  ansible.builtin.shell: |
+    export KUBECONFIG="{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/{{ cluster_name }}-kubeconfig"
+    kubectl apply -f {{ gem_home }}/bmctl-workspace/{{ cluster_name }}/secondary-networks/provisioned-networks-configmap.yaml
+  args:
+    executable: /bin/bash
+  register: secondary_networks_provisioned_cm_apply
+  changed_when: "'created' in secondary_networks_provisioned_cm_apply.stdout or 'configured' in secondary_networks_provisioned_cm_apply.stdout"
+  when: secondary_networks is defined
+
 - name: Render Network Custom Resources
   ansible.builtin.template:
     src: network.yaml.j2

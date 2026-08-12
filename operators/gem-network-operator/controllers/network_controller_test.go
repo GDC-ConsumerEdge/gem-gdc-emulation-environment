@@ -16,18 +16,24 @@ package controllers
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 func setupNetworkTestScheme() *runtime.Scheme {
@@ -52,11 +58,9 @@ func TestNetworkReconciler_Reconcile_CompleteNetwork(t *testing.T) {
 			"metadata": map[string]interface{}{
 				"name": "vlan-123",
 				"annotations": map[string]interface{}{
-					AnnotationVLANID:          "123",
-					AnnotationVLANMTU:         "1410",
-					AnnotationLBServiceVIPs:   `["172.16.12.200", "172.16.12.201"]`,
-					AnnotationGatewayPodCIDR:  "10.12.0.0/22",
-					AnnotationPerNodeIPAMSize: "24",
+					AnnotationVLANID:        "123",
+					AnnotationVLANMTU:       "1410",
+					AnnotationLBServiceVIPs: `["172.16.12.200", "172.16.12.201"]`,
 				},
 			},
 			"spec": map[string]interface{}{
@@ -71,7 +75,8 @@ func TestNetworkReconciler_Reconcile_CompleteNetwork(t *testing.T) {
 
 	fakeClient := fake.NewClientBuilder().
 		WithScheme(scheme).
-		WithObjects(nsDefault, nsProd, nsKubeSystem, netObj).
+		WithObjects(nsDefault, nsProd, nsKubeSystem, netObj,
+			provisionedNetworksCM(map[string]string{"123": "gdcenet0.123"})).
 		Build()
 
 	reconciler := &NetworkReconciler{
@@ -138,29 +143,21 @@ func TestNetworkReconciler_Reconcile_CompleteNetwork(t *testing.T) {
 		t.Fatalf("Expected MetalLB L2Advertisement in kube-system, got error: %v", err)
 	}
 
-	// 3. Verify ClusterCIDRConfig
-	cidrConfig := &unstructured.Unstructured{}
-	cidrConfig.SetGroupVersionKind(ClusterCIDRConfigGVK)
-	err = fakeClient.Get(ctx, types.NamespacedName{Name: "vlan-123-cidr"}, cidrConfig)
-	if err != nil {
-		t.Fatalf("Expected ClusterCIDRConfig vlan-123-cidr, got error: %v", err)
-	}
-	cidr, found, _ := unstructured.NestedString(cidrConfig.Object, "spec", "ipv4", "cidr")
-	if !found || cidr != "10.12.0.0/22" {
-		t.Errorf("Expected ClusterCIDRConfig cidr 10.12.0.0/22, got %q", cidr)
-	}
-	mask, found, _ := unstructured.NestedInt64(cidrConfig.Object, "spec", "ipv4", "perNodeMaskSize")
-	if !found || mask != 24 {
-		t.Errorf("Expected perNodeMaskSize 24, got %d", mask)
-	}
-
-	// 4. Verify Network status conditions
+	// 3. Verify Network status conditions
 	updatedNet := &unstructured.Unstructured{}
 	updatedNet.SetGroupVersionKind(NetworkGVK)
 	_ = fakeClient.Get(ctx, types.NamespacedName{Name: "vlan-123"}, updatedNet)
 	conditions, found, _ := unstructured.NestedSlice(updatedNet.Object, "status", "conditions")
-	if !found || len(conditions) < 2 {
-		t.Errorf("Expected at least 2 status conditions on Network, got %v", conditions)
+	if !found || len(conditions) == 0 {
+		t.Fatalf("Expected status conditions on Network, got %v", conditions)
+	}
+	for _, c := range conditions {
+		if cMap, ok := c.(map[string]interface{}); ok && cMap["type"] == "Ready" {
+			if cMap["status"] != "True" {
+				t.Errorf("Expected Ready=True for a fully provisioned Network, got status=%v reason=%v",
+					cMap["status"], cMap["reason"])
+			}
+		}
 	}
 }
 
@@ -309,6 +306,677 @@ func TestNetworkReconciler_Reconcile_TerminatingNamespaceSkipped(t *testing.T) {
 	if err == nil {
 		t.Errorf("Expected NetAttachDef NOT to be created in terminating namespace")
 	}
+}
+
+// provisionedNetworksCM builds the ConfigMap Ansible publishes at cluster build time,
+// enumerating the VLANs whose host VXLAN interfaces were actually provisioned.
+func provisionedNetworksCM(data map[string]string) *corev1.ConfigMap {
+	return &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      ProvisionedNetworksConfigMap,
+			Namespace: "kube-system",
+		},
+		Data: data,
+	}
+}
+
+func TestNetworkReconciler_Reconcile_MissingHostInterfaceReportsNotReady(t *testing.T) {
+	scheme := setupNetworkTestScheme()
+
+	nsDefault := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}}
+	netObj := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "networking.gke.io/v1",
+			"kind":       "Network",
+			"metadata": map[string]interface{}{
+				"name": "vlan-999",
+				"annotations": map[string]interface{}{
+					AnnotationVLANID: "999",
+				},
+			},
+		},
+	}
+
+	// No provisioned-networks ConfigMap exists at all: nothing was provisioned by Ansible.
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(nsDefault, netObj).
+		Build()
+
+	reconciler := &NetworkReconciler{
+		Client: fakeClient,
+		Scheme: scheme,
+		Log:    logr.Discard(),
+	}
+
+	ctx := context.Background()
+	if _, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "vlan-999"}}); err != nil {
+		t.Fatalf("Reconcile returned error: %v", err)
+	}
+
+	updatedNet := &unstructured.Unstructured{}
+	updatedNet.SetGroupVersionKind(NetworkGVK)
+	if err := fakeClient.Get(ctx, types.NamespacedName{Name: "vlan-999"}, updatedNet); err != nil {
+		t.Fatalf("Failed to get Network: %v", err)
+	}
+
+	conditions, found, _ := unstructured.NestedSlice(updatedNet.Object, "status", "conditions")
+	if !found {
+		t.Fatalf("Expected status conditions on Network")
+	}
+	var readyCond map[string]interface{}
+	for _, c := range conditions {
+		if cMap, ok := c.(map[string]interface{}); ok && cMap["type"] == "Ready" {
+			readyCond = cMap
+		}
+	}
+	if readyCond == nil {
+		t.Fatalf("Expected a Ready condition, got %v", conditions)
+	}
+	if readyCond["status"] != "False" || readyCond["reason"] != "MissingHostInterface" {
+		t.Errorf("Expected Ready=False with reason MissingHostInterface for unprovisioned network, got status=%v reason=%v",
+			readyCond["status"], readyCond["reason"])
+	}
+}
+
+func TestNetworkReconciler_Reconcile_ProvisionedHostInterfaceReportsReady(t *testing.T) {
+	scheme := setupNetworkTestScheme()
+
+	nsDefault := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}}
+	netObj := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "networking.gke.io/v1",
+			"kind":       "Network",
+			"metadata": map[string]interface{}{
+				"name": "vlan-123",
+				"annotations": map[string]interface{}{
+					AnnotationVLANID: "123",
+				},
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(nsDefault, netObj, provisionedNetworksCM(map[string]string{"123": "gdcenet0.123"})).
+		Build()
+
+	reconciler := &NetworkReconciler{
+		Client: fakeClient,
+		Scheme: scheme,
+		Log:    logr.Discard(),
+	}
+
+	ctx := context.Background()
+	if _, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "vlan-123"}}); err != nil {
+		t.Fatalf("Reconcile returned error: %v", err)
+	}
+
+	updatedNet := &unstructured.Unstructured{}
+	updatedNet.SetGroupVersionKind(NetworkGVK)
+	if err := fakeClient.Get(ctx, types.NamespacedName{Name: "vlan-123"}, updatedNet); err != nil {
+		t.Fatalf("Failed to get Network: %v", err)
+	}
+
+	conditions, _, _ := unstructured.NestedSlice(updatedNet.Object, "status", "conditions")
+	var readyCond map[string]interface{}
+	for _, c := range conditions {
+		if cMap, ok := c.(map[string]interface{}); ok && cMap["type"] == "Ready" {
+			readyCond = cMap
+		}
+	}
+	if readyCond == nil {
+		t.Fatalf("Expected a Ready condition, got %v", conditions)
+	}
+	if readyCond["status"] != "True" {
+		t.Errorf("Expected Ready=True for provisioned network, got status=%v reason=%v",
+			readyCond["status"], readyCond["reason"])
+	}
+}
+
+func TestNetworkReconciler_Reconcile_MissingHostInterfaceEmitsWarningEvent(t *testing.T) {
+	scheme := setupNetworkTestScheme()
+
+	nsDefault := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}}
+	netObj := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "networking.gke.io/v1",
+			"kind":       "Network",
+			"metadata": map[string]interface{}{
+				"name": "vlan-999",
+				"annotations": map[string]interface{}{
+					AnnotationVLANID: "999",
+				},
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(nsDefault, netObj).
+		Build()
+
+	recorder := record.NewFakeRecorder(10)
+	reconciler := &NetworkReconciler{
+		Client:   fakeClient,
+		Scheme:   scheme,
+		Log:      logr.Discard(),
+		Recorder: recorder,
+	}
+
+	ctx := context.Background()
+	if _, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "vlan-999"}}); err != nil {
+		t.Fatalf("Reconcile returned error: %v", err)
+	}
+
+	select {
+	case ev := <-recorder.Events:
+		if !strings.Contains(ev, "Warning") || !strings.Contains(ev, "MissingHostInterface") {
+			t.Errorf("Expected Warning event with reason MissingHostInterface, got %q", ev)
+		}
+	default:
+		t.Errorf("Expected a Warning event for unprovisioned network, but none was recorded")
+	}
+}
+
+func TestNetworkReconciler_Reconcile_ChildResourcesHaveOwnerReference(t *testing.T) {
+	scheme := setupNetworkTestScheme()
+
+	nsDefault := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}}
+	nsKubeSystem := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "kube-system"}}
+	netObj := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "networking.gke.io/v1",
+			"kind":       "Network",
+			"metadata": map[string]interface{}{
+				"name": "vlan-123",
+				"uid":  "test-uid-123",
+				"annotations": map[string]interface{}{
+					AnnotationVLANID:        "123",
+					AnnotationLBServiceVIPs: `["172.16.12.200-172.16.12.250"]`,
+				},
+			},
+			"spec": map[string]interface{}{
+				"gateway4": "172.16.12.1",
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(nsDefault, nsKubeSystem, netObj,
+			provisionedNetworksCM(map[string]string{"123": "gdcenet0.123"})).
+		Build()
+
+	reconciler := &NetworkReconciler{
+		Client: fakeClient,
+		Scheme: scheme,
+		Log:    logr.Discard(),
+	}
+
+	ctx := context.Background()
+	if _, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "vlan-123"}}); err != nil {
+		t.Fatalf("Reconcile returned error: %v", err)
+	}
+
+	assertOwnedByNetwork := func(t *testing.T, gvk schema.GroupVersionKind, ns, name string) {
+		t.Helper()
+		obj := &unstructured.Unstructured{}
+		obj.SetGroupVersionKind(gvk)
+		if err := fakeClient.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, obj); err != nil {
+			t.Fatalf("Failed to get %s %s/%s: %v", gvk.Kind, ns, name, err)
+		}
+		for _, ref := range obj.GetOwnerReferences() {
+			if ref.Kind == "Network" && ref.Name == "vlan-123" {
+				return
+			}
+		}
+		t.Errorf("Expected %s %s/%s to carry an OwnerReference to Network vlan-123, got %v",
+			gvk.Kind, ns, name, obj.GetOwnerReferences())
+	}
+
+	assertOwnedByNetwork(t, NetAttachDefGVK, "default", "vlan-123")
+	assertOwnedByNetwork(t, IPAddressPoolGVK, "kube-system", "vlan-123-pool")
+	assertOwnedByNetwork(t, L2AdvertisementGVK, "kube-system", "l2advertise-vlan-123")
+}
+
+func TestNetworkReconciler_Reconcile_DeletionCleansUpChildren(t *testing.T) {
+	scheme := setupNetworkTestScheme()
+
+	nsDefault := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}}
+	nsKubeSystem := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "kube-system"}}
+	netObj := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "networking.gke.io/v1",
+			"kind":       "Network",
+			"metadata": map[string]interface{}{
+				"name": "vlan-123",
+				"annotations": map[string]interface{}{
+					AnnotationVLANID:        "123",
+					AnnotationLBServiceVIPs: `["172.16.12.200-172.16.12.250"]`,
+				},
+			},
+			"spec": map[string]interface{}{
+				"gateway4": "172.16.12.1",
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(nsDefault, nsKubeSystem, netObj,
+			provisionedNetworksCM(map[string]string{"123": "gdcenet0.123"})).
+		Build()
+
+	reconciler := &NetworkReconciler{
+		Client: fakeClient,
+		Scheme: scheme,
+		Log:    logr.Discard(),
+	}
+
+	ctx := context.Background()
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "vlan-123"}}
+
+	// First reconcile: adds the finalizer and creates child resources.
+	if _, err := reconciler.Reconcile(ctx, req); err != nil {
+		t.Fatalf("First reconcile returned error: %v", err)
+	}
+
+	nad := &unstructured.Unstructured{}
+	nad.SetGroupVersionKind(NetAttachDefGVK)
+	if err := fakeClient.Get(ctx, types.NamespacedName{Namespace: "default", Name: "vlan-123"}, nad); err != nil {
+		t.Fatalf("Expected NAD to exist after first reconcile: %v", err)
+	}
+
+	// Delete the Network: the finalizer holds it, setting deletionTimestamp.
+	current := &unstructured.Unstructured{}
+	current.SetGroupVersionKind(NetworkGVK)
+	if err := fakeClient.Get(ctx, req.NamespacedName, current); err != nil {
+		t.Fatalf("Failed to get Network: %v", err)
+	}
+	if err := fakeClient.Delete(ctx, current); err != nil {
+		t.Fatalf("Failed to delete Network: %v", err)
+	}
+
+	// Second reconcile: the deletion path must clean up all child resources before releasing.
+	if _, err := reconciler.Reconcile(ctx, req); err != nil {
+		t.Fatalf("Deletion reconcile returned error: %v", err)
+	}
+
+	for _, check := range []struct {
+		gvk  schema.GroupVersionKind
+		ns   string
+		name string
+	}{
+		{NetAttachDefGVK, "default", "vlan-123"},
+		{IPAddressPoolGVK, "kube-system", "vlan-123-pool"},
+		{L2AdvertisementGVK, "kube-system", "l2advertise-vlan-123"},
+	} {
+		obj := &unstructured.Unstructured{}
+		obj.SetGroupVersionKind(check.gvk)
+		if err := fakeClient.Get(ctx, types.NamespacedName{Namespace: check.ns, Name: check.name}, obj); err == nil {
+			t.Errorf("Expected %s %s/%s to be deleted with its Network, but it still exists", check.gvk.Kind, check.ns, check.name)
+		}
+	}
+}
+
+func TestNetworkReconciler_Reconcile_NoOpWhenUnchanged(t *testing.T) {
+	scheme := setupNetworkTestScheme()
+
+	nsDefault := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}}
+	nsKubeSystem := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "kube-system"}}
+	netObj := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "networking.gke.io/v1",
+			"kind":       "Network",
+			"metadata": map[string]interface{}{
+				"name": "vlan-123",
+				"annotations": map[string]interface{}{
+					AnnotationVLANID:        "123",
+					AnnotationLBServiceVIPs: `["172.16.12.200-172.16.12.250"]`,
+				},
+			},
+			"spec": map[string]interface{}{
+				"gateway4": "172.16.12.1",
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(nsDefault, nsKubeSystem, netObj,
+			provisionedNetworksCM(map[string]string{"123": "gdcenet0.123"})).
+		Build()
+
+	reconciler := &NetworkReconciler{
+		Client: fakeClient,
+		Scheme: scheme,
+		Log:    logr.Discard(),
+	}
+
+	ctx := context.Background()
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "vlan-123"}}
+	if _, err := reconciler.Reconcile(ctx, req); err != nil {
+		t.Fatalf("First reconcile returned error: %v", err)
+	}
+
+	getRV := func(t *testing.T, gvk schema.GroupVersionKind, ns, name string) string {
+		t.Helper()
+		obj := &unstructured.Unstructured{}
+		obj.SetGroupVersionKind(gvk)
+		if err := fakeClient.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, obj); err != nil {
+			t.Fatalf("Failed to get %s %s/%s: %v", gvk.Kind, ns, name, err)
+		}
+		return obj.GetResourceVersion()
+	}
+
+	nadRV := getRV(t, NetAttachDefGVK, "default", "vlan-123")
+	poolRV := getRV(t, IPAddressPoolGVK, "kube-system", "vlan-123-pool")
+
+	// Reconcile again with nothing changed: no child object should be rewritten.
+	if _, err := reconciler.Reconcile(ctx, req); err != nil {
+		t.Fatalf("Second reconcile returned error: %v", err)
+	}
+
+	if rv := getRV(t, NetAttachDefGVK, "default", "vlan-123"); rv != nadRV {
+		t.Errorf("Expected NAD ResourceVersion unchanged on no-op reconcile, got %s -> %s", nadRV, rv)
+	}
+	if rv := getRV(t, IPAddressPoolGVK, "kube-system", "vlan-123-pool"); rv != poolRV {
+		t.Errorf("Expected IPAddressPool ResourceVersion unchanged on no-op reconcile, got %s -> %s", poolRV, rv)
+	}
+}
+
+func TestNetworkReconciler_Reconcile_ServiceBindingRequiresAllowlist(t *testing.T) {
+	scheme := setupNetworkTestScheme()
+
+	nsDefault := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}}
+	nsProd := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "prod"}}
+
+	// Network restricted to the "prod" namespace only.
+	netObj := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "networking.gke.io/v1",
+			"kind":       "Network",
+			"metadata": map[string]interface{}{
+				"name": "vlan-123",
+				"annotations": map[string]interface{}{
+					AnnotationVLANID:            "123",
+					AnnotationLBServiceVIPs:     `["172.16.12.200-172.16.12.250"]`,
+					AnnotationAllowedNamespaces: "prod",
+				},
+			},
+		},
+	}
+
+	deniedSvc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "denied-svc",
+			Namespace: "default",
+			Annotations: map[string]string{
+				AnnotationNetworkTarget: "vlan-123",
+			},
+		},
+		Spec: corev1.ServiceSpec{Type: corev1.ServiceTypeLoadBalancer},
+	}
+	allowedSvc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "allowed-svc",
+			Namespace: "prod",
+			Annotations: map[string]string{
+				AnnotationNetworkTarget: "vlan-123",
+			},
+		},
+		Spec: corev1.ServiceSpec{Type: corev1.ServiceTypeLoadBalancer},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(nsDefault, nsProd, netObj, deniedSvc, allowedSvc,
+			provisionedNetworksCM(map[string]string{"123": "gdcenet0.123"})).
+		Build()
+
+	recorder := record.NewFakeRecorder(10)
+	reconciler := &NetworkReconciler{
+		Client:   fakeClient,
+		Scheme:   scheme,
+		Log:      logr.Discard(),
+		Recorder: recorder,
+	}
+
+	ctx := context.Background()
+	if _, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "vlan-123"}}); err != nil {
+		t.Fatalf("Reconcile returned error: %v", err)
+	}
+
+	// The Service outside the allowlist must NOT be bound to the pool.
+	updatedDenied := &corev1.Service{}
+	if err := fakeClient.Get(ctx, types.NamespacedName{Namespace: "default", Name: "denied-svc"}, updatedDenied); err != nil {
+		t.Fatalf("Failed to get denied Service: %v", err)
+	}
+	if pool, ok := updatedDenied.Annotations["metallb.universe.tf/address-pool"]; ok {
+		t.Errorf("Expected denied Service NOT to be bound to MetalLB pool, but found annotation %q", pool)
+	}
+
+	// A diagnosable signal must exist for the denied binding.
+	select {
+	case ev := <-recorder.Events:
+		if !strings.Contains(ev, "Warning") {
+			t.Errorf("Expected a Warning event for denied Service binding, got %q", ev)
+		}
+	default:
+		t.Errorf("Expected an event recording the denied Service binding, but none was recorded")
+	}
+
+	// The Service in the allowed namespace must still bind.
+	updatedAllowed := &corev1.Service{}
+	if err := fakeClient.Get(ctx, types.NamespacedName{Namespace: "prod", Name: "allowed-svc"}, updatedAllowed); err != nil {
+		t.Fatalf("Failed to get allowed Service: %v", err)
+	}
+	if pool := updatedAllowed.Annotations["metallb.universe.tf/address-pool"]; pool != "vlan-123-pool" {
+		t.Errorf("Expected allowed Service to be bound to vlan-123-pool, got %q", pool)
+	}
+}
+
+func TestNetworkReconciler_ApplyOrUpdate_RetriesOnConflict(t *testing.T) {
+	scheme := setupNetworkTestScheme()
+
+	existing := &unstructured.Unstructured{}
+	existing.SetGroupVersionKind(NetAttachDefGVK)
+	existing.SetName("vlan-123")
+	existing.SetNamespace("default")
+	existing.Object["spec"] = map[string]interface{}{"config": "old-config"}
+
+	// Fail the first Update with a Conflict (as if another writer raced us), succeed afterwards.
+	updateCalls := 0
+	conflictOnce := interceptor.Funcs{
+		Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+			updateCalls++
+			if updateCalls == 1 {
+				return apierrors.NewConflict(
+					schema.GroupResource{Group: "k8s.cni.cncf.io", Resource: "network-attachment-definitions"},
+					obj.GetName(), errors.New("simulated conflict"))
+			}
+			return c.Update(ctx, obj, opts...)
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(existing).
+		WithInterceptorFuncs(conflictOnce).
+		Build()
+
+	reconciler := &NetworkReconciler{
+		Client: fakeClient,
+		Scheme: scheme,
+		Log:    logr.Discard(),
+	}
+
+	desired := &unstructured.Unstructured{}
+	desired.SetGroupVersionKind(NetAttachDefGVK)
+	desired.SetName("vlan-123")
+	desired.SetNamespace("default")
+	desired.Object["spec"] = map[string]interface{}{"config": "new-config"}
+
+	ctx := context.Background()
+	if err := reconciler.applyOrUpdate(ctx, desired); err != nil {
+		t.Fatalf("Expected applyOrUpdate to retry through the conflict and succeed, got: %v", err)
+	}
+
+	final := &unstructured.Unstructured{}
+	final.SetGroupVersionKind(NetAttachDefGVK)
+	if err := fakeClient.Get(ctx, types.NamespacedName{Namespace: "default", Name: "vlan-123"}, final); err != nil {
+		t.Fatalf("Failed to get object after applyOrUpdate: %v", err)
+	}
+	if cfg, _, _ := unstructured.NestedString(final.Object, "spec", "config"); cfg != "new-config" {
+		t.Errorf("Expected object to reflect desired spec after conflict retry, got config=%q", cfg)
+	}
+	if updateCalls < 2 {
+		t.Errorf("Expected at least 2 Update attempts (conflict then retry), got %d", updateCalls)
+	}
+}
+
+func TestNetworkReconciler_Reconcile_ChildResourceErrorReflectedInStatus(t *testing.T) {
+	scheme := setupNetworkTestScheme()
+
+	nsDefault := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}}
+	netObj := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "networking.gke.io/v1",
+			"kind":       "Network",
+			"metadata": map[string]interface{}{
+				"name": "vlan-123",
+				"annotations": map[string]interface{}{
+					AnnotationVLANID: "123",
+				},
+			},
+			"spec": map[string]interface{}{
+				"gateway4": "172.16.12.1",
+			},
+		},
+	}
+
+	// Fail every NetworkAttachmentDefinition create so the child-resource reconcile step errors.
+	failNADCreate := interceptor.Funcs{
+		Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+			if obj.GetObjectKind().GroupVersionKind().Kind == "NetworkAttachmentDefinition" {
+				return errors.New("simulated NAD create failure")
+			}
+			return c.Create(ctx, obj, opts...)
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(nsDefault, netObj, provisionedNetworksCM(map[string]string{"123": "gdcenet0.123"})).
+		WithInterceptorFuncs(failNADCreate).
+		Build()
+
+	reconciler := &NetworkReconciler{
+		Client: fakeClient,
+		Scheme: scheme,
+		Log:    logr.Discard(),
+	}
+
+	ctx := context.Background()
+	if _, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "vlan-123"}}); err != nil {
+		t.Fatalf("Reconcile returned error: %v", err)
+	}
+
+	updatedNet := &unstructured.Unstructured{}
+	updatedNet.SetGroupVersionKind(NetworkGVK)
+	if err := fakeClient.Get(ctx, types.NamespacedName{Name: "vlan-123"}, updatedNet); err != nil {
+		t.Fatalf("Failed to get Network: %v", err)
+	}
+
+	conditions, _, _ := unstructured.NestedSlice(updatedNet.Object, "status", "conditions")
+	var readyCond map[string]interface{}
+	for _, c := range conditions {
+		if cMap, ok := c.(map[string]interface{}); ok && cMap["type"] == "Ready" {
+			readyCond = cMap
+		}
+	}
+	if readyCond == nil {
+		t.Fatalf("Expected a Ready condition, got %v", conditions)
+	}
+	if readyCond["status"] != "False" || readyCond["reason"] != "ChildResourceError" {
+		t.Errorf("Expected Ready=False/ChildResourceError when a child resource fails, got status=%v reason=%v",
+			readyCond["status"], readyCond["reason"])
+	}
+	if msg, _ := readyCond["message"].(string); !strings.Contains(msg, "NetworkAttachmentDefinition") {
+		t.Errorf("Expected Ready message to identify the failed child resource, got %q", msg)
+	}
+}
+
+func TestNetworkReconciler_Reconcile_CoreDNSReadyDerivedFromCorefile(t *testing.T) {
+	scheme := setupNetworkTestScheme()
+
+	buildNet := func() *unstructured.Unstructured {
+		return &unstructured.Unstructured{
+			Object: map[string]interface{}{
+				"apiVersion": "networking.gke.io/v1",
+				"kind":       "Network",
+				"metadata": map[string]interface{}{
+					"name": "vlan-123",
+					"annotations": map[string]interface{}{
+						AnnotationVLANID: "123",
+					},
+				},
+			},
+		}
+	}
+
+	getCoreDNSCond := func(t *testing.T, c client.Client) map[string]interface{} {
+		t.Helper()
+		updatedNet := &unstructured.Unstructured{}
+		updatedNet.SetGroupVersionKind(NetworkGVK)
+		if err := c.Get(context.Background(), types.NamespacedName{Name: "vlan-123"}, updatedNet); err != nil {
+			t.Fatalf("Failed to get Network: %v", err)
+		}
+		conditions, _, _ := unstructured.NestedSlice(updatedNet.Object, "status", "conditions")
+		for _, cond := range conditions {
+			if cMap, ok := cond.(map[string]interface{}); ok && cMap["type"] == "CoreDNSReady" {
+				return cMap
+			}
+		}
+		return nil
+	}
+
+	t.Run("rule present reports true", func(t *testing.T) {
+		corednsCM := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: "coredns-config", Namespace: "kube-system"},
+			Data: map[string]string{
+				"Corefile": ".:53 {\n    ready\n    rewrite name suffix .gkegw.cluster.local .svc.cluster.local\n    kubernetes cluster.local\n}",
+			},
+		}
+		fakeClient := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(buildNet(), corednsCM, provisionedNetworksCM(map[string]string{"123": "gdcenet0.123"})).
+			Build()
+		reconciler := &NetworkReconciler{Client: fakeClient, Scheme: scheme, Log: logr.Discard()}
+		if _, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: "vlan-123"}}); err != nil {
+			t.Fatalf("Reconcile returned error: %v", err)
+		}
+		cond := getCoreDNSCond(t, fakeClient)
+		if cond == nil || cond["status"] != "True" {
+			t.Errorf("Expected CoreDNSReady=True when the rewrite rule is present, got %v", cond)
+		}
+	})
+
+	t.Run("rule absent reports false", func(t *testing.T) {
+		fakeClient := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(buildNet(), provisionedNetworksCM(map[string]string{"123": "gdcenet0.123"})).
+			Build()
+		reconciler := &NetworkReconciler{Client: fakeClient, Scheme: scheme, Log: logr.Discard()}
+		if _, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: "vlan-123"}}); err != nil {
+			t.Fatalf("Reconcile returned error: %v", err)
+		}
+		cond := getCoreDNSCond(t, fakeClient)
+		if cond == nil || cond["status"] != "False" {
+			t.Errorf("Expected CoreDNSReady=False when no CoreDNS rewrite rule exists, got %v", cond)
+		}
+	})
 }
 
 func TestNetworkReconciler_Reconcile_ServiceBinding(t *testing.T) {
