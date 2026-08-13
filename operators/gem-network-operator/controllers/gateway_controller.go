@@ -500,7 +500,12 @@ func (r *GatewayReconciler) writeServiceAndEndpointSlice(ctx context.Context, gw
 }
 
 // reconcileCoreDNS ensures the Corefile in kube-system contains the rewrite rule for .gkegw.cluster.local.
+// The template is patched before the live config: clusterdns-controller renders coredns-config from
+// coredns-template (read at its startup), so the template is the durable source of truth and the
+// live-config edit is only the immediate-effect repair.
 func (r *GatewayReconciler) reconcileCoreDNS(ctx context.Context) {
+	r.reconcileCoreDNSTemplate(ctx)
+
 	cm := &corev1.ConfigMap{}
 	if err := r.Get(ctx, client.ObjectKey{Namespace: "kube-system", Name: "coredns-config"}, cm); err != nil {
 		r.Log.Error(err, "Failed to get coredns-config from kube-system")
@@ -511,7 +516,7 @@ func (r *GatewayReconciler) reconcileCoreDNS(ctx context.Context) {
 			var newLines []string
 			for _, line := range lines {
 				newLines = append(newLines, line)
-				if strings.Contains(line, "ready") {
+				if strings.TrimSpace(line) == "ready" {
 					newLines = append(newLines, CoreDNSRewriteRule)
 				}
 			}
@@ -520,13 +525,22 @@ func (r *GatewayReconciler) reconcileCoreDNS(ctx context.Context) {
 				r.Log.Error(err, "Failed to update coredns-config with .gkegw.cluster.local rewrite rule")
 			} else {
 				r.Log.Info("Successfully updated coredns-config with .gkegw.cluster.local rewrite rule")
-				// No reload plugin is configured in GEM's Corefile, so CoreDNS keeps serving its
-				// in-memory config until restarted. Bounce it only when the ConfigMap actually changed.
+				// The stock ABM Corefile carries the reload plugin, so CoreDNS would pick this up
+				// within its reload interval anyway; restarting the pods makes it immediate.
+				// Only fires when the ConfigMap actually changed, so no-op reconciles never
+				// bounce CoreDNS.
 				r.restartCoreDNS(ctx)
 			}
 		}
 	}
+}
 
+// reconcileCoreDNSTemplate ensures the coredns-template ConfigMap carries the rewrite rule, so
+// clusterdns-controller's rendered Corefiles keep it instead of stomping it. Note: that controller
+// reads the template at startup, so a template change only takes effect in its output after its
+// next restart — Ansible performs that restart at cluster build; here the live-config repair in
+// reconcileCoreDNS covers the interim.
+func (r *GatewayReconciler) reconcileCoreDNSTemplate(ctx context.Context) {
 	cmTmpl := &corev1.ConfigMap{}
 	if err := r.Get(ctx, client.ObjectKey{Namespace: "kube-system", Name: "coredns-template"}, cmTmpl); err == nil && cmTmpl.Data != nil {
 		tmplData := cmTmpl.Data["coredns-template"]
@@ -535,12 +549,14 @@ func (r *GatewayReconciler) reconcileCoreDNS(ctx context.Context) {
 			var newLines []string
 			for _, line := range lines {
 				newLines = append(newLines, line)
-				if strings.Contains(line, "ready") {
+				if strings.TrimSpace(line) == "ready" {
 					newLines = append(newLines, CoreDNSRewriteRule)
 				}
 			}
 			cmTmpl.Data["coredns-template"] = strings.Join(newLines, "\n")
-			_ = r.Update(ctx, cmTmpl)
+			if err := r.Update(ctx, cmTmpl); err != nil {
+				r.Log.Error(err, "Failed to update coredns-template with .gkegw.cluster.local rewrite rule")
+			}
 		}
 	}
 }

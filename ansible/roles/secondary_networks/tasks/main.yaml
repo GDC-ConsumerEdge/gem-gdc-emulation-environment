@@ -131,12 +131,26 @@
   when: secondary_networks is defined
 
 - name: Ensure CoreDNS supports .gkegw.cluster.local Gateway API DNS resolution
+  # The rewrite rule must land in coredns-template FIRST: clusterdns-controller renders
+  # coredns-config from that template, so a rule added only to coredns-config is silently
+  # dropped on its next render. Crucially, clusterdns-controller reads the template at
+  # startup only, so after patching it the controller must be rollout-restarted (NOT scaled
+  # to zero — that breaks clusterdns-webhook) for its renders to include the rule. Patching
+  # coredns-config too makes the rule take effect immediately; the CoreDNS pods pick it up
+  # via the Corefile's reload plugin, with the pod delete making it immediate.
   ansible.builtin.shell: |
     set -o pipefail
     export KUBECONFIG="{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/{{ cluster_name }}-kubeconfig"
+    TEMPLATE=$(kubectl get configmap coredns-template -n kube-system -o jsonpath="{.data['coredns-template']}" 2>/dev/null || true)
+    if [ -n "$TEMPLATE" ] && ! echo "$TEMPLATE" | grep -q "rewrite name suffix .gkegw.cluster.local"; then
+      UPDATED_TEMPLATE=$(echo "$TEMPLATE" | sed '/^    ready$/a\    rewrite name suffix .gkegw.cluster.local .svc.cluster.local')
+      kubectl create configmap coredns-template -n kube-system --from-literal=coredns-template="$UPDATED_TEMPLATE" --dry-run=client -o yaml | kubectl apply -f -
+      kubectl rollout restart deployment clusterdns-controller -n kube-system
+      kubectl rollout status deployment clusterdns-controller -n kube-system --timeout=120s || true
+    fi
     COREFILE=$(kubectl get configmap coredns-config -n kube-system -o jsonpath='{.data.Corefile}' 2>/dev/null || true)
     if [ -n "$COREFILE" ] && ! echo "$COREFILE" | grep -q "rewrite name suffix .gkegw.cluster.local"; then
-      UPDATED_COREFILE=$(echo "$COREFILE" | sed '/ready/a \    rewrite name suffix .gkegw.cluster.local .svc.cluster.local')
+      UPDATED_COREFILE=$(echo "$COREFILE" | sed '/^    ready$/a\    rewrite name suffix .gkegw.cluster.local .svc.cluster.local')
       kubectl create configmap coredns-config -n kube-system --from-literal=Corefile="$UPDATED_COREFILE" --dry-run=client -o yaml | kubectl apply -f -
       kubectl delete pod -n kube-system -l k8s-app=kube-dns || true
     fi
