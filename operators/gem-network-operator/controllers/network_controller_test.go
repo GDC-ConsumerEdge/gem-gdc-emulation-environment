@@ -479,6 +479,73 @@ func TestNetworkReconciler_Reconcile_MissingHostInterfaceEmitsWarningEvent(t *te
 	}
 }
 
+func TestNetworkReconciler_Reconcile_PrimaryNetworkAlwaysProvisionedNoWarning(t *testing.T) {
+	scheme := setupNetworkTestScheme()
+
+	nsDefault := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}}
+	podNet := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "networking.gke.io/v1",
+			"kind":       "Network",
+			"metadata": map[string]interface{}{
+				"name": "pod-network",
+			},
+			"spec": map[string]interface{}{
+				"type": "L3",
+				"routes": []interface{}{
+					map[string]interface{}{"to": "10.0.0.0/17"},
+				},
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(nsDefault, podNet).
+		Build()
+
+	recorder := record.NewFakeRecorder(10)
+	reconciler := &NetworkReconciler{
+		Client:   fakeClient,
+		Scheme:   scheme,
+		Log:      logr.Discard(),
+		Recorder: recorder,
+	}
+
+	ctx := context.Background()
+	if _, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "pod-network"}}); err != nil {
+		t.Fatalf("Reconcile returned error: %v", err)
+	}
+
+	select {
+	case ev := <-recorder.Events:
+		t.Errorf("Expected NO warning events for primary pod-network, but got: %q", ev)
+	default:
+		// OK: No warning emitted
+	}
+
+	updatedNet := &unstructured.Unstructured{}
+	updatedNet.SetGroupVersionKind(NetworkGVK)
+	if err := fakeClient.Get(ctx, types.NamespacedName{Name: "pod-network"}, updatedNet); err != nil {
+		t.Fatalf("Failed to get Network: %v", err)
+	}
+
+	conditions, _, _ := unstructured.NestedSlice(updatedNet.Object, "status", "conditions")
+	var readyCond map[string]interface{}
+	for _, c := range conditions {
+		if cMap, ok := c.(map[string]interface{}); ok && cMap["type"] == "Ready" {
+			readyCond = cMap
+		}
+	}
+	if readyCond == nil {
+		t.Fatalf("Expected a Ready condition, got %v", conditions)
+	}
+	if readyCond["status"] != "True" {
+		t.Errorf("Expected Ready=True for primary network, got status=%v reason=%v",
+			readyCond["status"], readyCond["reason"])
+	}
+}
+
 func TestNetworkReconciler_Reconcile_ChildResourcesHaveOwnerReference(t *testing.T) {
 	scheme := setupNetworkTestScheme()
 

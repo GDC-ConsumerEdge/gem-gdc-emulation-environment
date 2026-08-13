@@ -153,7 +153,10 @@ func (r *NetworkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// host VXLAN interface at cluster build time. A Network applied afterwards is accepted (child
 	// resources are still created, per the GDC contract) but must be loudly diagnosable, not
 	// silently "Ready": pods referencing it will fail Multus ADD because no host interface exists.
-	provisioned := r.isHostInterfaceProvisioned(ctx, vlanID, ifaceName)
+	// The cluster's primary network (e.g. pod-network / default) is managed by the base CNI and
+	// is always provisioned.
+	isPrimary := isPrimaryNetwork(netObj, vlanID, ifaceName)
+	provisioned := isPrimary || r.isHostInterfaceProvisioned(ctx, vlanID, ifaceName)
 	if !provisioned && r.Recorder != nil {
 		r.Recorder.Event(netObj, corev1.EventTypeWarning, "MissingHostInterface",
 			"Network accepted, but the underlying host VXLAN was not statically provisioned. "+
@@ -327,6 +330,16 @@ func (r *NetworkReconciler) isHostInterfaceProvisioned(ctx context.Context, vlan
 		}
 	}
 	return false
+}
+
+// isPrimaryNetwork reports whether a Network represents the default cluster primary network
+// (e.g. "pod-network" or "default") rather than an administrator-defined secondary network segment.
+func isPrimaryNetwork(netObj *unstructured.Unstructured, vlanID, ifaceName string) bool {
+	name := netObj.GetName()
+	if name == "pod-network" || name == "default" {
+		return true
+	}
+	return vlanID == "" && ifaceName == ""
 }
 
 // reconcileNetAttachDef generates a NetworkAttachmentDefinition in every active namespace,
