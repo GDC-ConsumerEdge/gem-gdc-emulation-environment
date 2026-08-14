@@ -1,0 +1,93 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# ==============================================================================
+# TEST SUITE: ClusterDNS Configuration and DNS Resolution
+#
+# DESCRIPTION:
+#   Validates GDC Connected ClusterDNS lifecycle: applying a valid ClusterDNS
+#   custom resource configuration, verifying CoreDNS ConfigMap generation in
+#   kube-system, validating in-cluster DNS resolution for cloud.google.com, and
+#   enforcing the singleton admission webhook constraint against invalid/duplicate
+#   ClusterDNS resources.
+# ==============================================================================
+
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: clusterdns-validation
+spec:
+  timeouts:
+    cleanup: 2m
+  steps:
+    # Apply valid ClusterDNS custom configuration to ClusterDNS/default.
+    - name: 1. Apply Valid ClusterDNS Configuration
+      try:
+        - apply:
+            file: 01-valid-clusterdns.yaml
+        - assert:
+            timeout: 30s
+            resource:
+              apiVersion: networking.gke.io/v1alpha1
+              kind: ClusterDNS
+              metadata:
+                name: default
+              status:
+                defaultDomain: cluster.local
+                provider: networking.gke.io/coredns
+                conditions:
+                  - condition: "False"
+                    reason: ReconcileFinished
+                    type: reconciling
+      cleanup: []
+
+    # Verify CoreDNS ConfigMap in kube-system reflects Corefile configuration.
+    - name: 2. Verify CoreDNS ConfigMap In Kube-System
+      try:
+        - assert:
+            timeout: 30s
+            resource:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: coredns-config
+                namespace: kube-system
+              (contains(data.Corefile, 'forward . 8.8.8.8 8.8.4.4')): true
+              (contains(data.Corefile, 'google.com:53')): true
+              (contains(data.Corefile, 'kubernetes cluster.local')): true
+
+    # Verify in-cluster DNS lookup resolution for cloud.google.com.
+    - name: 3. Verify DNS Lookup Resolution For cloud.google.com
+      try:
+        - apply:
+            file: 02-dns-lookup-pod.yaml
+        - assert:
+            timeout: 2m
+            resource:
+              apiVersion: v1
+              kind: Pod
+              metadata:
+                name: test-clusterdns-lookup
+              status:
+                phase: Succeeded
+
+    # Verify singleton ClusterDNS validation webhook rejects non-default or duplicate ClusterDNS CRs.
+    - name: 4. Validate ClusterDNS Singleton Webhook Enforcement
+      try:
+        - apply:
+            file: 03-invalid-clusterdns.yaml
+            expect:
+              - check:
+                  ($error != null): true
+                  (contains($error || '', 'there can only be one ClusterDNS') || contains($error || '', 'denied')): true
