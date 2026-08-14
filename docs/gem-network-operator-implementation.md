@@ -105,12 +105,13 @@ The Gateway controller requeues at a 30-second interval purely as a drift-correc
 
 ---
 
-### 2.4 Pod Route Injection: No Admission Webhook Required
-The original design called for a mutating admission webhook to inject secondary-network routes into pods at scheduling time (mirroring GDC's `nf-operator`). **This was not implemented, and is not needed.** Instead:
-- `reconcileNetAttachDef` (in `network_controller.go`) renders each `Network`'s `NetworkAttachmentDefinition` using the **`macvlan`** CNI plugin in bridge mode with **`host-local`** IPAM, setting IPAM's `gateway` key to the `Network`'s `gateway4`.
-- The `host-local` CNI IPAM plugin installs the default route for that gateway into the pod's network namespace itself, at CNI `ADD` time — this is standard CNI behavior, not custom GEM logic.
-- Net effect: a pod that lists a `Network` in `networking.gke.io/interfaces` gets a working route to that network's Gateway VIP automatically, with no webhook, no `networking.gke.io/interface-status` population, and no dependency on pod scheduling order relative to the webhook.
-- *Caveat:* because there's no webhook to reject or repair a misconfigured pod, a pod created before its `NetworkAttachmentDefinition` exists will simply fail to attach the interface (Multus will error at pod start) rather than receive a clear `interface-status` condition. Constraint 1 in [docs/secondary-networks.md](secondary-networks.md) (`GKEGatewayCIDR` before pods) still applies for the same underlying reason — the CIDR must exist so its network is fully described before workloads depend on it.
+### 2.4 Pod Interface Admission Mutating Webhook
+To enable unmodified GDC Connected Pod manifests containing only `networking.gke.io/interfaces` (without requiring manual Multus annotations), `gem-network-operator` serves a **Mutating Admission Webhook** (`/mutate-pod`):
+- **GDC Parity:** Intercepts `Pod` creation requests.
+- **Multus Translation:** Extracts secondary networks from `networking.gke.io/interfaces` and automatically injects matching `k8s.v1.cni.cncf.io/networks` annotations (`[{"name": "<network>", "interface": "<interfaceName>"}]`).
+- **Cilium Isolation:** Sanitizes `networking.gke.io/interfaces` so the underlying Anthos Cilium CNI only processes the primary `pod-network` on `eth0`, preventing broken Cilium IPAM allocator lookups on Anthos Bare Metal.
+- **Route Injection:** `reconcileNetAttachDef` renders each `NetworkAttachmentDefinition` using the **`macvlan`** CNI plugin with **`host-local`** IPAM, setting the `gateway` key to `Network.spec.gateway4` so the CNI plugin installs the default route at pod initialization time.
+- **Resilience:** Operates with `failurePolicy: Ignore` and excludes system namespaces (`kube-system`, `gatekeeper-system`, `gke-system`). Self-signs in-memory CA/server certificates and automatically registers `gem-pod-interface-mutator` in the cluster on startup.
 
 ---
 

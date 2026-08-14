@@ -21,7 +21,7 @@ Type=simple
 User={{ gem_user }}
 Group={{ gem_user }}
 Environment=KUBECONFIG={{ gem_home }}/bmctl-workspace/{{ cluster_name }}/{{ cluster_name }}-kubeconfig
-ExecStart=/usr/local/bin/gem-network-operator --metrics-bind-address=0 --health-probe-bind-address=0
+ExecStart=/usr/local/bin/gem-network-operator --metrics-bind-address=0 --health-probe-bind-address=0 --webhook-port={{ webhook_port | default(9443 + (cluster_name | hash('md5') | int(base=16) % 500)) }} --webhook-host={{ hostvars['admin_workstation_host']['ansible_host'] | default('10.10.0.2') }}
 Restart=always
 RestartSec=5s
 LimitNOFILE=65536

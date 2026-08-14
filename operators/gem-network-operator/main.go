@@ -15,16 +15,22 @@
 package main
 
 import (
+	"context"
 	"flag"
+	"fmt"
 	"os"
 
 	"github.com/GoogleCloudPlatform/gem/operators/gem-network-operator/controllers"
+	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
 var (
@@ -34,15 +40,22 @@ var (
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(admissionregistrationv1.AddToScheme(scheme))
 }
 
 func main() {
 	var metricsAddr string
 	var enableLeaderElection bool
 	var probeAddr string
+	var webhookPort int
+	var webhookHost string
+	var webhookCertDir string
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
+	flag.IntVar(&webhookPort, "webhook-port", 0, "The port the admission webhook server binds to (0 to disable).")
+	flag.StringVar(&webhookHost, "webhook-host", "10.10.0.2", "The external host/IP reachable by the cluster for webhooks.")
+	flag.StringVar(&webhookCertDir, "webhook-cert-dir", "", "The directory containing or receiving TLS certs for the webhook server.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. Enabling this will ensure there is only one active controller manager.")
 	opts := zap.Options{
@@ -60,7 +73,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	mgr, err := ctrl.NewManager(restConfig, ctrl.Options{
+	mgrOpts := ctrl.Options{
 		Scheme: scheme,
 		Metrics: metricsserver.Options{
 			BindAddress: metricsAddr,
@@ -68,7 +81,25 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "gem-network-operator.gke.io",
-	})
+	}
+
+	var caPEM []byte
+	if webhookPort > 0 {
+		if webhookCertDir == "" {
+			webhookCertDir = fmt.Sprintf("/tmp/gem-network-operator-certs-%d", webhookPort)
+		}
+		caPEM, err = controllers.GenerateWebhookCerts(webhookCertDir, webhookHost)
+		if err != nil {
+			setupLog.Error(err, "unable to generate webhook TLS certificates")
+			os.Exit(1)
+		}
+		mgrOpts.WebhookServer = webhook.NewServer(webhook.Options{
+			Port:    webhookPort,
+			CertDir: webhookCertDir,
+		})
+	}
+
+	mgr, err := ctrl.NewManager(restConfig, mgrOpts)
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
@@ -91,6 +122,27 @@ func main() {
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Gateway")
 		os.Exit(1)
+	}
+
+	if webhookPort > 0 {
+		decoder := admission.NewDecoder(scheme)
+		mutator := &controllers.PodInterfaceMutator{
+			Client:  mgr.GetClient(),
+			Decoder: decoder,
+			Log:     ctrl.Log.WithName("webhooks").WithName("PodInterfaceMutator"),
+		}
+		mgr.GetWebhookServer().Register(controllers.WebhookPath, &admission.Webhook{
+			Handler: mutator,
+		})
+
+		webhookURL := fmt.Sprintf("https://%s:%d%s", webhookHost, webhookPort, controllers.WebhookPath)
+		if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+			setupLog.Info("registering MutatingWebhookConfiguration", "url", webhookURL)
+			return controllers.EnsureMutatingWebhookConfiguration(ctx, mgr.GetClient(), webhookURL, caPEM)
+		})); err != nil {
+			setupLog.Error(err, "unable to add webhook registration runnable")
+			os.Exit(1)
+		}
 	}
 
 	setupLog.Info("starting manager for gem-network-operator")
