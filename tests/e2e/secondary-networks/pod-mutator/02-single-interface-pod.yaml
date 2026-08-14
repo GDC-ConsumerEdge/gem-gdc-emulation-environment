@@ -15,20 +15,17 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  name: test-secondary-network-server
-  labels:
-    app: test-secondary-network-svc
+  name: test-gdc-single-interface
   annotations:
     networking.gke.io/default-interface: eth0
     networking.gke.io/interfaces: |
       [
         {"interfaceName":"eth0","network":"pod-network"},
-        {"interfaceName":"eth1","network":"vlan-456"}
+        {"interfaceName":"eth1","network":"vlan-123"}
       ]
 spec:
   terminationGracePeriodSeconds: 0
   containers:
-    - name: nginx
-      image: nginx:alpine
-      ports:
-        - containerPort: 80
+    - name: test
+      image: nicolaka/netshoot
+      command: ["sleep", "3600"]
