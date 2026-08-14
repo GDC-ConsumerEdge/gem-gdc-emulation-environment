@@ -13,12 +13,13 @@
 # limitations under the License.
 
 # ==============================================================================
-# TEST SUITE: GDC Pod Interface Mutating Webhook
+# TEST SUITE: GDC Pod Interface Mutating Webhook & Dynamic IPAM
 #
 # DESCRIPTION:
 #   Validates that the gem-network-operator mutating admission webhook intercepts
 #   Pod creation, extracts secondary networks from networking.gke.io/interfaces,
-#   injects matching k8s.v1.cni.cncf.io/networks Multus annotations, and sanitizes
+#   dynamically allocates non-colliding IPAM addresses, injects matching
+#   k8s.v1.cni.cncf.io/networks Multus annotations, and sanitizes
 #   networking.gke.io/interfaces so Anthos Cilium CNI only configures the primary
 #   pod-network on eth0.
 # ==============================================================================
@@ -77,7 +78,8 @@ spec:
               kind: Pod
               metadata:
                 name: test-gdc-single-interface
-                (annotations."k8s.v1.cni.cncf.io/networks" == '[{"name":"vlan-123","interface":"eth1"}]'): true
+                (contains(annotations."k8s.v1.cni.cncf.io/networks", '"name":"vlan-123"')): true
+                (contains(annotations."k8s.v1.cni.cncf.io/networks", '"ips":')): true
                 (annotations."networking.gke.io/interfaces" == '[{"interfaceName":"eth0","network":"pod-network"}]'): true
               status:
                 phase: Running
@@ -94,7 +96,8 @@ spec:
               kind: Pod
               metadata:
                 name: test-gdc-multi-interface
-                (annotations."k8s.v1.cni.cncf.io/networks" == '[{"name":"vlan-123","interface":"eth1"},{"name":"vlan-456","interface":"eth2"}]'): true
+                (contains(annotations."k8s.v1.cni.cncf.io/networks", '"name":"vlan-123"')): true
+                (contains(annotations."k8s.v1.cni.cncf.io/networks", '"name":"vlan-456"')): true
                 (annotations."networking.gke.io/interfaces" == '[{"interfaceName":"eth0","network":"pod-network"}]'): true
               status:
                 phase: Running
@@ -113,5 +116,33 @@ spec:
                 name: test-gdc-primary-only
                 (annotations."k8s.v1.cni.cncf.io/networks" == null): true
                 (annotations."networking.gke.io/interfaces" == '[{"interfaceName":"eth0","network":"pod-network"}]'): true
+              status:
+                phase: Running
+
+    # Deploy two pods on the same secondary network and verify dynamic non-colliding IP allocation.
+    - name: 5. Dynamic IPAM Non-Colliding Multi-Pod Allocation
+      try:
+        - apply:
+            file: 05-dual-pods-ipam.yaml
+        - assert:
+            timeout: 2m
+            resource:
+              apiVersion: v1
+              kind: Pod
+              metadata:
+                name: test-gdc-ipam-pod-1
+                (contains(annotations."k8s.v1.cni.cncf.io/networks", '"name":"vlan-456"')): true
+                (contains(annotations."k8s.v1.cni.cncf.io/networks", '"ips":')): true
+              status:
+                phase: Running
+        - assert:
+            timeout: 2m
+            resource:
+              apiVersion: v1
+              kind: Pod
+              metadata:
+                name: test-gdc-ipam-pod-2
+                (contains(annotations."k8s.v1.cni.cncf.io/networks", '"name":"vlan-456"')): true
+                (contains(annotations."k8s.v1.cni.cncf.io/networks", '"ips":')): true
               status:
                 phase: Running

@@ -25,6 +25,7 @@ import (
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -169,6 +170,134 @@ func TestMutatePodInterfaces_NoAnnotationsOrInvalidJSON(t *testing.T) {
 	}
 	if MutatePodInterfaces(podInvalidJSON) {
 		t.Errorf("Expected false for pod with invalid json annotation")
+	}
+}
+
+func TestMutatePodInterfacesWithContext_DynamicIPAMAllocation(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	netObj := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "networking.gke.io/v1",
+			"kind":       "Network",
+			"metadata": map[string]interface{}{
+				"name": "vlan-456",
+				"annotations": map[string]interface{}{
+					AnnotationLBServiceVIPs: `["192.168.45.200-192.168.45.250"]`,
+				},
+			},
+			"spec": map[string]interface{}{
+				"gateway4": "192.168.45.1",
+				"l2NetworkConfig": map[string]interface{}{
+					"prefixLength4": int64(24),
+				},
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(netObj).Build()
+	ctx := context.Background()
+
+	// 1. First Pod created
+	pod1 := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pod-1",
+			Namespace: "default",
+			Annotations: map[string]string{
+				AnnotationGKEInterfaces: `[{"interfaceName":"eth0","network":"pod-network"},{"interfaceName":"eth1","network":"vlan-456"}]`,
+			},
+		},
+	}
+
+	mutated, err := MutatePodInterfacesWithContext(ctx, fakeClient, pod1)
+	if err != nil || !mutated {
+		t.Fatalf("MutatePodInterfacesWithContext failed on pod1: %v", err)
+	}
+
+	var multus1 []MultusNetworkSpec
+	if err := json.Unmarshal([]byte(pod1.Annotations[AnnotationMultusNetworks]), &multus1); err != nil {
+		t.Fatalf("Failed to unmarshal Multus for pod1: %v", err)
+	}
+	if len(multus1) != 1 || len(multus1[0].IPs) != 1 || multus1[0].IPs[0] != "192.168.45.10/24" {
+		t.Fatalf("Expected pod1 to get 192.168.45.10/24, got: %+v", multus1)
+	}
+
+	// Save pod1 to client
+	if err := fakeClient.Create(ctx, pod1); err != nil {
+		t.Fatalf("Failed to save pod1: %v", err)
+	}
+
+	// 2. Second Pod created (on separate node or namespace)
+	pod2 := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pod-2",
+			Namespace: "tenant-a",
+			Annotations: map[string]string{
+				AnnotationGKEInterfaces: `[{"interfaceName":"eth0","network":"pod-network"},{"interfaceName":"eth1","network":"vlan-456"}]`,
+			},
+		},
+	}
+
+	mutated2, err := MutatePodInterfacesWithContext(ctx, fakeClient, pod2)
+	if err != nil || !mutated2 {
+		t.Fatalf("MutatePodInterfacesWithContext failed on pod2: %v", err)
+	}
+
+	var multus2 []MultusNetworkSpec
+	if err := json.Unmarshal([]byte(pod2.Annotations[AnnotationMultusNetworks]), &multus2); err != nil {
+		t.Fatalf("Failed to unmarshal Multus for pod2: %v", err)
+	}
+	if len(multus2) != 1 || len(multus2[0].IPs) != 1 || multus2[0].IPs[0] != "192.168.45.11/24" {
+		t.Fatalf("Expected pod2 to get distinct IP 192.168.45.11/24, got: %+v", multus2)
+	}
+}
+
+func TestMutatePodInterfacesWithContext_PreservesExplicitStaticIP(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	netObj := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "networking.gke.io/v1",
+			"kind":       "Network",
+			"metadata": map[string]interface{}{
+				"name": "vlan-456",
+			},
+			"spec": map[string]interface{}{
+				"gateway4": "192.168.45.1",
+				"l2NetworkConfig": map[string]interface{}{
+					"prefixLength4": int64(24),
+				},
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(netObj).Build()
+	ctx := context.Background()
+
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pod-explicit",
+			Namespace: "default",
+			Annotations: map[string]string{
+				AnnotationMultusNetworks: `[{"name":"vlan-456","interface":"eth1","ips":["192.168.45.99/24"]}]`,
+				AnnotationGKEInterfaces:  `[{"interfaceName":"eth0","network":"pod-network"},{"interfaceName":"eth1","network":"vlan-456"}]`,
+			},
+		},
+	}
+
+	mutated, err := MutatePodInterfacesWithContext(ctx, fakeClient, pod)
+	if err != nil || !mutated {
+		t.Fatalf("MutatePodInterfacesWithContext failed: %v", err)
+	}
+
+	var multus []MultusNetworkSpec
+	if err := json.Unmarshal([]byte(pod.Annotations[AnnotationMultusNetworks]), &multus); err != nil {
+		t.Fatalf("Failed to unmarshal Multus: %v", err)
+	}
+	if len(multus) != 1 || len(multus[0].IPs) != 1 || multus[0].IPs[0] != "192.168.45.99/24" {
+		t.Fatalf("Expected explicit IP 192.168.45.99/24 to be preserved, got: %+v", multus)
 	}
 }
 
