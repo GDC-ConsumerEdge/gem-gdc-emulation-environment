@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/GoogleCloudPlatform/gem/operators/gem-network-operator/controllers"
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -31,6 +30,8 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+
+	"github.com/GoogleCloudPlatform/gem/operators/gem-network-operator/controllers"
 )
 
 var (

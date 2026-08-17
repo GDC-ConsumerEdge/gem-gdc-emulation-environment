@@ -306,7 +306,7 @@ func TestGenerateWebhookCerts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	caPEM, err := GenerateWebhookCerts(tempDir, "10.10.0.2")
 	if err != nil {

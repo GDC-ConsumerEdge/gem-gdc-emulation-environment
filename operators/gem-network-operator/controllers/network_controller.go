@@ -43,9 +43,9 @@ const (
 	NetworkFinalizer = "networking.gke.io/network-finalizer"
 
 	// Annotation keys for GEM network configuration.
-	AnnotationNetworkTarget   = "networking.gke.io/network"
-	AnnotationVLANID          = "networking.gke.io/gdce-vlan-id"
-	AnnotationVLANMTU         = "networking.gke.io/gdce-vlan-mtu"
+	AnnotationNetworkTarget = "networking.gke.io/network"
+	AnnotationVLANID        = "networking.gke.io/gdce-vlan-id"
+	AnnotationVLANMTU       = "networking.gke.io/gdce-vlan-mtu"
 	AnnotationLBServiceVIPs = "networking.gke.io/gdce-lb-service-vip-cidrs"
 
 	// AnnotationAllowedNamespaces (on a Network) restricts which namespaces' Services may bind to
