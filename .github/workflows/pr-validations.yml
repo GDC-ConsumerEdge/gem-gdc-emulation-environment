@@ -27,7 +27,7 @@ jobs:
       pull-requests: read
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # 7.0.1
         with:
           fetch-depth: 0
 
@@ -36,7 +36,7 @@ jobs:
 
       - name: Check for changes
         id: changes
-        uses: dorny/paths-filter@v4
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         with:
           filters: |
             terraform:
@@ -51,24 +51,24 @@ jobs:
               - '.golangci.yml'
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: 'stable'
 
       - name: Setup TFLint
         if: steps.changes.outputs.terraform == 'true'
-        uses: terraform-linters/setup-tflint@v6
+        uses: terraform-linters/setup-tflint@6e1e0642c0289bd619021bf6b34e3c08ed1e005a # v6.3.0
         with:
           tflint_version: v0.50.0
 
       - name: Run Linters and Validators
         env:
           SKIP: terraform_fmt,terraform_tflint,terraform_validate,ansible-lint,golangci-lint
-        uses: pre-commit/action@v3.0.1
+        uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
 
       - name: Run Golang Linters
         if: steps.changes.outputs.golang == 'true'
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: v1.64.6
           working-directory: operators/gem-network-operator
@@ -92,20 +92,20 @@ jobs:
         if: steps.changes.outputs.terraform == 'true'
         env:
           SKIP: trailing-whitespace,end-of-file-fixer,check-yaml,check-added-large-files,yamlfmt,gitleaks,addlicense,shellcheck,ansible-lint,golangci-lint
-        uses: pre-commit/action@v3.0.1
+        uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
 
       - name: Run Ansible Pre-Commit Checks
         if: steps.changes.outputs.ansible == 'true'
         env:
           SKIP: trailing-whitespace,end-of-file-fixer,check-yaml,check-added-large-files,yamlfmt,gitleaks,addlicense,shellcheck,terraform_fmt,terraform_tflint,terraform_validate,golangci-lint
-        uses: pre-commit/action@v3.0.1
+        uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
 
   unit-tests:
     name: Run Unit Tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # 7.0.1
         with:
           fetch-depth: 0
 
