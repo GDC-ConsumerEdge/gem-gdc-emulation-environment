@@ -54,7 +54,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: 'stable'
+          go-version-file: 'operators/gem-network-operator/go.mod'
 
       - name: Setup TFLint
         if: steps.changes.outputs.terraform == 'true'
@@ -116,6 +116,11 @@ jobs:
 
       - name: Bootstrap GEM Environment
         uses: ./.github/actions/setup-gem
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: 'operators/gem-network-operator/go.mod'
 
       - name: Run GEM Unit Tests
         run: |
