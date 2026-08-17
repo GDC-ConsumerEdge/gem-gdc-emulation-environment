@@ -83,13 +83,16 @@ jobs:
 
       - name: Post Trigger Comment
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          CLUSTER_NAME: ${{ steps.sanitize.outputs.cluster_name }}
+          BRANCH: ${{ steps.pr.outputs.branch }}
         with:
           script: |
             github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.payload.issue.number,
-              body: `🚀 Cluster build and validation tests triggered for cluster \`${{ steps.sanitize.outputs.cluster_name }}\` (branch: \`${{ steps.pr.outputs.branch }}\`).\n[View Action Run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`
+              body: `🚀 Cluster build and validation tests triggered for cluster \`$CLUSTER_NAME\` (branch: \`$BRANCH\`).\n[View Action Run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`
             });
 
       - name: Authenticate to Google Cloud
@@ -116,23 +119,27 @@ jobs:
       - name: Post Success Comment
         if: success()
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          CLUSTER_NAME: ${{ steps.sanitize.outputs.cluster_name }}
         with:
           script: |
             github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.payload.issue.number,
-              body: `✅ **SUCCESS**: Cluster build and validation tests completed successfully for cluster \`${{ steps.sanitize.outputs.cluster_name }}\`. \nThe cluster has been automatically destroyed.`
+              body: `✅ **SUCCESS**: Cluster build and validation tests completed successfully for cluster \`$CLUSTER_NAME\`. \nThe cluster has been automatically destroyed.`
             });
 
       - name: Post Failure Comment
         if: failure()
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          CLUSTER_NAME: ${{ steps.sanitize.outputs.cluster_name }}
         with:
           script: |
             github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.payload.issue.number,
-              body: `🙅 **FAILURE**: Cluster build or validation tests failed for cluster \`${{ steps.sanitize.outputs.cluster_name }}\`.\n\nThe cluster was preserved for debugging.\nRefer to the [Action Run Logs](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) for GCB build logs.`
+              body: `🙅 **FAILURE**: Cluster build or validation tests failed for cluster \`$CLUSTER_NAME\`.\n\nThe cluster was preserved for debugging.\nRefer to the [Action Run Logs](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) for GCB build logs.`
             });
