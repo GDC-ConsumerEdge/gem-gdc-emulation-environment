@@ -14,12 +14,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 #}
 
-apiVersion: baremetal.cluster.gke.io/v1alpha1
-kind: ClusterCIDRConfig
+apiVersion: v1
+kind: ConfigMap
 metadata:
-  name: {{ item.name }}-cidr
-spec:
-  network: {{ item.name }}
-  ipv4:
-    cidr: "{{ item.pod_cidr }}"
-    perNodeMaskSize: {{ item.per_node_ipam_size }}
+  name: gem-provisioned-networks
+  namespace: kube-system
+data:
+{% for net in secondary_networks %}
+  "{{ net.vlan_id }}": "gdcenet0.{{ net.vlan_id }}"
+{% endfor %}

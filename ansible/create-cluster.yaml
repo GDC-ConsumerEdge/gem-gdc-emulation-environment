@@ -33,12 +33,12 @@
     - name: Assert CLUSTER_NAME does not exceed Kubernetes FQDN character limits
       ansible.builtin.assert:
         that:
-          - (lookup('env', 'CLUSTER_NAME') | length) <= 26
+          - (lookup('env', 'CLUSTER_NAME') | length) + (gcp_zone | length) + (gcp_project_id | length) + 15 <= 63
         fail_msg: >-
           🚫 ERROR: CLUSTER_NAME '{{ lookup('env', 'CLUSTER_NAME') }}' is too long
-          ({{ lookup('env', 'CLUSTER_NAME') | length }} characters). GEM cluster names must be 26
-          characters or fewer to prevent GCE VM hostnames from exceeding Kubernetes' strict
-          63-character metadata label limits.
+          for project '{{ gcp_project_id }}' and zone '{{ gcp_zone }}'.
+          Combined node FQDNs would exceed Kubernetes' strict 63-character metadata label limit.
+          Maximum allowed CLUSTER_NAME length is {{ 63 - (gcp_zone | length) - (gcp_project_id | length) - 15 }} characters.
     - name: Check if google_compute_engine key exists
       ansible.builtin.stat:
         path: "~/.ssh/google_compute_engine"

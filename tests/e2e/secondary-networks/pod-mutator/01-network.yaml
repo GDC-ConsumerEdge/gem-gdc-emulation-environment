@@ -1,0 +1,57 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+apiVersion: networking.gke.io/v1
+kind: Network
+metadata:
+  name: vlan-123
+  annotations:
+    networking.gke.io/gdce-vlan-id: "123"
+    networking.gke.io/gdce-vlan-mtu: "1410"
+    networking.gke.io/gdce-lb-service-vip-cidrs: '["172.16.12.200-172.16.12.250"]'
+    networking.gke.io/gke-gateway-pod-cidr: "172.16.100.0/16"
+    networking.gke.io/gdce-per-node-ipam-size: "24"
+spec:
+  type: L2
+  IPAMMode: Internal
+  nodeInterfaceMatcher:
+    interfaceName: gdcenet0.123
+  gateway4: "172.16.12.1"
+  l2NetworkConfig:
+    prefixLength4: 24
+  dnsConfig:
+    nameservers:
+      - 8.8.8.8
+---
+apiVersion: networking.gke.io/v1
+kind: Network
+metadata:
+  name: vlan-456
+  annotations:
+    networking.gke.io/gdce-vlan-id: "456"
+    networking.gke.io/gdce-vlan-mtu: "1410"
+    networking.gke.io/gdce-lb-service-vip-cidrs: '["192.168.45.200-192.168.45.250"]'
+    networking.gke.io/gke-gateway-pod-cidr: "192.168.100.0/16"
+    networking.gke.io/gdce-per-node-ipam-size: "24"
+spec:
+  type: L2
+  IPAMMode: Internal
+  nodeInterfaceMatcher:
+    interfaceName: gdcenet0.456
+  gateway4: "192.168.45.1"
+  l2NetworkConfig:
+    prefixLength4: 24
+  dnsConfig:
+    nameservers:
+      - 8.8.8.8

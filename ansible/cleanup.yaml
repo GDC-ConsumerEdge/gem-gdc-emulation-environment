@@ -70,11 +70,23 @@
       changed_when: true
     - name: Delete secondary VXLAN interfaces from kernel
       ansible.builtin.command: "ip link delete {{ vxlan_secondary_iface_prefix }}-{{ item.vlan_id }}"
-      loop: "{{ secondary_networks }}"
+      loop: "{{ secondary_networks | default([]) }}"
       failed_when: false
       changed_when: true
+    - name: Remove declarative systemd-networkd configuration files from GCS overlay sync bucket
+      ansible.builtin.shell: >
+        gcloud storage rm
+        "gs://gem-{{ gcp_project_id }}-overlay-sync/gem_admin_ws/*{{ (cluster_name | replace('-', '') | truncate(6, True, '', 0)) }}*"
+        "gs://gem-{{ gcp_project_id }}-overlay-sync/edge_router_host/*{{ (cluster_name | replace('-', '') | truncate(6, True, '', 0)) }}*"
+        || true
+      args:
+        executable: /bin/bash
+      changed_when: true
     - name: Remove declarative systemd-networkd configuration files
-      ansible.builtin.shell: "rm -f /etc/systemd/network/*{{ (cluster_name | replace('-', '') | truncate(6, True, '', 0)) }}*"
+      ansible.builtin.shell: >
+        rm -f /etc/systemd/network/*{{ (cluster_name | replace('-', '') | truncate(6, True, '', 0)) }}*
+      args:
+        executable: /bin/bash
       changed_when: true
     - name: Restart systemd-networkd to synchronize active kernel netdevs
       ansible.builtin.systemd:

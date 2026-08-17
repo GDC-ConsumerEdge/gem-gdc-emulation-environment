@@ -35,7 +35,7 @@ jobs:
     steps:
       - name: Verify user permissions
         id: check_permission
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
             const { data: permission } = await github.rest.repos.getCollaboratorPermissionLevel({
@@ -50,7 +50,7 @@ jobs:
 
       - name: Get PR details
         id: pr
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
             const prNumber = context.payload.issue.number;
@@ -65,38 +65,44 @@ jobs:
       - name: Sanitize Cluster Name
         id: sanitize
         run: |
-          BRANCH="${{ steps.pr.outputs.branch }}"
+          BRANCH="${STEPS_PR_OUTPUTS_BRANCH}"
           # Convert to lowercase, replace non-alphanumeric with -
           CLEAN=$(echo "$BRANCH" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/-\{2,\}/-/g' | sed 's/^-//' | sed 's/-$//')
           # Truncate to 30 chars (leaving room for "gh-" prefix)
           TRUNC=$(echo "$CLEAN" | cut -c 1-30 | sed 's/-$//')
           CLUSTER_NAME="gh-$TRUNC"
           echo "cluster_name=$CLUSTER_NAME" >> $GITHUB_OUTPUT
+        env:
+          STEPS_PR_OUTPUTS_BRANCH: ${{ steps.pr.outputs.branch }}
 
       - name: Checkout PR code
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ steps.pr.outputs.sha }}
+          persist-credentials: false
 
       - name: Post Trigger Comment
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          CLUSTER_NAME: ${{ steps.sanitize.outputs.cluster_name }}
+          BRANCH: ${{ steps.pr.outputs.branch }}
         with:
           script: |
             github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.payload.issue.number,
-              body: `🚀 Cluster build and validation tests triggered for cluster \`${{ steps.sanitize.outputs.cluster_name }}\` (branch: \`${{ steps.pr.outputs.branch }}\`).\n[View Action Run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`
+              body: `🚀 Cluster build and validation tests triggered for cluster \`$CLUSTER_NAME\` (branch: \`$BRANCH\`).\n[View Action Run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`
             });
 
       - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
       - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v3
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
         with:
           project_id: ${{ secrets.BUILDANDTEST_PROJECT_ID }}
 
@@ -104,30 +110,36 @@ jobs:
         run: |
           gcloud builds submit \
             --config=cloudbuild/cluster-build.cloudbuild.yaml \
-            --substitutions=_CLUSTER_NAME=${{ steps.sanitize.outputs.cluster_name }},_DESTROY_ON_FAILURE=false \
+            --substitutions=_CLUSTER_NAME=${STEPS_SANITIZE_OUTPUTS_CLUSTER_NAME},_DESTROY_ON_FAILURE=false \
             --project=${{ secrets.BUILDANDTEST_PROJECT_ID }} \
             .
+        env:
+          STEPS_SANITIZE_OUTPUTS_CLUSTER_NAME: ${{ steps.sanitize.outputs.cluster_name }}
 
       - name: Post Success Comment
         if: success()
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          CLUSTER_NAME: ${{ steps.sanitize.outputs.cluster_name }}
         with:
           script: |
             github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.payload.issue.number,
-              body: `✅ **SUCCESS**: Cluster build and validation tests completed successfully for cluster \`${{ steps.sanitize.outputs.cluster_name }}\`. \nThe cluster has been automatically destroyed.`
+              body: `✅ **SUCCESS**: Cluster build and validation tests completed successfully for cluster \`$CLUSTER_NAME\`. \nThe cluster has been automatically destroyed.`
             });
 
       - name: Post Failure Comment
         if: failure()
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          CLUSTER_NAME: ${{ steps.sanitize.outputs.cluster_name }}
         with:
           script: |
             github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.payload.issue.number,
-              body: `🙅 **FAILURE**: Cluster build or validation tests failed for cluster \`${{ steps.sanitize.outputs.cluster_name }}\`.\n\nThe cluster was preserved for debugging.\nRefer to the [Action Run Logs](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) for GCB build logs.`
+              body: `🙅 **FAILURE**: Cluster build or validation tests failed for cluster \`$CLUSTER_NAME\`.\n\nThe cluster was preserved for debugging.\nRefer to the [Action Run Logs](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) for GCB build logs.`
             });

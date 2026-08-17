@@ -17,6 +17,8 @@ kind: Test
 metadata:
   name: cluster-health-validation
 spec:
+  timeouts:
+    cleanup: 2m
   steps:
     # GDC Cluster Version Verification
     - name: verify-gdc-abm-version-test
@@ -50,6 +52,7 @@ spec:
     - name: gatekeeper-robin-sc-mutation-test
       try:
         - script:
+            timeout: 30s
             content: |
               set -e
               PREFIXES=("robin-storage" "fast-robin" "robin-sds" "custom-robin" "gold-robin")
@@ -115,6 +118,7 @@ spec:
             timeout: 3m
             file: 06-intra-cluster-assert.yaml
         - script:
+            timeout: 60s
             content: |
               set -e
               CLUSTER_IP=$(kubectl get svc nginx-clusterip -n $NAMESPACE -o jsonpath='{.spec.clusterIP}')

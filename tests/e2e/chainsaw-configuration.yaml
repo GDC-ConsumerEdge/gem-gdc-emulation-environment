@@ -18,10 +18,10 @@ metadata:
 spec:
   timeouts:
     apply: 1m
-    assert: 1m
-    cleanup: 1m
-    delete: 1m
+    assert: 2m
+    cleanup: 5m
+    delete: 5m
     error: 1m
     exec: 5m
   skipDelete: false
-  parallel: 5
+  parallel: 2

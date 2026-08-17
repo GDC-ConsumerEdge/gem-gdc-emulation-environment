@@ -65,4 +65,10 @@ ansible-playbook tests/test_validations.yaml
 echo "Running dynamic VXLAN & VLAN interface rendering test..."
 ansible-playbook tests/test_vxlan_rendering.yaml
 
+# Go Operator Unit Tests
+if [ -d "$GEM_ROOT/operators/gem-network-operator" ] && command -v go >/dev/null 2>&1; then
+    echo "Running Go Operator Unit Tests..."
+    (cd "$GEM_ROOT/operators/gem-network-operator" && go test -v -cover ./...)
+fi
+
 echo "✅ All unit tests passed!"

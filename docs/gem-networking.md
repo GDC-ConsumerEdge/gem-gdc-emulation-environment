@@ -13,7 +13,7 @@ GCP VPC networks are strictly Layer 3 (L3) and do not natively support L2 broadc
 The GEM networking architecture consists of three distinct logical layers:
 1.  **GCP VPC Underlay**: The physical routing layer managed by GCP.
 2.  **VXLAN Overlay Fabric (Primary Network)**: The virtual L2 control plane mesh where cluster nodes communicate and advertise MetalLB service VIPs.
-3.  **Multus Secondary Networks (Secondary Overlay)**: Virtual L2 networks (VLANs) where workload pods and VMRuntime virtual machines bind secondary interfaces.
+3.  **Multus Secondary Networks (Secondary Overlay)**: Virtual L2 networks (VLANs) where workload pods and VMRuntime virtual machines bind secondary interfaces. Provisioning of these networks (VLANs, IPAM, MetalLB pools) and their Gateway API integration is managed at the Kubernetes level by `gem-network-operator`; see [docs/secondary-networks.md](secondary-networks.md) and [docs/gem-network-operator-implementation.md](gem-network-operator-implementation.md) for the full design and implementation detail.
 
 ### Overall Network Architecture
 

@@ -70,6 +70,8 @@
         vgcreate -y topolvm-vg /dev/disk/by-id/google-data-part2
         echo "CHANGED"
       fi
+  args:
+    executable: /bin/bash
   register: cluster_nodes_vg_output
   changed_when: '"CHANGED" in cluster_nodes_vg_output.stdout'
   become: true

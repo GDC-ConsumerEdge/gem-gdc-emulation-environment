@@ -1,0 +1,148 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# ==============================================================================
+# TEST SUITE: GDC Pod Interface Mutating Webhook & Dynamic IPAM
+#
+# DESCRIPTION:
+#   Validates that the gem-network-operator mutating admission webhook intercepts
+#   Pod creation, extracts secondary networks from networking.gke.io/interfaces,
+#   dynamically allocates non-colliding IPAM addresses, injects matching
+#   k8s.v1.cni.cncf.io/networks Multus annotations, and sanitizes
+#   networking.gke.io/interfaces so Anthos Cilium CNI only configures the primary
+#   pod-network on eth0.
+# ==============================================================================
+
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: secondary-networking-pod-mutator
+spec:
+  timeouts:
+    delete: 3m
+    cleanup: 3m
+  steps:
+    # Ensure secondary networks exist and are ready.
+    - name: 1. Ensure Secondary Network CRs
+      try:
+        - apply:
+            file: 01-network.yaml
+        - assert:
+            timeout: 60s
+            resource:
+              apiVersion: networking.gke.io/v1
+              kind: Network
+              metadata:
+                name: vlan-123
+              status:
+                conditions:
+                  - type: Ready
+                    status: "True"
+                  - type: CoreDNSReady
+                    status: "True"
+        - assert:
+            timeout: 60s
+            resource:
+              apiVersion: networking.gke.io/v1
+              kind: Network
+              metadata:
+                name: vlan-456
+              status:
+                conditions:
+                  - type: Ready
+                    status: "True"
+                  - type: CoreDNSReady
+                    status: "True"
+      cleanup: []
+
+    # Deploy single secondary interface pod with unmodified GDC annotations.
+    - name: 2. Single Secondary Interface Pod Mutation
+      try:
+        - apply:
+            file: 02-single-interface-pod.yaml
+        - assert:
+            timeout: 2m
+            resource:
+              apiVersion: v1
+              kind: Pod
+              metadata:
+                name: test-gdc-single-interface
+                (contains(annotations."k8s.v1.cni.cncf.io/networks", '"name":"vlan-123"')): true
+                (contains(annotations."k8s.v1.cni.cncf.io/networks", '"ips":')): true
+                (annotations."networking.gke.io/interfaces" == '[{"interfaceName":"eth0","network":"pod-network"}]'): true
+              status:
+                phase: Running
+
+    # Deploy multi-secondary interface pod with unmodified GDC annotations.
+    - name: 3. Multi Secondary Interface Pod Mutation
+      try:
+        - apply:
+            file: 03-multi-interface-pod.yaml
+        - assert:
+            timeout: 2m
+            resource:
+              apiVersion: v1
+              kind: Pod
+              metadata:
+                name: test-gdc-multi-interface
+                (contains(annotations."k8s.v1.cni.cncf.io/networks", '"name":"vlan-123"')): true
+                (contains(annotations."k8s.v1.cni.cncf.io/networks", '"name":"vlan-456"')): true
+                (annotations."networking.gke.io/interfaces" == '[{"interfaceName":"eth0","network":"pod-network"}]'): true
+              status:
+                phase: Running
+
+    # Deploy primary-only pod and verify no Multus injection occurred.
+    - name: 4. Primary-Only Interface Pod No Mutation
+      try:
+        - apply:
+            file: 04-primary-only-pod.yaml
+        - assert:
+            timeout: 2m
+            resource:
+              apiVersion: v1
+              kind: Pod
+              metadata:
+                name: test-gdc-primary-only
+                (annotations."k8s.v1.cni.cncf.io/networks" == null): true
+                (annotations."networking.gke.io/interfaces" == '[{"interfaceName":"eth0","network":"pod-network"}]'): true
+              status:
+                phase: Running
+
+    # Deploy two pods on the same secondary network and verify dynamic non-colliding IP allocation.
+    - name: 5. Dynamic IPAM Non-Colliding Multi-Pod Allocation
+      try:
+        - apply:
+            file: 05-dual-pods-ipam.yaml
+        - assert:
+            timeout: 2m
+            resource:
+              apiVersion: v1
+              kind: Pod
+              metadata:
+                name: test-gdc-ipam-pod-1
+                (contains(annotations."k8s.v1.cni.cncf.io/networks", '"name":"vlan-456"')): true
+                (contains(annotations."k8s.v1.cni.cncf.io/networks", '"ips":')): true
+              status:
+                phase: Running
+        - assert:
+            timeout: 2m
+            resource:
+              apiVersion: v1
+              kind: Pod
+              metadata:
+                name: test-gdc-ipam-pod-2
+                (contains(annotations."k8s.v1.cni.cncf.io/networks", '"name":"vlan-456"')): true
+                (contains(annotations."k8s.v1.cni.cncf.io/networks", '"ips":')): true
+              status:
+                phase: Running

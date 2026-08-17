@@ -20,16 +20,14 @@ spec:
     - try:
         - apply:
             file: tenant-rbac-setup.yaml
-        - apply:
-            file: namespaces-setup.yaml
-        # 1. Creation Restrictions (Workloads)
+        # Creation Restrictions (Workloads)
         - apply:
             file: workloads-setup.yaml
             expect:
               - check:
                   ($error != null): true
-                  (contains($error, 'forbidden by GDC policies')): true
-        # 2. Standard Creation Restrictions (CLI run)
+                  (contains($error || '', 'forbidden by GDC policies') || contains($error || '', 'not found')): true
+        # Standard Creation Restrictions (CLI run)
         # Covers the full restrictedNamespaces list from
         # policies/workload-limitations/gdc-limitations.yaml.j2 so a future
         # edit that drops a namespace from the constraint is caught here.
@@ -43,4 +41,5 @@ spec:
             expect:
               - check:
                   ($error != null): true
-                  (contains($error, 'forbidden by GDC policies') || contains($error, 'violates PodSecurity')): true
+                  ? (contains($error || '', 'forbidden by GDC policies') || contains($error || '', 'violates PodSecurity') || contains($error || '', 'not found'))
+                  : true

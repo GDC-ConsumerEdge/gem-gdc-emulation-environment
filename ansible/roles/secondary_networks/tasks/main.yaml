@@ -11,13 +11,101 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-- name: Create working directory for secondary networks
+
+- name: Create working directory for secondary networks and operator manifests
   ansible.builtin.file:
-    path: "{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/secondary-networks"
+    path: "{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/secondary-networks/crds"
     state: directory
     owner: "{{ gem_user }}"
     group: "{{ gem_user }}"
     mode: "0755"
+
+- name: Copy Secondary Network CRDs
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../operators/gem-network-operator/crds/"
+    dest: "{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/secondary-networks/crds/"
+    owner: "{{ gem_user }}"
+    group: "{{ gem_user }}"
+    mode: "0644"
+
+- name: Apply Secondary Network Custom Resource Definitions
+  ansible.builtin.shell: |
+    export KUBECONFIG="{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/{{ cluster_name }}-kubeconfig"
+    kubectl apply -f {{ gem_home }}/bmctl-workspace/{{ cluster_name }}/secondary-networks/crds/
+  args:
+    executable: /bin/bash
+  register: secondary_networks_crd_apply
+  changed_when: "'created' in secondary_networks_crd_apply.stdout or 'configured' in secondary_networks_crd_apply.stdout"
+
+- name: Ensure Golang is installed on Admin Workstation
+  ansible.builtin.apt:
+    name:
+      - golang-go
+    state: present
+  become: true
+
+- name: Create operator directory on Admin Workstation
+  ansible.builtin.file:
+    path: "{{ gem_home }}/operators"
+    state: directory
+    owner: "{{ gem_user }}"
+    group: "{{ gem_user }}"
+    mode: "0755"
+
+- name: Copy gem-network-operator source code to Admin Workstation
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../operators/gem-network-operator/"
+    dest: "{{ gem_home }}/operators/gem-network-operator/"
+    owner: "{{ gem_user }}"
+    group: "{{ gem_user }}"
+    mode: "0755"
+
+- name: Build and install gem-network-operator binary on Admin Workstation
+  ansible.builtin.command:
+    cmd: go build -o /usr/local/bin/gem-network-operator main.go
+    chdir: "{{ gem_home }}/operators/gem-network-operator"
+  environment:
+    GOPATH: "{{ gem_home }}/go"
+    GOCACHE: "{{ gem_home }}/.cache/go-build"
+  become: true
+  changed_when: true
+
+- name: Template systemd service unit for gem-network-operator workstation daemon
+  ansible.builtin.template:
+    src: gem-network-operator.service.j2
+    dest: "/etc/systemd/system/gem-network-operator-{{ cluster_name }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+
+- name: Enable and start gem-network-operator workstation daemon
+  ansible.builtin.systemd:
+    name: "gem-network-operator-{{ cluster_name }}.service"
+    enabled: true
+    state: restarted
+    daemon_reload: true
+  become: true
+
+- name: Render provisioned-networks ConfigMap for the gem-network-operator guardrail
+  ansible.builtin.template:
+    src: provisioned-networks-configmap.yaml.j2
+    dest: "{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/secondary-networks/provisioned-networks-configmap.yaml"
+    owner: "{{ gem_user }}"
+    group: "{{ gem_user }}"
+    mode: "0644"
+  when: secondary_networks is defined
+
+- name: Apply provisioned-networks ConfigMap
+  ansible.builtin.shell: |
+    export KUBECONFIG="{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/{{ cluster_name }}-kubeconfig"
+    kubectl apply -f {{ gem_home }}/bmctl-workspace/{{ cluster_name }}/secondary-networks/provisioned-networks-configmap.yaml
+  args:
+    executable: /bin/bash
+  register: secondary_networks_provisioned_cm_apply
+  changed_when: "'created' in secondary_networks_provisioned_cm_apply.stdout or 'configured' in secondary_networks_provisioned_cm_apply.stdout"
+  when: secondary_networks is defined
+
 - name: Render Network Custom Resources
   ansible.builtin.template:
     src: network.yaml.j2
@@ -26,25 +114,47 @@
     group: "{{ gem_user }}"
     mode: "0644"
   loop: "{{ secondary_networks }}"
-- name: Render ClusterCIDRConfig Custom Resources
-  ansible.builtin.template:
-    src: clustercidrconfig.yaml.j2
-    dest: "{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/secondary-networks/clustercidr-{{ item.name }}.yaml"
-    owner: "{{ gem_user }}"
-    group: "{{ gem_user }}"
-    mode: "0644"
-  loop: "{{ secondary_networks }}"
-- name: Render MetalLB IPAddressPool and L2Advertisement
-  ansible.builtin.template:
-    src: metallb.yaml.j2
-    dest: "{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/secondary-networks/metallb-{{ item.name }}.yaml"
-    owner: "{{ gem_user }}"
-    group: "{{ gem_user }}"
-    mode: "0644"
-  loop: "{{ secondary_networks }}"
-- name: Apply Secondary Network Manifests
+  when: secondary_networks is defined
+
+- name: Apply Secondary Network Custom Resources
   ansible.builtin.shell: |
     export KUBECONFIG="{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/{{ cluster_name }}-kubeconfig"
-    kubectl apply -f {{ gem_home }}/bmctl-workspace/{{ cluster_name }}/secondary-networks/
-  register: secondary_networks_kubectl_apply
-  changed_when: "'created' in secondary_networks_kubectl_apply.stdout or 'configured' in secondary_networks_kubectl_apply.stdout"
+    for f in {{ gem_home }}/bmctl-workspace/{{ cluster_name }}/secondary-networks/network-*.yaml; do
+      if [ -f "$f" ]; then
+        kubectl apply -f "$f"
+      fi
+    done
+  args:
+    executable: /bin/bash
+  register: secondary_networks_network_cr_apply
+  changed_when: "'created' in secondary_networks_network_cr_apply.stdout or 'configured' in secondary_networks_network_cr_apply.stdout"
+  when: secondary_networks is defined
+
+- name: Ensure CoreDNS supports .gkegw.cluster.local Gateway API DNS resolution
+  # The rewrite rule must land in coredns-template FIRST: clusterdns-controller renders
+  # coredns-config from that template, so a rule added only to coredns-config is silently
+  # dropped on its next render. Crucially, clusterdns-controller reads the template at
+  # startup only, so after patching it the controller must be rollout-restarted (NOT scaled
+  # to zero — that breaks clusterdns-webhook) for its renders to include the rule. Patching
+  # coredns-config too makes the rule take effect immediately; the CoreDNS pods pick it up
+  # via the Corefile's reload plugin, with the pod delete making it immediate.
+  ansible.builtin.shell: |
+    set -o pipefail
+    export KUBECONFIG="{{ gem_home }}/bmctl-workspace/{{ cluster_name }}/{{ cluster_name }}-kubeconfig"
+    TEMPLATE=$(kubectl get configmap coredns-template -n kube-system -o jsonpath="{.data['coredns-template']}" 2>/dev/null || true)
+    if [ -n "$TEMPLATE" ] && ! echo "$TEMPLATE" | grep -q "rewrite name suffix .gkegw.cluster.local"; then
+      UPDATED_TEMPLATE=$(echo "$TEMPLATE" | sed '/^    ready$/a\    rewrite name suffix .gkegw.cluster.local .svc.cluster.local')
+      kubectl create configmap coredns-template -n kube-system --from-literal=coredns-template="$UPDATED_TEMPLATE" --dry-run=client -o yaml | kubectl apply -f -
+      kubectl rollout restart deployment clusterdns-controller -n kube-system
+      kubectl rollout status deployment clusterdns-controller -n kube-system --timeout=120s || true
+    fi
+    COREFILE=$(kubectl get configmap coredns-config -n kube-system -o jsonpath='{.data.Corefile}' 2>/dev/null || true)
+    if [ -n "$COREFILE" ] && ! echo "$COREFILE" | grep -q "rewrite name suffix .gkegw.cluster.local"; then
+      UPDATED_COREFILE=$(echo "$COREFILE" | sed '/^    ready$/a\    rewrite name suffix .gkegw.cluster.local .svc.cluster.local')
+      kubectl create configmap coredns-config -n kube-system --from-literal=Corefile="$UPDATED_COREFILE" --dry-run=client -o yaml | kubectl apply -f -
+      kubectl delete pod -n kube-system -l k8s-app=kube-dns || true
+    fi
+  args:
+    executable: /bin/bash
+  register: secondary_networks_coredns_gkegw_config
+  changed_when: "'configured' in secondary_networks_coredns_gkegw_config.stdout"

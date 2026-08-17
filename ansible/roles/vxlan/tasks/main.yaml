@@ -44,7 +44,11 @@
       {% set sec_if = 'gdcenet0.' ~ net.vlan_id %}
       {% endif %}
       {% set sec_vni = (vxlan_id | int) + loop.index %}
+      {% if inventory_hostname == 'edge_router_host' and net.gateway is defined %}
+      {% set sec_ip = net.gateway ~ '/' ~ (net.subnet | split('/') | last) %}
+      {% else %}
       {% set sec_ip = (net.subnet | split('.'))[:3] | join('.') ~ '.' ~ host_octet ~ '/24' %}
+      {% endif %}
       {% set _ = defs.append({'iface': sec_if, 'vni': sec_vni, 'ip_cidr': sec_ip}) %}
       {% endfor %}
       {% endif %}

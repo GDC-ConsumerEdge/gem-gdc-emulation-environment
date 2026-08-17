@@ -21,14 +21,17 @@ metadata:
   annotations:
     networking.gke.io/gdce-vlan-id: "{{ item.vlan_id }}"
     networking.gke.io/gdce-vlan-mtu: "1410"
+    networking.gke.io/gdce-lb-service-vip-cidrs: '["{{ item.vip_pool }}"]'
+    networking.gke.io/gke-gateway-pod-cidr: "{{ item.pod_cidr }}"
+    networking.gke.io/gdce-per-node-ipam-size: "{{ item.per_node_ipam_size }}"
 spec:
   type: L2
   IPAMMode: Internal
   nodeInterfaceMatcher:
     interfaceName: gdcenet0.{{ item.vlan_id }}
-  gateway4: {{ item.gateway }}
+  gateway4: "{{ item.gateway }}"
   l2NetworkConfig:
-    prefixLength4: {{ item.subnet | split('/') | last }}
+    prefixLength4: {{ item.subnet | split('/') | last | int }}
   dnsConfig:
     nameservers:
       - 8.8.8.8
