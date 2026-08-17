@@ -404,19 +404,6 @@ The GEM project was created with the following core objectives:
 *   **Accelerated Development & Prototyping**: Provide a low-friction environment for developers and operators to test GDC workloads, validate designs, and perform end-to-end validation without needing access to physical hardware.
 *   **Isolation and Multi-Tenancy**: Support the deployment of multiple, fully isolated GEM clusters within a single GCP project, enabling parallel development and testing.
 
-## v1.0 Roadmap
-
-### Gateway API on Secondary Networks
-
-Standard Kubernetes Services and native Gateway APIs are traditionally limited to the primary interface (`eth0`) and are unaware of secondary interfaces attached via Multus. In GDC connected environment, this is addressed using proprietary CRDs such as `GKEGatewayCIDR`, `GKEL4Route`, and `GKEEndpointSelector`.
-
-To emulate this behavior in GEM, future work will implement:
-
-* **Support for Secondary L2 networks**: Add support for up to 10 secondary L2 networks within a single GEM cluster.
-
-* **Strict API Emulation**: Develop a custom translation controller to watch for proprietary GDC multi-network resources and translate them into functional open-source proxy configurations.
-
-
 ## License
 
 Apache Version 2.0
