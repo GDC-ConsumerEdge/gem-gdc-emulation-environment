@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.12](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/compare/gem-v0.1.11...gem-v0.1.12) (2026-08-18)
+
+
+### Features
+
+* **secondary-networks:** add support for island-mode secondary networks ([#33](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/issues/33)) ([3d57eeb](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/3d57eebbe11115bbf5a97149f75994606644f8ca))
+
 ## [0.1.11](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/compare/gem-v0.1.10...gem-v0.1.11) (2026-07-18)
 
 
