@@ -50,11 +50,22 @@ jobs:
               - '**/go.mod'
               - '**/go.sum'
               - '.golangci.yml'
+            python:
+              - 'api/**'
+              - '**/*.py'
+              - 'api/pyproject.toml'
+              - 'api/uv.lock'
 
       - name: Setup Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: 'operators/gem-network-operator/go.mod'
+
+      - name: Setup uv
+        if: steps.changes.outputs.python == 'true'
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
 
       - name: Setup TFLint
         if: steps.changes.outputs.terraform == 'true'
@@ -66,6 +77,14 @@ jobs:
         env:
           SKIP: terraform_fmt,terraform_tflint,terraform_validate,ansible-lint,golangci-lint
         uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
+
+      - name: Run Python Ruff Validations
+        if: steps.changes.outputs.python == 'true'
+        run: |
+          cd api
+          uv run ruff check --output-format=github .
+          uv run ruff format --check .
+        shell: bash
 
       - name: Run Golang Linters
         if: steps.changes.outputs.golang == 'true'
@@ -92,13 +111,13 @@ jobs:
       - name: Run Terraform Pre-Commit Checks
         if: steps.changes.outputs.terraform == 'true'
         env:
-          SKIP: trailing-whitespace,end-of-file-fixer,check-yaml,check-added-large-files,yamlfmt,gitleaks,addlicense,shellcheck,ansible-lint,golangci-lint
+          SKIP: trailing-whitespace,end-of-file-fixer,check-yaml,check-added-large-files,yamlfmt,gitleaks,addlicense,shellcheck,ansible-lint,golangci-lint,ruff,ruff-format
         uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
 
       - name: Run Ansible Pre-Commit Checks
         if: steps.changes.outputs.ansible == 'true'
         env:
-          SKIP: trailing-whitespace,end-of-file-fixer,check-yaml,check-added-large-files,yamlfmt,gitleaks,addlicense,shellcheck,terraform_fmt,terraform_tflint,terraform_validate,golangci-lint
+          SKIP: trailing-whitespace,end-of-file-fixer,check-yaml,check-added-large-files,yamlfmt,gitleaks,addlicense,shellcheck,terraform_fmt,terraform_tflint,terraform_validate,golangci-lint,ruff,ruff-format
         uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
 
   unit-tests:
@@ -121,6 +140,11 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: 'operators/gem-network-operator/go.mod'
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
 
       - name: Run GEM Unit Tests
         run: |

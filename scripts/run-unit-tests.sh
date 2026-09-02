@@ -71,4 +71,10 @@ if [ -d "$GEM_ROOT/operators/gem-network-operator" ] && command -v go >/dev/null
     (cd "$GEM_ROOT/operators/gem-network-operator" && go test -v -cover ./...)
 fi
 
+# Python API Unit Tests
+if [ -d "$GEM_ROOT/api" ] && command -v uv >/dev/null 2>&1; then
+    echo "Running Python API Unit Tests..."
+    (cd "$GEM_ROOT/api" && uv run pytest -v --cov=gem_api)
+fi
+
 echo "✅ All unit tests passed!"

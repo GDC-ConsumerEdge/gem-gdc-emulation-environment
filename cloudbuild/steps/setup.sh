@@ -71,6 +71,7 @@ Host *
     StrictHostKeyChecking no
     UserKnownHostsFile /dev/null
     IdentityFile /workspace/.ssh/google_compute_engine
+    IdentitiesOnly yes
 SSHCFG
 chmod 600 /workspace/.ssh/config
 

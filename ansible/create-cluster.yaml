@@ -11,16 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-- name: Wait dynamically for GCE Guest Agent metadata synchronization
-  hosts: cluster_nodes
-  gather_facts: false
-  tasks:
-    - name: Poll SSH until public key is accepted
-      ansible.builtin.wait_for_connection:
-        delay: 0
-        sleep: 5
-        timeout: 120
-
 - name: Ensure GCP SSH Key exists locally
   hosts: localhost
   connection: local
@@ -47,6 +37,16 @@
       ansible.builtin.command: gcloud compute config-ssh --quiet --project={{ gcp_project_id }}
       when: not gcp_ssh_key.stat.exists
       changed_when: true
+
+- name: Wait dynamically for GCE Guest Agent metadata synchronization
+  hosts: cluster_nodes
+  gather_facts: false
+  tasks:
+    - name: Poll SSH until public key is accepted
+      ansible.builtin.wait_for_connection:
+        delay: 0
+        sleep: 5
+        timeout: 120
 - name: Fetch SSH Key from Workstation
   hosts: workstation
   become: true

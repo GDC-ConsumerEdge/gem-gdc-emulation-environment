@@ -67,6 +67,14 @@ repos:
       - id: shellcheck
         name: Shellcheck Validation
         files: \.sh$
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.4
+    hooks:
+      - id: ruff
+        name: Ruff Linter
+        args: [--fix]
+      - id: ruff-format
+        name: Ruff Formatter
   - repo: local
     hooks:
       - id: golangci-lint

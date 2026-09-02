@@ -19,7 +19,17 @@ max_pods_per_node: 250
 # GCP Service Account to grant cluster-admin access via GKE Connect Gateway
 # If not specified, we default to the GDC emulation service account or the Edge Container P4SA
 gcp_cluster_admin_sa: "gem-cluster-admin@{{ gcp_project_id }}.iam.gserviceaccount.com"
-gcp_edge_container_sa: "service-{{ gcp_project_number }}@gcp-sa-edgecontainer.iam.gserviceaccount.com"
+# Hardware offering variants supported by GEM
+hardware_variants:
+  - "g2-small-64gb"
+  - "g2-small-128gb"
+  - "g2-medium"
+  - "g2-large"
+  - "g1-medium"
+  - "g1-large"
+  - "dev-and-test"
+default_hardware_variant: "g2-small-64gb"
+
 # Mapping between GDC versions and their corresponding ABM and gVisor versions
 emulated_gdc_versions:
   "1.13.0":
