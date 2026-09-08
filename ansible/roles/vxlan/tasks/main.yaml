@@ -82,6 +82,21 @@
     mode: "0644"
   loop: "{{ vxlan_defs_list }}"
 
+- name: Ensure active gcloud account is configured for root on shared hosts
+  ansible.builtin.shell: |
+    set -o pipefail
+    CURRENT_ACC=$(gcloud config get-value account 2>/dev/null || true)
+    if [ -z "$CURRENT_ACC" ] || [ "$CURRENT_ACC" = "(unset)" ]; then
+      FIRST_ACC=$(gcloud auth list --format="value(account)" 2>/dev/null | head -n 1)
+      if [ -n "$FIRST_ACC" ]; then
+        gcloud config set account "$FIRST_ACC"
+      fi
+    fi
+  args:
+    executable: /bin/bash
+  when: inventory_hostname in ['gem_admin_ws', 'edge_router_host']
+  changed_when: false
+
 - name: Copy generated .netdev configurations to GCS overlay sync bucket
   ansible.builtin.command: >
     gcloud storage cp
