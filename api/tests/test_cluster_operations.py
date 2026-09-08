@@ -162,30 +162,46 @@ def test_list_vms_with_results(client: TestClient):
 
 
 def test_vm_deploy_and_power_and_delete(client: TestClient):
-    cluster = "gem-test-cluster"
-    deploy_payload = {
-        "name": "test-vm-01",
-        "namespace": "default",
-        "cpus": 2,
-        "memory": "4Gi",
-        "image": "ubuntu-22.04-server-cloudimg-amd64",
-    }
-    r_deploy = client.post(f"/api/v1/clusters/{cluster}/vms", json=deploy_payload)
-    assert r_deploy.status_code == 201
-    assert r_deploy.json()["name"] == "test-vm-01"
+    k8s_service = get_k8s_service()
 
-    r_power = client.post(
-        f"/api/v1/clusters/{cluster}/vms/test-vm-01/power",
-        json={"namespace": "default", "running": True},
-    )
-    assert r_power.status_code == 200
-    assert r_power.json()["power_state"] == "Running"
+    async def mock_exec(
+        cluster_name: str,
+        args: list[str],
+        input_data: str | None = None,
+        timeout: float = 6.0,
+    ):
+        _ = (cluster_name, args, input_data, timeout)
+        return 0, "mocked", ""
 
-    r_del = client.delete(
-        f"/api/v1/clusters/{cluster}/vms/test-vm-01?namespace=default"
-    )
-    assert r_del.status_code == 200
-    assert r_del.json()["success"] is True
+    orig_exec = k8s_service._exec_kubectl
+    k8s_service._exec_kubectl = mock_exec
+    try:
+        cluster = "gem-test-cluster"
+        deploy_payload = {
+            "name": "test-vm-01",
+            "namespace": "default",
+            "cpus": 2,
+            "memory": "4Gi",
+            "image": "ubuntu-22.04-server-cloudimg-amd64",
+        }
+        r_deploy = client.post(f"/api/v1/clusters/{cluster}/vms", json=deploy_payload)
+        assert r_deploy.status_code == 201
+        assert r_deploy.json()["name"] == "test-vm-01"
+
+        r_power = client.post(
+            f"/api/v1/clusters/{cluster}/vms/test-vm-01/power",
+            json={"namespace": "default", "running": True},
+        )
+        assert r_power.status_code == 200
+        assert r_power.json()["power_state"] == "Running"
+
+        r_del = client.delete(
+            f"/api/v1/clusters/{cluster}/vms/test-vm-01?namespace=default"
+        )
+        assert r_del.status_code == 200
+        assert r_del.json()["success"] is True
+    finally:
+        k8s_service._exec_kubectl = orig_exec
 
 
 def test_list_rootsyncs_empty(client: TestClient):
@@ -232,19 +248,35 @@ def test_list_rootsyncs_with_results(client: TestClient):
 
 
 def test_pod_crud_lifecycle(client: TestClient):
-    cluster = "gem-test-pod-cluster"
-    create_payload = {
-        "name": "test-pod-app",
-        "namespace": "default",
-        "image": "nginx:alpine",
-        "port": 80,
-    }
-    r_create = client.post(f"/api/v1/clusters/{cluster}/pods", json=create_payload)
-    assert r_create.status_code == 201
-    assert r_create.json()["name"] == "test-pod-app"
+    k8s_service = get_k8s_service()
 
-    r_del = client.delete(
-        f"/api/v1/clusters/{cluster}/pods/test-pod-app?namespace=default"
-    )
-    assert r_del.status_code == 200
-    assert r_del.json()["success"] is True
+    async def mock_exec(
+        cluster_name: str,
+        args: list[str],
+        input_data: str | None = None,
+        timeout: float = 6.0,
+    ):
+        _ = (cluster_name, args, input_data, timeout)
+        return 0, "mocked", ""
+
+    orig_exec = k8s_service._exec_kubectl
+    k8s_service._exec_kubectl = mock_exec
+    try:
+        cluster = "gem-test-pod-cluster"
+        create_payload = {
+            "name": "test-pod-app",
+            "namespace": "default",
+            "image": "nginx:alpine",
+            "port": 80,
+        }
+        r_create = client.post(f"/api/v1/clusters/{cluster}/pods", json=create_payload)
+        assert r_create.status_code == 201
+        assert r_create.json()["name"] == "test-pod-app"
+
+        r_del = client.delete(
+            f"/api/v1/clusters/{cluster}/pods/test-pod-app?namespace=default"
+        )
+        assert r_del.status_code == 200
+        assert r_del.json()["success"] is True
+    finally:
+        k8s_service._exec_kubectl = orig_exec
