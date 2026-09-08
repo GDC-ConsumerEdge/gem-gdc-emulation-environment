@@ -63,7 +63,7 @@ jobs:
 
       - name: Setup uv
         if: steps.changes.outputs.python == 'true'
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: true
 
@@ -142,7 +142,7 @@ jobs:
           go-version-file: 'operators/gem-network-operator/go.mod'
 
       - name: Setup uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: true
 
