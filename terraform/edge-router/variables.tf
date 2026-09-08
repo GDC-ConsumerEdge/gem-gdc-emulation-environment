@@ -42,3 +42,21 @@ variable "edge_router_name" {
   type    = string
   default = "gem-edge-router"
 }
+
+variable "deletion_protection" {
+  type        = bool
+  description = "Whether to enable deletion protection on the instance."
+  default     = false
+}
+
+variable "gce_network" {
+  type        = string
+  description = "The VPC network name"
+  default     = "gem-clusters-vpc"
+}
+
+variable "gce_subnetwork" {
+  type        = string
+  description = "The subnetwork name"
+  default     = "gem-clusters-subnet"
+}

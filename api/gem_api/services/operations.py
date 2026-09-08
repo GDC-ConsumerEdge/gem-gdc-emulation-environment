@@ -229,19 +229,20 @@ class OperationManager:
 
     def get_logs(self, operation_id: str, tail: int | None = None) -> list[str]:
         """Retrieve buffered or stored log lines for an operation."""
+        # Check if file exists on disk first to retrieve full history
+        log_path = self._get_log_file_path(operation_id)
+        if log_path.exists():
+            try:
+                with open(log_path, encoding="utf-8") as f:
+                    lines = [line.rstrip() for line in f]
+                    if tail and tail > 0:
+                        return lines[-tail:]
+                    return lines
+            except OSError:
+                pass
+
         record = self._operations.get(operation_id)
         if not record:
-            # Check if file exists on disk
-            log_path = self._get_log_file_path(operation_id)
-            if log_path.exists():
-                try:
-                    with open(log_path, encoding="utf-8") as f:
-                        lines = [line.rstrip() for line in f]
-                        if tail and tail > 0:
-                            return lines[-tail:]
-                        return lines
-                except OSError:
-                    pass
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Logs for operation '{operation_id}' not found.",

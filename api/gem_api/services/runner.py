@@ -111,29 +111,44 @@ class ProcessRunner:
 
             # Stream stdout line by line
             if process.stdout:
+                buffer = bytearray()
                 while True:
-                    line_bytes = await process.stdout.readline()
-                    if not line_bytes:
+                    chunk = await process.stdout.read(65536)
+                    if not chunk:
+                        if buffer:
+                            line = buffer.decode("utf-8", errors="replace").rstrip()
+                            if line:
+                                self.op_mgr.append_log(operation_id, line)
                         break
-                    line = line_bytes.decode("utf-8", errors="replace").rstrip()
-                    if line:
-                        self.op_mgr.append_log(operation_id, line)
-                        # Dynamically update intermediate messages based on output
-                        if "TASK [" in line:
-                            task_name = line.split("TASK [", 1)[-1].rstrip("] *")
-                            await self.op_mgr.update_operation(
-                                operation_id=operation_id,
-                                message=f"Ansible task: {task_name}",
-                            )
-                        elif (
-                            "Creating..." in line
-                            or "Modifying..." in line
-                            or "Destroying..." in line
-                        ):
-                            await self.op_mgr.update_operation(
-                                operation_id=operation_id,
-                                message=f"Terraform resource update: {line.strip()}",
-                            )
+                    buffer.extend(chunk)
+                    while b"\n" in buffer:
+                        newline_pos = buffer.find(b"\n")
+                        line_bytes = buffer[:newline_pos]
+                        del buffer[: newline_pos + 1]
+                        line = line_bytes.decode("utf-8", errors="replace").rstrip()
+                        if line:
+                            self.op_mgr.append_log(operation_id, line)
+                            # Dynamically update intermediate messages based on output
+                            if "TASK [" in line:
+                                task_name = line.split("TASK [", 1)[-1].rstrip("] *")
+                                await self.op_mgr.update_operation(
+                                    operation_id=operation_id,
+                                    message=f"Ansible task: {task_name}",
+                                )
+                            elif (
+                                "Creating..." in line
+                                or "Modifying..." in line
+                                or "Destroying..." in line
+                            ):
+                                await self.op_mgr.update_operation(
+                                    operation_id=operation_id,
+                                    message=f"Terraform resource update: {line.strip()}",
+                                )
+                    if len(buffer) > 1024 * 1024 and b"\n" not in buffer:
+                        line = buffer.decode("utf-8", errors="replace").rstrip()
+                        buffer.clear()
+                        if line:
+                            self.op_mgr.append_log(operation_id, line)
 
             return_code = await process.wait()
 
@@ -267,6 +282,7 @@ class ProcessRunner:
                     "terraform",
                     "init",
                     "-input=false",
+                    "-reconfigure",
                     f"-backend-config=bucket={bucket}",
                     f"-backend-config=prefix=clusters/{request.cluster_name}/state",
                 ]
@@ -319,6 +335,14 @@ class ProcessRunner:
                     "emulate_gdc_version": request.emulate_gdc_version,
                     "node_storage_size": request.node_storage_size,
                 }
+                if request.pod_cidr_blocks:
+                    extra_vars["pod_cidr_blocks"] = request.pod_cidr_blocks
+                if request.services_cidr_blocks:
+                    extra_vars["services_cidr_blocks"] = request.services_cidr_blocks
+                if request.max_pods_per_node:
+                    extra_vars["max_pods_per_node"] = request.max_pods_per_node
+                if cluster_admin_sa:
+                    extra_vars["gcp_cluster_admin_sa"] = cluster_admin_sa
                 if request.secondary_networks:
                     extra_vars["secondary_networks"] = [
                         net.model_dump() for net in request.secondary_networks
@@ -467,6 +491,7 @@ class ProcessRunner:
                     "terraform",
                     "init",
                     "-input=false",
+                    "-reconfigure",
                     f"-backend-config=bucket={bucket}",
                     f"-backend-config=prefix=clusters/{request.cluster_name}/state",
                 ]
@@ -586,6 +611,7 @@ class ProcessRunner:
                 bucket = settings.get_tf_state_bucket(project_id)
 
                 env = os.environ.copy()
+                env["CLUSTER_NAME"] = "none"
                 env["PROJECT_ID"] = project_id
                 env["GEM_GCP_ZONE"] = zone
                 env["TF_VAR_project_id"] = project_id
@@ -601,6 +627,7 @@ class ProcessRunner:
                     "terraform",
                     "init",
                     "-input=false",
+                    "-reconfigure",
                     f"-backend-config=bucket={bucket}",
                     "-backend-config=prefix=admin-workstation/state",
                 ]
@@ -628,6 +655,7 @@ class ProcessRunner:
                     f"-var=region={region}",
                     f"-var=gce_network={request.gce_network}",
                     f"-var=gce_subnetwork={request.gce_subnetwork}",
+                    f"-var=workstation_ip={request.workstation_ip or '10.10.0.2'}",
                 ]
                 if provisioning_sa:
                     apply_cmd.append(f"-var=provisioning_sa_email={provisioning_sa}")
@@ -731,6 +759,7 @@ class ProcessRunner:
                 ) or settings.get_tf_state_bucket(project_id)
 
                 env = os.environ.copy()
+                env["CLUSTER_NAME"] = "none"
                 env["PROJECT_ID"] = project_id
                 env["GEM_GCP_ZONE"] = zone
                 env["TF_VAR_project_id"] = project_id
@@ -744,6 +773,7 @@ class ProcessRunner:
                     "terraform",
                     "init",
                     "-input=false",
+                    "-reconfigure",
                     f"-backend-config=bucket={bucket}",
                     "-backend-config=prefix=admin-workstation/state",
                 ]
@@ -862,6 +892,7 @@ class ProcessRunner:
                 bucket = settings.get_tf_state_bucket(project_id)
 
                 env = os.environ.copy()
+                env["CLUSTER_NAME"] = "none"
                 env["PROJECT_ID"] = project_id
                 env["GEM_GCP_ZONE"] = zone
                 env["TF_VAR_project_id"] = project_id
@@ -879,6 +910,7 @@ class ProcessRunner:
                     "terraform",
                     "init",
                     "-input=false",
+                    "-reconfigure",
                     f"-backend-config=bucket={bucket}",
                     "-backend-config=prefix=edge-router/state",
                 ]
@@ -1012,6 +1044,7 @@ class ProcessRunner:
                 ) or settings.get_tf_state_bucket(project_id)
 
                 env = os.environ.copy()
+                env["CLUSTER_NAME"] = "none"
                 env["PROJECT_ID"] = project_id
                 env["GEM_GCP_ZONE"] = zone
                 env["TF_VAR_project_id"] = project_id
@@ -1026,6 +1059,7 @@ class ProcessRunner:
                     "terraform",
                     "init",
                     "-input=false",
+                    "-reconfigure",
                     f"-backend-config=bucket={bucket}",
                     "-backend-config=prefix=edge-router/state",
                 ]

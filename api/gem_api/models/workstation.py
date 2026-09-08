@@ -51,6 +51,10 @@ class WorkstationCreateRequest(BaseModel):
         default="gem-clusters-subnet",
         description="Subnetwork name.",
     )
+    workstation_ip: str | None = Field(
+        default="10.10.0.2",
+        description="Internal IP address for the workstation VM.",
+    )
 
     @field_validator(
         "project_id",

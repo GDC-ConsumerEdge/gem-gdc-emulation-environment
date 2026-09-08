@@ -46,7 +46,7 @@
       ansible.builtin.wait_for_connection:
         delay: 0
         sleep: 5
-        timeout: 120
+        timeout: 300
 - name: Fetch SSH Key from Workstation
   hosts: workstation
   become: true
@@ -83,5 +83,14 @@
 - name: Configure gVisor container runtime on cluster nodes
   hosts: cluster_nodes
   become: true
-  roles:
-    - gvisor_node
+  tasks:
+    - name: Reset stale SSH connection multiplexers after cluster deployment
+      ansible.builtin.meta: reset_connection
+    - name: Poll SSH until node connection is verified
+      ansible.builtin.wait_for_connection:
+        delay: 0
+        sleep: 3
+        timeout: 180
+    - name: Include gvisor_node role
+      ansible.builtin.include_role:
+        name: gvisor_node

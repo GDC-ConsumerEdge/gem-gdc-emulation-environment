@@ -30,12 +30,14 @@ provider "google" {
 }
 
 data "google_compute_network" "gdc_vpc" {
-  name = "gem-clusters-vpc"
+  name    = var.gce_network
+  project = var.project_id
 }
 
 data "google_compute_subnetwork" "gdc_subnet" {
-  name   = "gem-clusters-subnet"
-  region = var.region
+  name    = var.gce_subnetwork
+  region  = var.region
+  project = var.project_id
 }
 
 data "google_compute_image" "ubuntu" {
@@ -71,7 +73,7 @@ resource "google_compute_instance" "edge_router" {
 
   can_ip_forward = true
 
-  deletion_protection = true
+  deletion_protection = var.deletion_protection
 
   metadata = {
     enable-oslogin = "FALSE"
