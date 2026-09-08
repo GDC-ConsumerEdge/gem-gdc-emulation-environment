@@ -19,6 +19,7 @@ import subprocess
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger("gem_api.config")
@@ -77,22 +78,29 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    # Every environment-derived default below uses default_factory so it is
+    # resolved when Settings() is instantiated, not once at import time. A plain
+    # class-body default would freeze the value of the first import, so
+    # get_settings.cache_clear() after changing the environment would hand back
+    # the stale value. It also keeps the gcloud lookups out of module import.
     app_name: str = "GEM REST API"
     app_version: str = "0.1.0"
     debug: bool = False
 
     # Server binding
-    port: int = int(os.getenv("PORT", "8080"))
-    host: str = os.getenv("HOST", "0.0.0.0")
+    port: int = Field(default_factory=lambda: int(os.getenv("PORT", "8080")))
+    host: str = Field(default_factory=lambda: os.getenv("HOST", "0.0.0.0"))
 
     # Repository Root Directory (defaults to parent of 'api')
-    repo_root: Path = Path(
-        os.getenv("REPO_ROOT", Path(__file__).resolve().parent.parent.parent)
+    repo_root: Path = Field(
+        default_factory=lambda: Path(
+            os.getenv("REPO_ROOT") or Path(__file__).resolve().parent.parent.parent
+        )
     )
 
     # GCP Environment Defaults
-    default_project_id: str = _resolve_default_project()
-    default_zone: str = _resolve_default_zone()
+    default_project_id: str = Field(default_factory=_resolve_default_project)
+    default_zone: str = Field(default_factory=_resolve_default_zone)
 
     @property
     def default_region(self) -> str:
@@ -102,7 +110,9 @@ class Settings(BaseSettings):
         return "us-central1"
 
     # Log directories and buffering
-    log_dir: Path = Path(os.getenv("GEM_LOG_DIR", "/tmp/gem-api/logs"))
+    log_dir: Path = Field(
+        default_factory=lambda: Path(os.getenv("GEM_LOG_DIR", "/tmp/gem-api/logs"))
+    )
     max_log_buffer_lines: int = 1000
 
     def get_provisioning_sa(self, project_id: str | None = None) -> str:

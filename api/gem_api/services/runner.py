@@ -16,12 +16,12 @@ import asyncio
 import json
 import logging
 import os
-import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from gem_api.config import get_settings
+from gem_api.manifest import get_abm_version
 from gem_api.models.clusters import ClusterCreateRequest, ClusterDeleteRequest
 from gem_api.models.edge_router import EdgeRouterCreateRequest, EdgeRouterDeleteRequest
 from gem_api.models.operations import OperationStatus
@@ -166,7 +166,7 @@ class ProcessRunner:
         except (asyncio.CancelledError, KeyboardInterrupt):
             logger.info("Command execution task cancelled for %s", operation_id)
             raise
-        except (RuntimeError, OSError, subprocess.SubprocessError, ValueError) as e:
+        except Exception as e:
             if record.status != OperationStatus.CANCELLED:
                 self.op_mgr.append_log(operation_id, f"Execution exception: {e}")
             raise
@@ -270,7 +270,13 @@ class ProcessRunner:
                 env["TF_VAR_pod_cidr_blocks"] = request.pod_cidr_blocks
                 env["TF_VAR_services_cidr_blocks"] = request.services_cidr_blocks
                 env["TF_VAR_max_pods_per_node"] = str(request.max_pods_per_node)
-                env["TF_VAR_emulate_gdc_version"] = request.emulate_gdc_version
+                # terraform/cluster declares bmctl_version, not emulate_gdc_version;
+                # an undeclared TF_VAR_* is silently ignored, which would leave the
+                # nodes tagged with the default ABM version while Ansible installs
+                # the requested one. Map through group_vars so both agree.
+                bmctl_version = get_abm_version(request.emulate_gdc_version)
+                if bmctl_version:
+                    env["TF_VAR_bmctl_version"] = bmctl_version
                 if provisioning_sa:
                     env["TF_VAR_provisioning_sa_email"] = provisioning_sa
                     env["GOOGLE_IMPERSONATE_SERVICE_ACCOUNT"] = provisioning_sa
@@ -316,6 +322,8 @@ class ProcessRunner:
                 ]
                 if provisioning_sa:
                     apply_cmd.append(f"-var=provisioning_sa_email={provisioning_sa}")
+                if bmctl_version:
+                    apply_cmd.append(f"-var=bmctl_version={bmctl_version}")
 
                 await self._execute_command(
                     operation_id=operation_id,
@@ -379,14 +387,9 @@ class ProcessRunner:
                     f"Cluster build completed successfully.",
                 )
 
-        except (
-            RuntimeError,
-            OSError,
-            ValueError,
-            subprocess.SubprocessError,
-            TimeoutError,
-            KeyError,
-        ) as e:
+        # Deliberately broad: any failure must be recorded against the operation,
+        # otherwise it stays RUNNING forever and its target resource stays locked.
+        except Exception as e:  # noqa: BLE001
             record = self.op_mgr._operations.get(operation_id)
             if record and record.status != OperationStatus.CANCELLED:
                 err_msg = str(e)
@@ -541,14 +544,9 @@ class ProcessRunner:
                     completed=True,
                 )
 
-        except (
-            RuntimeError,
-            OSError,
-            ValueError,
-            subprocess.SubprocessError,
-            TimeoutError,
-            KeyError,
-        ) as e:
+        # Deliberately broad: any failure must be recorded against the operation,
+        # otherwise it stays RUNNING forever and its target resource stays locked.
+        except Exception as e:  # noqa: BLE001
             record = self.op_mgr._operations.get(operation_id)
             if record and record.status != OperationStatus.CANCELLED:
                 err_msg = str(e)
@@ -700,14 +698,9 @@ class ProcessRunner:
                     completed=True,
                 )
 
-        except (
-            RuntimeError,
-            OSError,
-            ValueError,
-            subprocess.SubprocessError,
-            TimeoutError,
-            KeyError,
-        ) as e:
+        # Deliberately broad: any failure must be recorded against the operation,
+        # otherwise it stays RUNNING forever and its target resource stays locked.
+        except Exception as e:  # noqa: BLE001
             record = self.op_mgr._operations.get(operation_id)
             if record and record.status != OperationStatus.CANCELLED:
                 err_msg = str(e)
@@ -822,14 +815,9 @@ class ProcessRunner:
                     completed=True,
                 )
 
-        except (
-            RuntimeError,
-            OSError,
-            ValueError,
-            subprocess.SubprocessError,
-            TimeoutError,
-            KeyError,
-        ) as e:
+        # Deliberately broad: any failure must be recorded against the operation,
+        # otherwise it stays RUNNING forever and its target resource stays locked.
+        except Exception as e:  # noqa: BLE001
             record = self.op_mgr._operations.get(operation_id)
             if record and record.status != OperationStatus.CANCELLED:
                 err_msg = str(e)
@@ -985,14 +973,9 @@ class ProcessRunner:
                     completed=True,
                 )
 
-        except (
-            RuntimeError,
-            OSError,
-            ValueError,
-            subprocess.SubprocessError,
-            TimeoutError,
-            KeyError,
-        ) as e:
+        # Deliberately broad: any failure must be recorded against the operation,
+        # otherwise it stays RUNNING forever and its target resource stays locked.
+        except Exception as e:  # noqa: BLE001
             record = self.op_mgr._operations.get(operation_id)
             if record and record.status != OperationStatus.CANCELLED:
                 err_msg = str(e)
@@ -1109,14 +1092,9 @@ class ProcessRunner:
                     completed=True,
                 )
 
-        except (
-            RuntimeError,
-            OSError,
-            ValueError,
-            subprocess.SubprocessError,
-            TimeoutError,
-            KeyError,
-        ) as e:
+        # Deliberately broad: any failure must be recorded against the operation,
+        # otherwise it stays RUNNING forever and its target resource stays locked.
+        except Exception as e:  # noqa: BLE001
             record = self.op_mgr._operations.get(operation_id)
             if record and record.status != OperationStatus.CANCELLED:
                 err_msg = str(e)

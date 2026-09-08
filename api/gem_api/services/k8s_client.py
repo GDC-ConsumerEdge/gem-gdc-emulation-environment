@@ -43,8 +43,11 @@ from gem_api.models.vms import (
     VirtualMachineListResponse,
     VirtualMachinePowerResponse,
 )
+from gem_api.services.process import communicate_or_kill
 
 logger = logging.getLogger("gem_api.k8s")
+
+MISSING_KUBECTL = "kubectl binary not found"
 
 
 class K8sService:
@@ -80,7 +83,7 @@ class K8sService:
     ) -> tuple[int, str, str]:
         """Execute a kubectl command asynchronously."""
         if not shutil.which("kubectl"):
-            return -1, "", "kubectl binary not found"
+            return -1, "", MISSING_KUBECTL
 
         cmd = ["kubectl"]
         kubeconfig = self._find_kubeconfig(cluster_name)
@@ -96,19 +99,62 @@ class K8sService:
                 stderr=asyncio.subprocess.PIPE,
             )
             stdin_bytes = input_data.encode("utf-8") if input_data else None
-            stdout_b, stderr_b = await asyncio.wait_for(
-                proc.communicate(stdin_bytes), timeout=timeout
+            stdout_b, stderr_b = await communicate_or_kill(
+                proc, timeout=timeout, input_bytes=stdin_bytes
             )
             return (
                 proc.returncode or 0,
                 stdout_b.decode("utf-8", errors="replace"),
                 stderr_b.decode("utf-8", errors="replace"),
             )
-        except (TimeoutError, OSError, ValueError) as e:
+        except TimeoutError:
+            logger.debug("kubectl timed out for %s %s", cluster_name, args)
+            return -1, "", f"kubectl timed out after {timeout}s"
+        except (OSError, ValueError) as e:
             logger.debug(
                 "kubectl execution failed for %s %s: %s", cluster_name, args, e
             )
             return -1, "", str(e)
+
+    def _raise_for_kubectl(
+        self,
+        rc: int,
+        stderr: str,
+        *,
+        action: str,
+        not_found: str | None = None,
+        conflict: str | None = None,
+    ) -> None:
+        """Translate a failed kubectl invocation into an HTTP error.
+
+        Every non-zero return code is a failure. The substring checks only decide
+        which status code to report; they never let a failure through as a success.
+        """
+        if rc == 0:
+            return
+
+        err = stderr.strip()
+        lowered = err.lower()
+
+        if MISSING_KUBECTL in err:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Cannot {action}: kubectl is not available in the API environment.",
+            )
+        if not_found and "not found" in lowered:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=not_found,
+            )
+        if conflict and "already exists" in lowered:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=conflict,
+            )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to {action}: {err or f'kubectl exited with code {rc}'}",
+        )
 
     # Cluster Status & Metrics
     async def get_cluster_status(
@@ -179,7 +225,13 @@ class K8sService:
                         nodes=nodes,
                         metrics=metrics,
                     )
-            except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
+            except (
+                json.JSONDecodeError,
+                KeyError,
+                IndexError,
+                TypeError,
+                ValueError,
+            ) as e:
                 logger.debug("Failed to parse kubectl nodes output: %s", e)
 
         # Disconnected response when live cluster is unreachable
@@ -240,7 +292,13 @@ class K8sService:
                         )
                 if networks:
                     return SecondaryNetworkListResponse(networks=networks)
-            except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
+            except (
+                json.JSONDecodeError,
+                KeyError,
+                IndexError,
+                TypeError,
+                ValueError,
+            ) as e:
                 logger.debug("Failed parsing live network CRDs: %s", e)
 
         # Derive configured secondary networks from ansible/group_vars/all.yaml
@@ -286,6 +344,14 @@ class K8sService:
                     spec = item.get("spec", {})
                     status_obj = item.get("status", {})
                     vm_status = "Running" if spec.get("running") else "Stopped"
+                    # A stopped or still-starting VM reports no interfaces at all.
+                    interfaces = status_obj.get("interfaces") or []
+                    first_iface = interfaces[0] if interfaces else {}
+                    vm_ip = (
+                        first_iface.get("ipAddress")
+                        if isinstance(first_iface, dict)
+                        else None
+                    )
                     vms.append(
                         VirtualMachineItem(
                             name=meta.get("name", ""),
@@ -293,16 +359,20 @@ class K8sService:
                             status=vm_status,
                             cpus=2,
                             memory="4Gi",
-                            ip=status_obj.get("interfaces", [{}])[0].get(
-                                "ipAddress", "10.240.1.50"
-                            ),
+                            ip=vm_ip,
                             image="ubuntu-22.04-server",
                             uptime="1h",
                             power_state=vm_status,
                         )
                     )
                 return VirtualMachineListResponse(vms=vms)
-            except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
+            except (
+                json.JSONDecodeError,
+                KeyError,
+                IndexError,
+                TypeError,
+                ValueError,
+            ) as e:
                 logger.debug("Failed parsing live VMs: %s", e)
 
         return VirtualMachineListResponse(vms=[])
@@ -343,11 +413,12 @@ spec:
         rc, _, stderr = await self._exec_kubectl(
             cluster_name, ["apply", "-f", "-"], input_data=manifest
         )
-        if rc != 0 and "kubectl binary not found" not in stderr:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to deploy VM on cluster: {stderr.strip()}",
-            )
+        self._raise_for_kubectl(
+            rc,
+            stderr,
+            action=f"deploy VirtualMachine '{request.name}'",
+            conflict=f"VirtualMachine '{request.name}' already exists in namespace '{request.namespace}'.",
+        )
 
         return VirtualMachineItem(
             name=request.name,
@@ -386,15 +457,12 @@ spec:
             ],
         )
         desired_state = "Running" if running else "Stopped"
-        if (
-            rc != 0
-            and "kubectl binary not found" not in stderr
-            and "not found" in stderr.lower()
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"VirtualMachine '{vm_name}' not found in namespace '{namespace}'.",
-            )
+        self._raise_for_kubectl(
+            rc,
+            stderr,
+            action=f"set power state of VirtualMachine '{vm_name}'",
+            not_found=f"VirtualMachine '{vm_name}' not found in namespace '{namespace}'.",
+        )
 
         return VirtualMachinePowerResponse(
             success=True,
@@ -415,15 +483,12 @@ spec:
         rc, _, stderr = await self._exec_kubectl(
             cluster_name, ["delete", "virtualmachine", vm_name, "-n", namespace]
         )
-        if (
-            rc != 0
-            and "kubectl binary not found" not in stderr
-            and "not found" in stderr.lower()
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"VirtualMachine '{vm_name}' not found in namespace '{namespace}'.",
-            )
+        self._raise_for_kubectl(
+            rc,
+            stderr,
+            action=f"delete VirtualMachine '{vm_name}'",
+            not_found=f"VirtualMachine '{vm_name}' not found in namespace '{namespace}'.",
+        )
 
         return GenericActionResponse(
             success=True,
@@ -467,7 +532,13 @@ spec:
                         )
                     )
                 return RootSyncListResponse(root_syncs=root_syncs)
-            except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
+            except (
+                json.JSONDecodeError,
+                KeyError,
+                IndexError,
+                TypeError,
+                ValueError,
+            ) as e:
                 logger.debug("Failed parsing RootSyncs: %s", e)
 
         return RootSyncListResponse(root_syncs=[])
@@ -530,7 +601,13 @@ spec:
                         )
                     )
                 return PodListResponse(pods=pods)
-            except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
+            except (
+                json.JSONDecodeError,
+                KeyError,
+                IndexError,
+                TypeError,
+                ValueError,
+            ) as e:
                 logger.debug("Failed parsing pods: %s", e)
 
         return PodListResponse(pods=[])
@@ -546,15 +623,12 @@ spec:
         image = request.image or "nginx:alpine"
         args = ["run", request.name, f"--image={image}", "-n", request.namespace]
         rc, _, stderr = await self._exec_kubectl(cluster_name, args)
-        if (
-            rc != 0
-            and "kubectl binary not found" not in stderr
-            and "already exists" in stderr.lower()
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Pod '{request.name}' already exists in namespace '{request.namespace}'.",
-            )
+        self._raise_for_kubectl(
+            rc,
+            stderr,
+            action=f"create Pod '{request.name}'",
+            conflict=f"Pod '{request.name}' already exists in namespace '{request.namespace}'.",
+        )
 
         return PodItem(
             name=request.name,
@@ -590,15 +664,12 @@ spec:
             args.append(f"--grace-period={grace_period_seconds}")
 
         rc, _, stderr = await self._exec_kubectl(cluster_name, args)
-        if (
-            rc != 0
-            and "kubectl binary not found" not in stderr
-            and "not found" in stderr.lower()
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Pod '{pod_name}' not found in namespace '{namespace}'.",
-            )
+        self._raise_for_kubectl(
+            rc,
+            stderr,
+            action=f"delete Pod '{pod_name}'",
+            not_found=f"Pod '{pod_name}' not found in namespace '{namespace}'.",
+        )
 
         return PodActionResponse(
             success=True,

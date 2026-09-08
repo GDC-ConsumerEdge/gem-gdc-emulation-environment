@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import asyncio
-import contextlib
 import logging
 import os
 import signal
@@ -181,10 +180,28 @@ class OperationManager:
             if completed:
                 record.completed_at = datetime.now(UTC)
                 # Notify SSE subscribers that the stream has closed
-                for sub_queue in record.subscribers:
-                    await sub_queue.put(None)
+                self._publish(record, None)
 
             return record
+
+    @staticmethod
+    def _publish(record: OperationRecord, item: str | None) -> None:
+        """Push a log line (or the end-of-stream sentinel) to every SSE subscriber.
+
+        Never blocks. A subscriber that has fallen behind loses its oldest buffered
+        lines instead of stalling the caller, which would otherwise hold ``_lock``
+        for as long as the slow client stayed connected.
+        """
+        for sub_queue in list(record.subscribers):
+            while True:
+                try:
+                    sub_queue.put_nowait(item)
+                    break
+                except asyncio.QueueFull:
+                    try:
+                        sub_queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        break
 
     def append_log(self, operation_id: str, log_line: str) -> None:
         """Append a log line to the operation's buffer, write to disk, and push to SSE subscribers."""
@@ -212,9 +229,59 @@ class OperationManager:
             logger.warning("Failed to write to log file %s: %s", log_path, e)
 
         # Distribute to SSE subscribers
-        for sub_queue in list(record.subscribers):
-            with contextlib.suppress(asyncio.QueueFull):
-                sub_queue.put_nowait(formatted_line)
+        self._publish(record, formatted_line)
+
+    def attach_task(self, operation_id: str, task: asyncio.Task) -> None:
+        """Track the background task driving an operation and finalize it when it ends.
+
+        Without the done callback, an exception the pipeline does not handle is
+        swallowed by asyncio, leaving the operation QUEUED/RUNNING forever and its
+        target resource permanently locked by the conflict check in
+        register_operation().
+        """
+        record = self._operations.get(operation_id)
+        if record is None:
+            return
+        record.task = task
+        task.add_done_callback(
+            lambda finished: self._finalize_task(operation_id, finished)
+        )
+
+    def _finalize_task(self, operation_id: str, task: asyncio.Task) -> None:
+        """Mark an operation terminal if its background task ended without doing so."""
+        record = self._operations.get(operation_id)
+        if record is None or record.task is not task:
+            return
+        if record.status in (
+            OperationStatus.SUCCEEDED,
+            OperationStatus.FAILED,
+            OperationStatus.CANCELLED,
+        ):
+            return
+
+        if task.cancelled():
+            record.status = OperationStatus.CANCELLED
+            record.current_step = "Cancelled"
+            record.message = f"Operation '{operation_id}' was cancelled."
+        else:
+            exc = task.exception()
+            record.status = OperationStatus.FAILED
+            record.current_step = "Failed"
+            if exc is None:
+                record.error = "Pipeline exited without reporting a final status."
+            else:
+                logger.error(
+                    "Operation %s failed with an unhandled exception",
+                    operation_id,
+                    exc_info=exc,
+                )
+                record.error = f"{type(exc).__name__}: {exc}"
+            record.message = f"Operation failed: {record.error}"
+
+        record.updated_at = datetime.now(UTC)
+        record.completed_at = datetime.now(UTC)
+        self.append_log(operation_id, record.message)
+        self._publish(record, None)
 
     def get_operation(self, operation_id: str) -> OperationResponse | None:
         """Retrieve operation details by ID."""
@@ -348,8 +415,7 @@ class OperationManager:
                 record.task.cancel()
 
             # Notify subscribers
-            for sub_queue in record.subscribers:
-                await sub_queue.put(None)
+            self._publish(record, None)
 
             cancel_log = f"[{record.completed_at.strftime('%Y-%m-%dT%H:%M:%SZ')}] Operation cancelled by user request."
             self.append_log(operation_id, cancel_log)

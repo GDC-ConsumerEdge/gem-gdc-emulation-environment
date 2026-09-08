@@ -315,3 +315,55 @@ async def test_runner_workstation_and_edge_router_prefixes(
     assert "-backend-config=prefix=edge-router/state" in executed_commands[0]["cmd"]
     assert "-var=project_id=test-proj" in executed_commands[1]["cmd"]
     assert "-var=edge_router_name=gem-er" in executed_commands[1]["cmd"]
+
+
+@pytest.mark.asyncio
+async def test_runner_cluster_create_maps_gdc_version_to_bmctl(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Verify the requested GDC version reaches Terraform as bmctl_version.
+
+    terraform/cluster declares bmctl_version, not emulate_gdc_version, so the
+    mapping in ansible/group_vars/all.yaml has to be applied by the runner or the
+    nodes get tagged with the Terraform default while Ansible installs the
+    requested release.
+    """
+    op_mgr = get_operation_manager()
+    runner = get_process_runner()
+    op_id = "gem-vmap"
+
+    monkeypatch.setattr(runner, "_is_mock_enabled", lambda: False)
+
+    executed_commands: list[dict] = []
+
+    async def mock_execute(
+        operation_id: str,
+        cmd: list[str],
+        cwd: any,
+        env: dict[str, str],
+        step_name: str,
+        step_message: str,
+    ) -> None:
+        executed_commands.append({"cmd": cmd, "env": env})
+
+    monkeypatch.setattr(runner, "_execute_command", mock_execute)
+
+    await op_mgr.register_operation(
+        operation_id=op_id,
+        operation_type=OperationType.CLUSTER_CREATE,
+        target_resource=op_id,
+    )
+
+    req = ClusterCreateRequest(
+        cluster_name="gem-vmap",
+        project_id="test-proj",
+        emulate_gdc_version="1.13.0",
+    )
+    await runner.run_cluster_create(req, op_id)
+
+    apply_cmd = executed_commands[1]["cmd"]
+    assert "-var=bmctl_version=1.34.100-gke.97" in apply_cmd
+    assert executed_commands[1]["env"]["TF_VAR_bmctl_version"] == "1.34.100-gke.97"
+    # Ansible still receives the GDC version itself, via --extra-vars
+    ansible_cmd = executed_commands[2]["cmd"]
+    assert any('"emulate_gdc_version": "1.13.0"' in arg for arg in ansible_cmd)

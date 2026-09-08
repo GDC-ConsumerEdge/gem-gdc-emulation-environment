@@ -89,6 +89,21 @@ def get_default_gdc_version() -> str:
     return versions[0]
 
 
+def get_abm_version(gdc_version: str) -> str | None:
+    """Map an emulated GDC version to its Anthos Bare Metal (bmctl) version.
+
+    Returns None if the version is unknown, letting callers fall back to the
+    Terraform / Ansible defaults.
+    """
+    versions_map = load_group_vars().get("emulated_gdc_versions")
+    if not isinstance(versions_map, dict):
+        return None
+    entry = versions_map.get(gdc_version)
+    if isinstance(entry, dict) and entry.get("abm_version"):
+        return str(entry["abm_version"])
+    return None
+
+
 def get_valid_hardware_variants() -> list[str]:
     """Retrieve supported hardware variant names defined in all.yaml."""
     data = load_group_vars()

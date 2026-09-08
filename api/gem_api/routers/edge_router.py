@@ -60,8 +60,10 @@ async def create_edge_router(
         initial_message=f"Starting build for edge router '{target_resource}'...",
     )
 
-    task = asyncio.create_task(runner.run_edge_router_create(request, operation_id))
-    record.task = task
+    op_mgr.attach_task(
+        operation_id,
+        asyncio.create_task(runner.run_edge_router_create(request, operation_id)),
+    )
 
     return OperationAcceptedResponse(
         operation_id=operation_id,
@@ -95,8 +97,10 @@ async def delete_edge_router(
         initial_message=f"Starting teardown for edge router '{target_resource}'...",
     )
 
-    task = asyncio.create_task(runner.run_edge_router_delete(request, operation_id))
-    record.task = task
+    op_mgr.attach_task(
+        operation_id,
+        asyncio.create_task(runner.run_edge_router_delete(request, operation_id)),
+    )
 
     return OperationAcceptedResponse(
         operation_id=operation_id,

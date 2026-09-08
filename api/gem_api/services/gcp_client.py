@@ -21,6 +21,7 @@ from gem_api.config import get_settings
 from gem_api.manifest import get_default_gdc_version, get_default_hardware_variant
 from gem_api.models.clusters import ClusterInfo, ClusterListResponse
 from gem_api.models.projects import ProjectItem, ProjectListResponse
+from gem_api.services.process import communicate_or_kill
 
 logger = logging.getLogger("gem_api.gcp")
 
@@ -41,7 +42,7 @@ class GcpService:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
-                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5.0)
+                stdout, _ = await communicate_or_kill(proc, timeout=5.0)
                 if proc.returncode == 0 and stdout:
                     data = json.loads(stdout.decode("utf-8"))
                     projects = [
@@ -88,7 +89,7 @@ class GcpService:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
-                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=8.0)
+                stdout, _ = await communicate_or_kill(proc, timeout=8.0)
                 if proc.returncode == 0 and stdout:
                     data = json.loads(stdout.decode("utf-8"))
                     for m in data:
@@ -138,7 +139,7 @@ class GcpService:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
-                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5.0)
+                stdout, _ = await communicate_or_kill(proc, timeout=5.0)
                 if proc.returncode == 0 and stdout:
                     for line in stdout.decode("utf-8").splitlines():
                         line = line.strip().rstrip("/")

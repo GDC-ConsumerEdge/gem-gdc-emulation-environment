@@ -60,8 +60,10 @@ async def create_cluster(
         initial_message=f"Starting build for cluster '{request.cluster_name}'...",
     )
 
-    task = asyncio.create_task(runner.run_cluster_create(request, operation_id))
-    record.task = task
+    op_mgr.attach_task(
+        operation_id,
+        asyncio.create_task(runner.run_cluster_create(request, operation_id)),
+    )
 
     return OperationAcceptedResponse(
         operation_id=operation_id,
@@ -96,8 +98,10 @@ async def delete_cluster(
         initial_message=f"Starting teardown for cluster '{request.cluster_name}'...",
     )
 
-    task = asyncio.create_task(runner.run_cluster_delete(request, operation_id))
-    record.task = task
+    op_mgr.attach_task(
+        operation_id,
+        asyncio.create_task(runner.run_cluster_delete(request, operation_id)),
+    )
 
     return OperationAcceptedResponse(
         operation_id=operation_id,
