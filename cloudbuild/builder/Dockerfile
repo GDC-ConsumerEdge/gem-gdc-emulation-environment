@@ -18,11 +18,11 @@
 # each pipeline step can use the same entrypoint. The Google Cloud SDK base
 # image already includes `gcloud`, `gsutil`, and the IAP-tunneling component
 # the dynamic Ansible inventory shells out to.
-ARG CLOUD_SDK_VERSION=565.0.0
+ARG CLOUD_SDK_VERSION=584.0.0
 FROM gcr.io/google.com/cloudsdktool/google-cloud-cli:${CLOUD_SDK_VERSION}-slim
 
-ARG TERRAFORM_VERSION=1.15.3
-ARG ANSIBLE_VERSION=10.7.0
+ARG TERRAFORM_VERSION=1.16.2
+ARG ANSIBLE_VERSION=14.4.0
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_BREAK_SYSTEM_PACKAGES=1 \
@@ -48,7 +48,7 @@ RUN curl -fsSL "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/te
 
 RUN pip3 install --no-cache-dir \
         "ansible==${ANSIBLE_VERSION}" \
-        "ansible-core>=2.17,<2.18" \
+        "ansible-core>=2.21,<2.22" \
     && ansible --version
 
 # Collections required by the GEM playbooks.
