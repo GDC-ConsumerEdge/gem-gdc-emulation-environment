@@ -18,7 +18,7 @@
 # each pipeline step can use the same entrypoint. The Google Cloud SDK base
 # image already includes `gcloud`, `gsutil`, and the IAP-tunneling component
 # the dynamic Ansible inventory shells out to.
-ARG CLOUD_SDK_VERSION=520.0.0
+ARG CLOUD_SDK_VERSION=565.0.0
 FROM gcr.io/google.com/cloudsdktool/google-cloud-cli:${CLOUD_SDK_VERSION}-slim
 
 ARG TERRAFORM_VERSION=1.15.3
