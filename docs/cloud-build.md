@@ -33,6 +33,8 @@ This build step is required when the Cloud Build pipeline is created, and then a
 ```bash
 gcloud builds submit \
   --config=${REPO_ROOT}/cloudbuild/builder/cloudbuild.yaml \
+  --substitutions=_AR_LOCATION=${GEM_GCP_ZONE},
+  --service-account=projects/${PROJECT_ID}/serviceAccounts/gem-cluster-builder@${PROJECT_ID}.iam.gserviceaccount.com \
   ${REPO_ROOT}/cloudbuild/builder
 ```
 
@@ -40,10 +42,10 @@ gcloud builds submit \
 
 ```bash
 gcloud builds submit \
-  --config=cloudbuild/cluster-build.cloudbuild.yaml \
-  --substitutions=_CLUSTER_NAME=gem-cluster-1 \
+  --config=${REPO_ROOT}/cloudbuild/cluster-build.cloudbuild.yaml \
+  --substitutions=_CLUSTER_NAME=gem-cluster-1,_AR_LOCATION=${GEM_GCP_ZONE}, \
   --service-account=projects/${PROJECT_ID}/serviceAccounts/gem-cluster-builder@${PROJECT_ID}.iam.gserviceaccount.com \
-  .
+  ${REPO_ROOT}
 ```
 
 The `--service-account` flag is required: Cloud Build's default SA does not
