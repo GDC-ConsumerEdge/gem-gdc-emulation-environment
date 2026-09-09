@@ -364,7 +364,6 @@ access to various applications and virtual machines running on a GEM cluster.
 
 ## Cleanup
 
-### Deleting a Workload Cluster
 To safely delete a cluster, you must unregister it from GKE Hub before destroying the GCP infrastructure, otherwise you will leave orphaned fleet resources in your project:
 
 ```bash
@@ -375,7 +374,7 @@ ansible-playbook cleanup.yaml -e "cluster_name=${CLUSTER_NAME}"
 # Destroy the cluster VM infrastructure
 cd ${REPO_ROOT}/terraform/cluster
 
-terraform init -reconfigure \
+terraform init \
   -backend-config="bucket=${TF_STATE_BUCKET}" \
   -backend-config="prefix=clusters/${CLUSTER_NAME}/state" \
   -backend-config="impersonate_service_account=${PROVISIONING_SA_EMAIL}"
