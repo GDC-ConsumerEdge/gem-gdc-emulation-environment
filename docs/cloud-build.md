@@ -31,9 +31,14 @@ for use in subsequent steps.
 This build step is required when the Cloud Build pipeline is created, and then again on Dockerfile changes:
 
 ```bash
+export AR_LOCATION=$(gcloud artifacts repositories list \
+  --project=${PROJECT_ID} \
+  --filter="name:gem" \
+  --format="value(LOCATION)")
+
 gcloud builds submit \
   --config=${REPO_ROOT}/cloudbuild/builder/cloudbuild.yaml \
-  --substitutions=_AR_LOCATION=${GEM_GCP_ZONE},
+  --substitutions=_AR_LOCATION=${AR_LOCATION} \
   --service-account=projects/${PROJECT_ID}/serviceAccounts/gem-cluster-builder@${PROJECT_ID}.iam.gserviceaccount.com \
   ${REPO_ROOT}/cloudbuild/builder
 ```
@@ -43,7 +48,7 @@ gcloud builds submit \
 ```bash
 gcloud builds submit \
   --config=${REPO_ROOT}/cloudbuild/cluster-build.cloudbuild.yaml \
-  --substitutions=_CLUSTER_NAME=gem-cluster-1,_AR_LOCATION=${GEM_GCP_ZONE}, \
+  --substitutions=_CLUSTER_NAME=gem-cluster-5,_AR_LOCATION=${AR_LOCATION},_GEM_GCP_ZONE=${GEM_GCP_ZONE} \
   --service-account=projects/${PROJECT_ID}/serviceAccounts/gem-cluster-builder@${PROJECT_ID}.iam.gserviceaccount.com \
   ${REPO_ROOT}
 ```
@@ -59,9 +64,11 @@ designed to run as `gem-cluster-builder@`.
 | `_CLUSTER_NAME` | `gem-cluster-1` | Cluster identifier; drives VM names, TF state prefix, fleet membership. Must be ≤26 chars (Kubernetes label limit). |
 | `_TF_STATE_BUCKET` | `gem-${PROJECT_ID}-tfstate` | GCS bucket holding Terraform state. |
 | `_EMULATE_GDC_VERSION` | _(latest)_ | Forwarded to Ansible as `emulate_gdc_version`. See `ansible/group_vars/all.yaml` for the supported set. |
+|`_HARDWARE_VARIANT` | `g2-small-64gb` | GCE VM instance type used for GEM nodes. |
 | `_PROVISIONING_SA_EMAIL` | `tf-provisioner@${PROJECT_ID}.iam.gserviceaccount.com` | SA that Terraform impersonates for all provider calls. Empty resolves to this default in `setup.sh`; the build SA is deliberately under-privileged and cannot provision on its own. |
 | `_DESTROY_ON_FAILURE` | `true` | Set to `false` to preserve a failed cluster for inspection. |
 | `_AR_LOCATION` | `us-central1` | Artifact Registry location of the builder image. |
+| `_GEM_GCP_ZONE` | `""` | GCP zone where the GEM cluster will be created |
 | `_AR_REPO` | `gem` | Artifact Registry repository holding the builder image. |
 | `_BUILDER_TAG` | `latest` | Builder image tag. The full reference is composed per step as `${_AR_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/builder:${_BUILDER_TAG}`. |
 | `_SSH_SECRET_NAME` | `gem-cluster-builder-ssh-key` | Secret Manager secret holding the private key. |
