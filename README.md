@@ -364,7 +364,7 @@ access to various applications and virtual machines running on a GEM cluster.
 
 ## Cleanup
 
-To safely delete a cluster, you must unregister it from GKE Hub before destroying the GCP infrastructure, otherwise you will leave orphaned fleet resources in your project:
+To safely delete a cluster, you must unregister it from GKE Hub before destroying the GCP infrastructure, otherwise you will leave orphaned fleet resources in your project.
 
 ```bash
 # Gracefully reset and unregister the cluster
