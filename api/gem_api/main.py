@@ -75,15 +75,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include API Routers under /api/v1
-app.include_router(clusters_router, prefix="/api/v1")
-app.include_router(workstation_router, prefix="/api/v1")
-app.include_router(edge_router_router, prefix="/api/v1")
-app.include_router(operations_router, prefix="/api/v1")
-app.include_router(projects_router, prefix="/api/v1")
-app.include_router(cluster_operations_router, prefix="/api/v1")
+for router in [
+    clusters_router,
+    workstation_router,
+    edge_router_router,
+    operations_router,
+    projects_router,
+    cluster_operations_router,
+]:
+    app.include_router(router, prefix="/api/v1")
 
 
+@app.get(
+    "/health",
+    tags=["Health"],
+    summary="Health check",
+    description="Returns service health status.",
+)
 @app.get(
     "/healthz",
     tags=["Health"],

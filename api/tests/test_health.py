@@ -24,6 +24,15 @@ def test_healthz_endpoint(client: TestClient):
     assert "0.1.0" in data["version"]
 
 
+def test_health_endpoint(client: TestClient):
+    response = client.get("/health")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "ok"
+    assert "GEM REST API" in data["app"]
+    assert "0.1.0" in data["version"]
+
+
 def test_api_v1_health_endpoint(client: TestClient):
     response = client.get("/api/v1/health")
     assert response.status_code == 200
