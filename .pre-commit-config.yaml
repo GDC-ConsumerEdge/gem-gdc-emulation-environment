@@ -98,10 +98,31 @@ repos:
         args: [-f, LICENSE]
   - repo: local
     hooks:
-      - id: run-unit-tests
-        name: Run Project Unit Tests (Terraform & Ansible)
-        entry: ./scripts/run-unit-tests.sh
+      - id: unit-tests-terraform
+        name: Run Terraform Unit Tests
+        entry: ./scripts/run-unit-tests.sh --terraform
         language: system
         stages: [pre-push]
-        always_run: true
+        files: ^(terraform/|scripts/run-unit-tests\.sh)
+        pass_filenames: false
+      - id: unit-tests-ansible
+        name: Run Ansible Unit Tests
+        entry: ./scripts/run-unit-tests.sh --ansible
+        language: system
+        stages: [pre-push]
+        files: ^(ansible/|scripts/run-unit-tests\.sh)
+        pass_filenames: false
+      - id: unit-tests-golang
+        name: Run Go Operator Unit Tests
+        entry: ./scripts/run-unit-tests.sh --go
+        language: system
+        stages: [pre-push]
+        files: ^(operators/gem-network-operator/|scripts/run-unit-tests\.sh)
+        pass_filenames: false
+      - id: unit-tests-python
+        name: Run Python API Unit Tests
+        entry: ./scripts/run-unit-tests.sh --python
+        language: system
+        stages: [pre-push]
+        files: ^(api/|scripts/run-unit-tests\.sh)
         pass_filenames: false
