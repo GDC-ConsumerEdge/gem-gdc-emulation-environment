@@ -1,0 +1,7 @@
+// In this multi-language repository, the Go module is isolated in ./operators/gem-network-operator.
+// This workspace file allows root-level tooling (such as the golangci-lint pre-commit hook
+// and IDEs) to resolve the module without requiring pre-commit configuration hackery.
+
+go 1.26.6
+
+use ./operators/gem-network-operator
