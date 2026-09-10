@@ -90,15 +90,14 @@ repos:
         name: Validate conventional commit message
         stages: [commit-msg]
         args: [--verbose]
-  - repo: local
+  - repo: https://github.com/google/addlicense
+    rev: v1.2.0
     hooks:
       - id: addlicense
         name: Validate License Headers
-        entry: addlicense
-        language: golang
-        additional_dependencies: ['github.com/google/addlicense@latest']
         args: [-f, LICENSE]
-        types: [text]
+  - repo: local
+    hooks:
       - id: run-unit-tests
         name: Run Project Unit Tests (Terraform & Ansible)
         entry: ./scripts/run-unit-tests.sh
