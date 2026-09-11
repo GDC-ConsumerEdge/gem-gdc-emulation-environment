@@ -94,6 +94,11 @@
     dest: "/etc/sudoers.d/{{ gem_user }}"
     content: "{{ gem_user }} ALL=(ALL) NOPASSWD: ALL"
     mode: "0440"
+- name: Authorize workstation SSH public key for platform user
+  ansible.posix.authorized_key:
+    user: "{{ gem_user }}"
+    state: present
+    key: "{{ lookup('file', '/tmp/ws_id_rsa.pub') }}"
 - name: Configure kernel modules to load at boot
   ansible.builtin.copy:
     dest: /etc/modules-load.d/gdc-modules.conf

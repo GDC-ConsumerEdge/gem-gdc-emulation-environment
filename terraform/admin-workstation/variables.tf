@@ -41,3 +41,15 @@ variable "gce_subnetwork" {
   type    = string
   default = "gem-clusters-subnet"
 }
+
+variable "deletion_protection" {
+  type        = bool
+  description = "Whether to enable deletion protection on the instance."
+  default     = false
+}
+
+variable "workstation_ip" {
+  type        = string
+  description = "Internal IP address for the admin workstation."
+  default     = "10.10.0.2"
+}

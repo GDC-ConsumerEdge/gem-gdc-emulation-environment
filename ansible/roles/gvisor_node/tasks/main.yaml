@@ -11,6 +11,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+- name: Ensure /etc/containerd directory exists
+  ansible.builtin.file:
+    path: /etc/containerd
+    state: directory
+    mode: "0755"
+
 - name: Template gVisor containerd configuration files
   ansible.builtin.template:
     src: "{{ item }}.j2"

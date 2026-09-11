@@ -139,7 +139,7 @@ spec:
       - "system:masters"
       - "system:nodes"
       - "gem-cluster-admin"
-      - "{{ gcp_edge_container_sa }}"
+      - "{{ gcp_edge_container_sa | default('service-' ~ (gcp_project_number | default('0')) ~ '@gcp-sa-edgecontainer.iam.gserviceaccount.com') }}"
     excludedUserPrefixes:
       - "system:serviceaccount:kube-system:"
       - "system:serviceaccount:gke-system:"
@@ -242,7 +242,7 @@ spec:
       - "system:masters"
       - "system:nodes"
       - "gem-cluster-admin"
-      - "{{ gcp_edge_container_sa }}"
+      - "{{ gcp_edge_container_sa | default('service-' ~ (gcp_project_number | default('0')) ~ '@gcp-sa-edgecontainer.iam.gserviceaccount.com') }}"
     excludedUserPrefixes:
       - "system:serviceaccount:kube-system:"
       - "system:serviceaccount:gke-system:"
