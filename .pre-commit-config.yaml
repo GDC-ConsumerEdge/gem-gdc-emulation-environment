@@ -30,17 +30,20 @@ repos:
         exclude: ^(ansible/roles/.*/templates/|operators/gem-network-operator/crds/)
       - id: check-added-large-files
         name: Check for large files
+
   - repo: https://github.com/google/yamlfmt
     rev: v0.21.0
     hooks:
       - id: yamlfmt
         name: YAML Formatter
         exclude: ^(ansible/roles/.*/templates/|operators/gem-network-operator/crds/)
+
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.30.0
     hooks:
       - id: gitleaks
         name: Detect hardcoded secrets
+
   - repo: https://github.com/antonbabenko/pre-commit-terraform
     rev: v1.109.1
     hooks:
@@ -50,6 +53,7 @@ repos:
         name: Terraform Linter
       - id: terraform_validate
         name: Terraform Validate
+
   - repo: https://github.com/ansible/ansible-lint
     rev: v26.8.0
     hooks:
@@ -61,12 +65,7 @@ repos:
         additional_dependencies:
           - ansible
         language_version: python3
-  - repo: https://github.com/koalaman/shellcheck-precommit
-    rev: v0.11.0
-    hooks:
-      - id: shellcheck
-        name: Shellcheck Validation
-        files: \.sh$
+
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.6
     hooks:
@@ -75,6 +74,7 @@ repos:
         args: [--fix]
       - id: ruff-format
         name: Ruff Formatter
+
   - repo: https://github.com/golangci/golangci-lint
     rev: v2.13.2
     hooks:
@@ -83,6 +83,7 @@ repos:
         files: ^operators/gem-network-operator/
         args: [operators/gem-network-operator/...]
         pass_filenames: false
+
   - repo: https://github.com/compilerla/conventional-pre-commit
     rev: v4.4.0
     hooks:
@@ -90,14 +91,25 @@ repos:
         name: Validate conventional commit message
         stages: [commit-msg]
         args: [--verbose]
+
   - repo: https://github.com/google/addlicense
     rev: v1.2.0
     hooks:
       - id: addlicense
         name: Validate License Headers
         args: [-f, LICENSE]
+
   - repo: local
     hooks:
+      - id: shellcheck
+        # Shelling out to shellcheck, as the official shellcheck precommit hook uses a
+        # Docker container to run shellcheck, which IMHO is an unnecessary dependency
+        # for such a simple tool.
+        name: Shellcheck Validation
+        language: system
+        entry: shellcheck --color=always
+        files: \.sh$
+
       - id: unit-tests-terraform
         name: Run Terraform Unit Tests
         entry: ./scripts/run-unit-tests.sh --terraform
@@ -105,6 +117,7 @@ repos:
         stages: [pre-push]
         files: ^(terraform/|scripts/run-unit-tests\.sh)
         pass_filenames: false
+
       - id: unit-tests-ansible
         name: Run Ansible Unit Tests
         entry: ./scripts/run-unit-tests.sh --ansible
@@ -112,6 +125,7 @@ repos:
         stages: [pre-push]
         files: ^(ansible/|scripts/run-unit-tests\.sh)
         pass_filenames: false
+
       - id: unit-tests-golang
         name: Run Go Operator Unit Tests
         entry: ./scripts/run-unit-tests.sh --go
@@ -119,6 +133,7 @@ repos:
         stages: [pre-push]
         files: ^(operators/gem-network-operator/|scripts/run-unit-tests\.sh)
         pass_filenames: false
+
       - id: unit-tests-python
         name: Run Python API Unit Tests
         entry: ./scripts/run-unit-tests.sh --python
