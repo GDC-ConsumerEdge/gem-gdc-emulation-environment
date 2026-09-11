@@ -1,35 +1,62 @@
-
 <h1 align=center>GEM — GDC EMulation Environment</h1>
 </p>
 <p align=center>
 <img src="docs/img/gem-logo.png" height="250"/>
 </p>
 
-
-GEM, the GDC EMulation Environment is a Google Distributed Cloud Connected (GDC) like platform running entirely on Google Compute Engine. It accurately mimics a physical GDC Connected environment using isolated virtual resources in GCP, allowing for rapid prototyping, architecture and development testing, and robust end-to-end validation of GDC workloads. GEM is **not** a [Google Distributed Cloud Connected](https://cloud.google.com/distributed-cloud-connected) variant, rather it uses a opinionated build of [Google Distributed Cloud (software only) for bare metal](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/concepts/about-bare-metal) to accurately emulate GDC Connected Servers.
+GEM, the GDC EMulation Environment is a Google Distributed Cloud Connected (GDC)
+like platform running entirely on Google Compute Engine. It accurately mimics a
+physical GDC Connected environment using isolated virtual resources in GCP,
+allowing for rapid prototyping, architecture and development testing, and robust
+end-to-end validation of GDC workloads. GEM is **not** a
+[Google Distributed Cloud Connected](https://cloud.google.com/distributed-cloud-connected)
+variant, rather it uses a opinionated build of
+[Google Distributed Cloud (software only) for bare metal](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/concepts/about-bare-metal)
+to accurately emulate GDC Connected Servers.
 
 ## GEM Design
 
-The GEM platform takes a modular design approach to isolate stable, foundational infrastructure from ephemeral GEM workload clusters:
+The GEM platform takes a modular design approach to isolate stable, foundational
+infrastructure from ephemeral GEM workload clusters:
 
-*  **Foundation (`terraform/foundation`)**: Provisions the core VPC networks (`gem-clusters-vpc`), subnets, Cloud NAT, and foundational Service Accounts required to run the environment.
-*  **Admin Workstation (`terraform/admin-workstation`)**:  A dedicated, GCE instance (`gem-admin-ws`) used to build and manage the GEM workload clusters.
-*  **Edge Router (`terraform/edge-router`)**: An optional ingress VM that provides stable external access to the Kubernetes Services running within the GEM cluster.
-*  **GEM Clusters (`terraform/cluster`)**: A dedicated, 3-node GDC-like environment, used to run Kubernetes workloads, including virtual machines with VMRuntime. Multiple isolated GEM clusters can be deployed in the same GCP project.
-
+- **Foundation (`terraform/foundation`)**: Provisions the core VPC networks
+  (`gem-clusters-vpc`), subnets, Cloud NAT, and foundational Service Accounts
+  required to run the environment.
+- **Admin Workstation (`terraform/admin-workstation`)**: A dedicated, GCE
+  instance (`gem-admin-ws`) used to build and manage the GEM workload clusters.
+- **Edge Router (`terraform/edge-router`)**: An optional ingress VM that
+  provides stable external access to the Kubernetes Services running within the
+  GEM cluster.
+- **GEM Clusters (`terraform/cluster`)**: A dedicated, 3-node GDC-like
+  environment, used to run Kubernetes workloads, including virtual machines with
+  VMRuntime. Multiple isolated GEM clusters can be deployed in the same GCP
+  project.
 
 ## 🚀 Getting Started
 
 ### Prerequisites
-*   [Google Cloud SDK](https://cloud.google.com/sdk) (`gcloud`) installed, authenticated and configured.
-    * Ensure your Google Cloud SDK [Application Default Credentials](https://docs.cloud.google.com/docs/authentication/application-default-credentials) are also configured
-*   [HashiCorp Terraform CLI](https://developer.hashicorp.com/terraform/install) (`terraform`) installed.
-*   [Ansible](https://docs.ansible.com/projects/ansible/latest/installation_guide/intro_installation.html) (`ansible-playbook`) installed.
-*  [jq](https://jqlang.org/download/) installed.
-* This [GEM repo](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment) cloned to a machine used to provision a GEM environment. To get started, this can be your local workstation.
+
+- [Google Cloud SDK](https://cloud.google.com/sdk) (`gcloud`) installed,
+  authenticated and configured.
+  - Ensure your Google Cloud SDK
+    [Application Default Credentials](https://docs.cloud.google.com/docs/authentication/application-default-credentials)
+    are also configured
+- [HashiCorp Terraform CLI](https://developer.hashicorp.com/terraform/install)
+  (`terraform`) installed.
+- [Ansible](https://docs.ansible.com/projects/ansible/latest/installation_guide/intro_installation.html)
+  (`ansible-playbook`) installed.
+- [jq](https://jqlang.org/download/) installed.
+- This
+  [GEM repo](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment)
+  cloned to a machine used to provision a GEM environment. To get started, this
+  can be your local workstation.
 
 ### Environment Setup
-Some initial setup needs to be completed before you can begin to provision GEM clusters. These environment variables will be used throughout the GEM creation process:
+
+Some initial setup needs to be completed before you can begin to provision GEM
+clusters. These environment variables will be used throughout the GEM creation
+process:
+
 ```bash
 export CLUSTER_NAME=gem-cluster-1
 export PROJECT_ID=your-gcp-project-id
@@ -54,10 +81,14 @@ export IMPERSONATE_SA_EMAIL="gem-cluster-admin@${PROJECT_ID}.iam.gserviceaccount
 ```
 
 ### Configure your GCP Project
-Initial setup of a GCP project needs to be completed before you can provision GEM resources. This includes:
-  * Enable initial required GCP APIs
-  * Creation of a dedicated Google Cloud Storage bucket to manage Terraform state
-  * Creation of a provisioner GCP Service account, which is used to create the various compute resources throughout the project.
+
+Initial setup of a GCP project needs to be completed before you can provision
+GEM resources. This includes:
+
+- Enable initial required GCP APIs
+- Creation of a dedicated Google Cloud Storage bucket to manage Terraform state
+- Creation of a provisioner GCP Service account, which is used to create the
+  various compute resources throughout the project.
 
 A helper script is provided to automate this work:
 
@@ -67,10 +98,12 @@ cd ${REPO_ROOT}
 ./project-setup.sh
 ```
 
-If you wish to configure your GCP project manually, or to better understand what the `project-setup.sh` script is doing, refer to the [Project Setup](docs/project-setup.md) documentation.
-
+If you wish to configure your GCP project manually, or to better understand what
+the `project-setup.sh` script is doing, refer to the
+[Project Setup](docs/project-setup.md) documentation.
 
 ### Deploy Foundation and Admin Workstation
+
 *This should only be required once per GCP project.*
 
 ```bash
@@ -102,12 +135,15 @@ ansible-playbook admin-workstation.yaml
 ```
 
 ### Deploy the GEM Edge Router
-To access services running inside your GEM cluster including HTTP, RDP, VNC, or other
-TCP-based protocols, the GEM Edge Router is the proxy through which this traffic will pass.
 
-The Edge Router has network connectivity to each GEM cluster in your environment, including
-to all VXLAN secondary networks. This enables the Edge Router to be the ingress path from
-your local workstation to anything running within a GEM environment.
+To access services running inside your GEM cluster including HTTP, RDP, VNC, or
+other TCP-based protocols, the GEM Edge Router is the proxy through which this
+traffic will pass.
+
+The Edge Router has network connectivity to each GEM cluster in your
+environment, including to all VXLAN secondary networks. This enables the Edge
+Router to be the ingress path from your local workstation to anything running
+within a GEM environment.
 
 ```bash
 cd ${REPO_ROOT}/terraform/edge-router
@@ -124,11 +160,14 @@ ansible-playbook edge-router.yaml
 ```
 
 ### Provision and Deploy a GEM Cluster
-You can deploy as many isolated GEM clusters as your GCP quota allows by changing the `CLUSTER_NAME`.
 
-GEM provides emulation for the two most recent major versions of GDC. This can be specified
-at build time through the `emulate_gdc_version` variable. If the `emulate_gdc_version` is not
-specified, the most recent GDC version will be emulated. Available options can be found in
+You can deploy as many isolated GEM clusters as your GCP quota allows by
+changing the `CLUSTER_NAME`.
+
+GEM provides emulation for the two most recent major versions of GDC. This can
+be specified at build time through the `emulate_gdc_version` variable. If the
+`emulate_gdc_version` is not specified, the most recent GDC version will be
+emulated. Available options can be found in
 [ansible/group_vars/all.yaml](ansible/group_vars/all.yaml)
 
 The cluster build process takes approximately 30 minutes to complete.
@@ -157,31 +196,36 @@ ansible-playbook create-cluster.yaml
 # Or, build a GEM cluster emulating GDC version 1.12.1
 ansible-playbook create-cluster.yaml --extra-vars "emulate_gdc_version=1.12.1"
 ```
+
 #### GDC Hardware Configurations
 
 GEM supports emulating official Google Distributed Cloud (GDC)
 [hardware configurations](https://docs.cloud.google.com/distributed-cloud/connected/latest/docs/requirements#hardware)
-directly via Terraform. Set the `hardware_variant` variable in your `cluster` module's
-`terraform.tfvars` file to choose a hardware configuration, or specify at build time with
-the `-var="hardware_variant="` argument.
+directly via Terraform. Set the `hardware_variant` variable in your `cluster`
+module's `terraform.tfvars` file to choose a hardware configuration, or specify
+at build time with the `-var="hardware_variant="` argument.
 
-| Hardware Variant (specifications per node) | vCPUs | Memory | Data Disk Size |
-| :--- | :--- | :--- | :--- |
-| `g1-medium` | 32 vCPU | 64 GB | 1.6 TB SSD |
-| `g1-large` | 64 vCPU | 128 GB | 3.2 TB SSD |
-| `g2-small-64gb` *(Default)*  | 32 vCPU | 64 GB | 3.84 TB SSD |
-| `g2-small-128gb` | 32 vCPU | 128 GB | 3.84 TB SSD |
-| `g2-medium` | 48 vCPU | 128 GB | 3.84 TB SSD |
-| `g2-large` | 64 vCPU | 128 GB | 3.84 TB SSD |
-| `dev-and-test` | 8 vCPU | 32 GB | 150 GB SSD |
+| Hardware Variant (specifications per node) | vCPUs   | Memory | Data Disk Size |
+| :----------------------------------------- | :------ | :----- | :------------- |
+| `g1-medium`                                | 32 vCPU | 64 GB  | 1.6 TB SSD     |
+| `g1-large`                                 | 64 vCPU | 128 GB | 3.2 TB SSD     |
+| `g2-small-64gb` *(Default)*                | 32 vCPU | 64 GB  | 3.84 TB SSD    |
+| `g2-small-128gb`                           | 32 vCPU | 128 GB | 3.84 TB SSD    |
+| `g2-medium`                                | 48 vCPU | 128 GB | 3.84 TB SSD    |
+| `g2-large`                                 | 64 vCPU | 128 GB | 3.84 TB SSD    |
+| `dev-and-test`                             | 8 vCPU  | 32 GB  | 150 GB SSD     |
 
-**A Note on Virtualization:**
-If your GCP Project enforces Shielded VMs (Secure Boot), the GEM cluster will seamlessly fall back to QEMU software emulation. However, this strips Hyper-V CPU features, causing GDC `VirtualMachine` objects with `osType: Windows` to fail scheduling. If you need Windows guests, you must either deploy in a project without Secure Boot (to enable hardware KVM) or temporarily set `osType: Linux` on the Windows VM manifest as a workaround.
-
+**A Note on Virtualization:** If your GCP Project enforces Shielded VMs (Secure
+Boot), the GEM cluster will seamlessly fall back to QEMU software emulation.
+However, this strips Hyper-V CPU features, causing GDC `VirtualMachine` objects
+with `osType: Windows` to fail scheduling. If you need Windows guests, you must
+either deploy in a project without Secure Boot (to enable hardware KVM) or
+temporarily set `osType: Linux` on the Windows VM manifest as a workaround.
 
 ## Accessing Your Cluster
 
-The complete cluster build process takes upwards of 30 minutes to complete, you can monitor the Ansible playbook output for basic build progress.
+The complete cluster build process takes upwards of 30 minutes to complete, you
+can monitor the Ansible playbook output for basic build progress.
 
 To watch the installation in real-time, SSH into the admin workstation:
 
@@ -195,21 +239,25 @@ tail -f ~/bmctl-workspace/${CLUSTER_NAME}/log/create-cluster-*/create-cluster.lo
 ```
 
 ### Initial GEM Cluster Access
-Once the build has finished, an admin-level kubeconfig is made available on the Admin Workstation under
+
+Once the build has finished, an admin-level kubeconfig is made available on the
+Admin Workstation under
 `~/bmctl-workspace/${CLUSTER_NAME}/${CLUSTER_NAME}-kubeconfig`.
 
-The user credentials in the admin workstation kubeconfig have admin level permissions
-and is not representative of the real-world permissions a typical user will have on a GEM
-cluster. This is **not** the primary means of cluster access, but should be used primarily
-for break-glass admin-level troubleshooting.
+The user credentials in the admin workstation kubeconfig have admin level
+permissions and is not representative of the real-world permissions a typical
+user will have on a GEM cluster. This is **not** the primary means of cluster
+access, but should be used primarily for break-glass admin-level
+troubleshooting.
 
 ```bash
 kubectl get nodes --kubeconfig /home/gem/bmctl-workspace/${CLUSTER_NAME}/${CLUSTER_NAME}-kubeconfig
 ```
 
 ### Local Access via GKE Connect Gateway
-To access the cluster remotely from your local workstation, use the GKE Connect Gateway by
-impersonating the `gem-cluster-admin` service account:
+
+To access the cluster remotely from your local workstation, use the GKE Connect
+Gateway by impersonating the `gem-cluster-admin` service account:
 
 ```bash
 export GEM_CLUSTER_ADMIN_SA_EMAIL="gem-cluster-admin@${PROJECT_ID}.iam.gserviceaccount.com"
@@ -220,36 +268,40 @@ gcloud container fleet memberships get-credentials ${CLUSTER_NAME}
 kubectl get nodes
 ```
 
-From this point forward, you have a functioning GDC-like environment, which can be configured
-like any other GDC cluster. At this stage it is recommended to configure your required Kubernetes
-`ClusterRole` and `ClusterRoleBinding`, permitting other users to access the cluster.
-
+From this point forward, you have a functioning GDC-like environment, which can
+be configured like any other GDC cluster. At this stage it is recommended to
+configure your required Kubernetes `ClusterRole` and `ClusterRoleBinding`,
+permitting other users to access the cluster.
 
 ### Access Services Running on A GEM Cluster
-Access to the various Kubernetes Services running within a GEM cluster is facilitated through
-the GEM Edge Router, using long-lived SSH tunnels. Your local workstation will create an
-SSH tunnel using `gcloud compute ssh`, which is a thin wrapper around ssh that
-takes care of authentication, translation of an instance name into an IP address and
-connectivity through the GCP [Identity-Aware Proxy](https://docs.cloud.google.com/iap/docs/concepts-overview).
-All of this enables you to securely access your GEM VM instances from your local workstation
-without exposing the VM instances to the internet.
 
-Currently, only connectivity to MetalLB VIPs (Kubernetes Service of `type: LoadBalancer`)
-is supported.
+Access to the various Kubernetes Services running within a GEM cluster is
+facilitated through the GEM Edge Router, using long-lived SSH tunnels. Your
+local workstation will create an SSH tunnel using `gcloud compute ssh`, which is
+a thin wrapper around ssh that takes care of authentication, translation of an
+instance name into an IP address and connectivity through the GCP
+[Identity-Aware Proxy](https://docs.cloud.google.com/iap/docs/concepts-overview).
+All of this enables you to securely access your GEM VM instances from your local
+workstation without exposing the VM instances to the internet.
 
-[`gem-tunnel.sh`](./scripts/gem-tunnel.sh) will assist in creating a secure tunnel to
-the GEM Edge Router, which then forwards the traffic to MetalLB VIPs running within a
-GEM cluster.
+Currently, only connectivity to MetalLB VIPs (Kubernetes Service of
+`type: LoadBalancer`) is supported.
 
+[`gem-tunnel.sh`](./scripts/gem-tunnel.sh) will assist in creating a secure
+tunnel to the GEM Edge Router, which then forwards the traffic to MetalLB VIPs
+running within a GEM cluster.
 
 To start, identify the Service you wish to connect to:
+
 ```
 k get service -n applications
 NAME                         TYPE           CLUSTER-IP       EXTERNAL-IP     PORT(S)
 application-webserver        LoadBalancer   10.109.51.163    10.200.145.52   80:32611/TCP
 ```
 
-Once you have a Service with an External IP, you can pass that to `gem-tunnel.sh`:
+Once you have a Service with an External IP, you can pass that to
+`gem-tunnel.sh`:
+
 ```
 ${REPO_ROOT}/scripts/gem-tunnel.sh --tunnel 10.200.145.52:80=8080
 
@@ -268,8 +320,9 @@ ${REPO_ROOT}/scripts/gem-tunnel.sh --tunnel 10.200.145.52:80=8080
   Press Ctrl-C to disconnect
 ```
 
-At this point, you are able to connect to http://localhost:8080 from your local workstation
-and reach the application running in your GEM cluster:
+At this point, you are able to connect to http://localhost:8080 from your local
+workstation and reach the application running in your GEM cluster:
+
 ```
 curl -Is http://localhost:8080
 HTTP/1.1 200 OK
@@ -282,11 +335,12 @@ Connection: close
 Content-Length: 25416
 ```
 
-GEM Tunnel has a number of convenience flags to quickly setup secure tunnels for typical
-protocols like HTTP, RDP and VNC. GEM Tunnel also supports any TCP-based protocol through
-the `--tunnel` flag.
+GEM Tunnel has a number of convenience flags to quickly setup secure tunnels for
+typical protocols like HTTP, RDP and VNC. GEM Tunnel also supports any TCP-based
+protocol through the `--tunnel` flag.
 
 To connect to the same application webserver using a protocol helper:
+
 ```
 ./gem-tunnel.sh --http 10.200.145.52
 
@@ -305,7 +359,9 @@ To connect to the same application webserver using a protocol helper:
   Press Ctrl-C to disconnect
 ```
 
-Or to connect to the same application webserver using a protocol helper and the Service name:
+Or to connect to the same application webserver using a protocol helper and the
+Service name:
+
 ```
 ./gem-tunnel.sh --http applications/application-webserver
 
@@ -324,12 +380,14 @@ Or to connect to the same application webserver using a protocol helper and the 
   Press Ctrl-C to disconnect
 ```
 
-This created the same secure tunnel, and you can access the same webserver through
-http://localhost:8080.
+This created the same secure tunnel, and you can access the same webserver
+through http://localhost:8080.
 
-If needed, you can setup a single tunnel with multiple destinations. In this example a
-secure tunnel has been setup to provide HTTP, RDP, VNC and TCP port 3306 (MySQL/MariaDB)
-access to various applications and virtual machines running on a GEM cluster.
+If needed, you can setup a single tunnel with multiple destinations. In this
+example a secure tunnel has been setup to provide HTTP, RDP, VNC and TCP port
+3306 (MySQL/MariaDB) access to various applications and virtual machines running
+on a GEM cluster.
+
 ```
 ./gem-tunnel.sh \
   --rdp 10.200.145.55 \
@@ -359,12 +417,14 @@ access to various applications and virtual machines running on a GEM cluster.
   Press Ctrl-C to disconnect
 ```
 
-`${REPO_ROOT}/scripts/gem-tunnel.sh --help` provides many more examples and additional help.
-
+`${REPO_ROOT}/scripts/gem-tunnel.sh --help` provides many more examples and
+additional help.
 
 ## Cleanup
 
-To safely delete a cluster, you must unregister it from GKE Hub before destroying the GCP infrastructure, otherwise you will leave orphaned fleet resources in your project.
+To safely delete a cluster, you must unregister it from GKE Hub before
+destroying the GCP infrastructure, otherwise you will leave orphaned fleet
+resources in your project.
 
 ```bash
 # Gracefully reset and unregister the cluster
@@ -382,13 +442,17 @@ terraform init \
 terraform destroy -var="cluster_name=${CLUSTER_NAME}"
 ```
 
-
 ## End-to-end Cluster Validation and Conformance
 
-This project leverages [Kyverno Chainsaw](https://kyverno.github.io/chainsaw/latest/) to validate that the GEM cluster enforces the complex constraints and behaviors of a real GDC Connected environment.
+This project leverages
+[Kyverno Chainsaw](https://kyverno.github.io/chainsaw/latest/) to validate that
+the GEM cluster enforces the complex constraints and behaviors of a real GDC
+Connected environment.
 
 ### Running Tests
+
 To run the full test suite against your active cluster:
+
 ```bash
 cd ${REPO_ROOT}/tests/e2e
 
@@ -399,10 +463,18 @@ chainsaw test --config chainsaw-configuration.yaml
 
 The GEM project was created with the following core objectives:
 
-*   **High Fidelity Emulation**: Accurately replicate the specific behaviors, constraints, and networking topologies of a physical GDC Connected Servers environment entirely within virtualized GCP infrastructure.
-*   **GDC Configuration Parity**: Apply existing GDC configurations and workload manifests to a GEM environment without any changes, and expect identical workload behavior.
-*   **Accelerated Development & Prototyping**: Provide a low-friction environment for developers and operators to test GDC workloads, validate designs, and perform end-to-end validation without needing access to physical hardware.
-*   **Isolation and Multi-Tenancy**: Support the deployment of multiple, fully isolated GEM clusters within a single GCP project, enabling parallel development and testing.
+- **High Fidelity Emulation**: Accurately replicate the specific behaviors,
+  constraints, and networking topologies of a physical GDC Connected Servers
+  environment entirely within virtualized GCP infrastructure.
+- **GDC Configuration Parity**: Apply existing GDC configurations and workload
+  manifests to a GEM environment without any changes, and expect identical
+  workload behavior.
+- **Accelerated Development & Prototyping**: Provide a low-friction environment
+  for developers and operators to test GDC workloads, validate designs, and
+  perform end-to-end validation without needing access to physical hardware.
+- **Isolation and Multi-Tenancy**: Support the deployment of multiple, fully
+  isolated GEM clusters within a single GCP project, enabling parallel
+  development and testing.
 
 ## License
 
