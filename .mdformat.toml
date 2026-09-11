@@ -13,8 +13,10 @@
 # limitations under the License.
 
 # Configuration for the mdformat Markdown formatter
+# Where possible, the Google Markdown style guide is followed
+# https://google.github.io/styleguide/docguide/style.html
 
-wrap = 120            # Paragraph word wrap mode. Options: {"keep", "no", INTEGER}
+wrap = 80            # Paragraph word wrap mode. Options: {"keep", "no", INTEGER}
 number = true         # Apply consecutive numbering to ordered lists. Options: {false, true}.
 end_of_line = "lf"    # Output file line ending mode. Options: {"lf", "crlf", "keep"}
 validate = true       # options: {false, true}
