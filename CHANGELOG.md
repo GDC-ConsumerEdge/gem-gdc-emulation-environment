@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.13](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/compare/gem-v0.1.12...gem-v0.1.13) (2026-09-11)
+
+
+### Features
+
+* **api:** release of the GEM REST API ([#37](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/issues/37)) ([5e3ad83](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/5e3ad834e06256c6280d936743d7234be302b15c))
+
+
+### Bug Fixes
+
+* **docs:** cloud build and readme fixes, bump builder image dockerfile ([#39](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/issues/39)) ([9d59fdd](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/9d59fdd84d289a9f12c0565984dc26d8a9c02c56))
+* **workflow:** fix syntax for extra_args in PR validations workflow ([296722f](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/296722f62ed522777a5fe7c972df24feaaf3c41b))
+
 ## [0.1.12](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/compare/gem-v0.1.11...gem-v0.1.12) (2026-08-18)
 
 
