@@ -86,7 +86,7 @@ jobs:
           uv run ruff format --check .
         shell: bash
 
-      - name: Run Golang Linters
+      - name: Run Golang Linter
         if: steps.changes.outputs.golang == 'true'
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
@@ -108,17 +108,25 @@ jobs:
           done
         shell: bash
 
-      - name: Run Terraform Pre-Commit Checks
+      - name: Run Terraform Formatter
         if: steps.changes.outputs.terraform == 'true'
-        env:
-          SKIP: trailing-whitespace,end-of-file-fixer,check-yaml,check-added-large-files,yamlfmt,gitleaks,addlicense,shellcheck,ansible-lint,golangci-lint,ruff,ruff-format
         uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
+        extra_args: terraform_fmt
 
-      - name: Run Ansible Pre-Commit Checks
-        if: steps.changes.outputs.ansible == 'true'
-        env:
-          SKIP: trailing-whitespace,end-of-file-fixer,check-yaml,check-added-large-files,yamlfmt,gitleaks,addlicense,shellcheck,terraform_fmt,terraform_tflint,terraform_validate,golangci-lint,ruff,ruff-format
+      - name: Run Terraform Linter
+        if: steps.changes.outputs.terraform == 'true'
         uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
+        extra_args: terraform_tflint
+
+      - name: Run Terraform Validater
+        if: steps.changes.outputs.terraform == 'true'
+        uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
+        extra_args: terraform_validate
+
+      - name: Run Ansible Linter
+        if: steps.changes.outputs.ansible == 'true'
+        uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
+        extra_args: ansible-lint
 
   unit-tests:
     name: Run Unit Tests
