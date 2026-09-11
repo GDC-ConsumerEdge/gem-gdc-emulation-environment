@@ -1,0 +1,28 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Configuration for the mdformat Markdown formatter
+
+wrap = 120            # Paragraph word wrap mode. Options: {"keep", "no", INTEGER}
+number = true         # Apply consecutive numbering to ordered lists. Options: {false, true}.
+end_of_line = "lf"    # Output file line ending mode. Options: {"lf", "crlf", "keep"}
+validate = true       # options: {false, true}
+extensions = [        # options: a list of enabled extensions (default: all installed are enabled)
+  "frontmatter",
+  "gfm"
+]
+# codeformatters = [] # options: a list of enabled code formatter languages (default: all installed are enabled)
+
+# Python 3.13+ only:
+exclude = []          # A list of file exclusion patterns. Options: a list of file path pattern strings
