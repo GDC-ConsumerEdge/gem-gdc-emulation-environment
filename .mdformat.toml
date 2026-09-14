@@ -22,7 +22,8 @@ end_of_line = "lf"    # Output file line ending mode. Options: {"lf", "crlf", "k
 validate = true       # options: {false, true}
 extensions = [        # options: a list of enabled extensions (default: all installed are enabled)
   "frontmatter",
-  "gfm"
+  "gfm",
+  "gfm_alerts"
 ]
 # codeformatters = [] # options: a list of enabled code formatter languages (default: all installed are enabled)
 
