@@ -152,11 +152,11 @@
   network
 - **pre-commit:** configure default stages to prevent duplicate pre-commit runs
 
-### Documentation & Styling
+### Documentation and Styling
 
 - **readme:** update README and add GEM logo to admin workstation MOTD (#5)
 
-### Maintenance & Chores
+### Maintenance and Chores
 
 - **ci:** add required environment variable validation
 - **os:** bump underlying OS to more recent LTS version (Ubuntu 24.04)

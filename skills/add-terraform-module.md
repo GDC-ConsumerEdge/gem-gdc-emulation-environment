@@ -53,8 +53,8 @@ modules.
 
 ## Init and apply pattern
 
-The module is initialized against the shared state bucket with an impersonated
-provisioning service account and a module-specific state prefix:
+The module is initialized against the shared Terraform state bucket with an
+impersonated provisioning service account and a module-specific state prefix:
 
 ```bash
 terraform -chdir=terraform/<name> init \

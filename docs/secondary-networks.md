@@ -1,206 +1,333 @@
-# GEM Secondary Networks & Multi-Network Gateway API Design
+# GEM Secondary Networks
 
-This document provides the comprehensive architectural specification,
-operational constraints, lifecycle dependency ordering, and implementation
-blueprint for **Secondary Networks** and **Multi-Network Gateway API
-(ClusterIP)** in both Google Distributed Cloud (GDC) Connected physical hardware
-and the GDC EMulation Environment (GEM) on Google Compute Engine (GCE).
+Secondary networks give workload pods a second network interface on an isolated
+L2 segment, separate from the primary Cilium pod network. On physical GDC
+Connected hardware these are 802.1Q VLANs trunked from a top-of-rack switch. GEM
+emulates them with a VXLAN overlay mesh across GCE instances.
 
-______________________________________________________________________
+For the operator's internal design, see
+[gem-network-operator implementation](gem-network-operator-implementation.md).
 
-## 1. Overview & Core Concepts
+## Why this exists
 
-In enterprise and edge deployments, workloads frequently require network
-segmentation due to regulatory, security (e.g., PCI-DSS), and multi-tenant
-isolation requirements.
+Enterprise and edge workloads frequently require network segmentation for
+regulatory, security, or multi-tenant isolation reasons. A GDC cluster therefore
+operates on two tiers:
 
-A GDC cluster operates on two distinct network tiers:
+1. **The primary network.** An L3 network configured at cluster provisioning
+   time, used for control plane traffic, pod-to-pod overlay routing, and
+   Kubernetes API egress.
+2. **Secondary networks.** Additional isolated L2 segments that nodes and pods
+   bind to directly for data-plane traffic, edge device communication, or
+   compliance isolation.
 
-1. **Default Primary Network:** An L3 network configured at cluster provisioning
-   time. Used for cluster control plane communication, pod-to-pod overlay
-   routing (Cilium/Geneve), and Kubernetes API egress.
-2. **Secondary Networks (VLANs / Subnetworks):** Up to 10 additional isolated
-   networks that nodes and workload pods can directly bind to for dedicated
-   data-plane traffic, edge device communication, or compliance isolation.
+A pod on a secondary network gets an `eth1` interface on the secondary network
+segment in addition to its primary `eth0` interface, which is configured on the
+cluster primary network.
 
 ```mermaid
-graph TB
-    subgraph GDC Node Physical / Virtual Host
-        subgraph Primary Network
-            ETH0[eth0: Cilium Primary Pod Network<br>10.0.0.0/17]
-        end
-        subgraph Secondary Network
-            ETH1[eth1: Secondary Network Interface<br>gdcenet0.123 - 21.0.119.0/24]
-        end
-        subgraph Workload Pod
-            POD_ETH0[eth0: Primary IP 10.0.X.X]
-            POD_ETH1[eth1: Secondary IP 21.0.119.X]
+flowchart TB
+    subgraph NODE["GEM cluster node"]
+        VX["vxlan0<br>primary overlay"]
+        GD["gdcenet0.123<br>secondary overlay"]
+        subgraph POD["Workload pod"]
+            E0["eth0<br>10.0.x.x, Cilium"]
+            E1["eth1<br>172.16.12.x, macvlan"]
         end
     end
-
-    ETH0 --> POD_ETH0
-    ETH1 --> POD_ETH1
+    VX --> E0
+    GD --> E1
 ```
 
-### Multi-Network Services via Gateway API
+## Physical GDC compared with GEM
 
-Standard Kubernetes `Service` (ClusterIP) objects are tied exclusively to the
-primary pod network. To enable multi-network pods to consume and expose services
-on secondary networks with native DNS, routing, and load balancing, GDC
-implements **Multi-Network Gateway API (ClusterIP)** powered by the
-`networking.gke.io/cluster-ip` controller.
+| Behavior                            | Physical GDC Connected                                         | GEM on GCE                                                     |
+| :---------------------------------- | :------------------------------------------------------------- | :------------------------------------------------------------- |
+| Underlay transport                  | Top-of-rack switch fabric with 802.1Q trunking                 | Flat custom-mode VPC, `gem-clusters-vpc`                       |
+| Secondary encapsulation             | Native 802.1Q tagged frames on a physical NIC                  | VXLAN overlay mesh on UDP port 4789                            |
+| Interface MTU                       | 1500, or 9000 with jumbo frames                                | Fixed at 1410                                                  |
+| Arbitrary VLAN IDs, for example 123 | Intra-node only. Switches drop unconfigured tags between nodes | Full multi-node routing. GEM builds an overlay for any VLAN ID |
+| Production trunked VLANs            | Full multi-node routing                                        | Full multi-node routing via mapped VNIs                        |
 
-______________________________________________________________________
+> [!IMPORTANT]
+> On a GEM node, `gdcenet0.123` is a VXLAN device whose name happens to contain
+> a dot. It is **not** an 802.1Q sub-interface of a parent named `gdcenet0`, and
+> no such parent exists. The name is chosen so that unmodified GDC `Network`
+> resources, which match on `interfaceName: gdcenet0.<vlan_id>`, find it.
 
-## 2. Physical GDC vs. GEM Emulation Architecture
+## Configuring a secondary network
 
-The underlying network plumbing differs fundamentally between physical GDC racks
-and the GEM emulation environment:
+Secondary networks are optional and are declared in
+`ansible/group_vars/all.yaml`. An example of which is:
 
-| Feature / Behavior                              | Physical GDC Connected                                                             | GEM Emulation Environment (GCE)                                                                |
-| :---------------------------------------------- | :--------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------------------- |
-| **Underlay Transport**                          | Physical Top-of-Rack (ToR) switch fabric with 802.1Q trunking                      | Flat GCP VPC L3 underlay (`10.10.0.0/24`)                                                      |
-| **Secondary Encapsulation**                     | Native 802.1Q tagged Ethernet frames on NICs (`gdcenet0.<vlan_id>` / `ens224`)     | Dynamic Island-Mode **VXLAN Overlay Mesh** (UDP Port `4789`)                                   |
-| **Interface MTU**                               | Standard physical MTU (1500 or 9000 Jumbo)                                         | **Strictly 1410** (1460 GCE VPC MTU - 50-byte VXLAN header)                                    |
-| **Arbitrary / Synthetic VLANs (e.g. VLAN 123)** | **Intra-Node Only**. Physical switches drop unconfigured 802.1Q tags across nodes. | **Full Multi-Node Routing**. GEM establishes virtual VXLAN overlays for any requested VLAN ID. |
-| **Production Trunked VLANs (e.g. 3421, 3430)**  | **Full Multi-Node Routing** across physical nodes.                                 | **Full Multi-Node Routing** via mapped VXLAN VNIs.                                             |
+```yaml
+secondary_networks:
+  - name: "vlan-123"
+    vlan_id: 123
+    subnet: "172.16.12.0/24"
+    gateway: "172.16.12.1"
+    vip_pool: "172.16.12.200-172.16.12.250"
+    pod_cidr: "10.12.0.0/22"
+    per_node_ipam_size: 24
+```
 
-______________________________________________________________________
+Every key is required. The template applies no `default()` filters, so omitting
+`pod_cidr` or `per_node_ipam_size` fails the role even though the operator
+ignores both values.
 
-## 3. Custom Resource Definitions & Data Model
+| Key                  | Type    | Meaning                                                                                                                                       |
+| :------------------- | :------ | :-------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`               | string  | Name of the `Network` resource, the NetworkAttachmentDefinition, and the MetalLB pool (`<name>-pool`)                                         |
+| `vlan_id`            | integer | Node interface suffix, `gdcenet0.<vlan_id>`. Valid range 1 to 4094, though only the REST API enforces it                                      |
+| `subnet`             | CIDR    | The segment. Supplies host addresses and `prefixLength4`                                                                                      |
+| `gateway`            | IP      | The segment's default gateway. The edge router binds this address, providing a return path to external traffic routed through the edge router |
+| `vip_pool`           | range   | MetalLB address **range** in `start-end` form, not CIDR                                                                                       |
+| `pod_cidr`           | CIDR    | Rendered into an annotation. Not read by the operator                                                                                         |
+| `per_node_ipam_size` | integer | Rendered into an annotation. Not read by the operator                                                                                         |
 
-Multi-network services on GDC are declared using standard GDC and Gateway API
-Custom Resources:
+`vip_pool` is a MetalLB-style range despite being rendered into an annotation
+named `gdce-lb-service-vip-cidrs`. It is passed through verbatim into
+`IPAddressPool.spec.addresses`.
+
+> [!CAUTION]
+> **Secondary networks are build-time only.** The `secondary_networks` role runs
+> exclusively from `create-cluster.yaml`, and it is the only thing that writes
+> the `Network` resource and the provisioning ConfigMap. Applying a `Network` to
+> a running cluster produces a resource stuck at `Ready=False` with reason
+> `MissingHostInterface`. Adding a secondary network means rebuilding the
+> cluster. Re-running `restore-vxlan.yaml` against a live cluster does create
+> the host interfaces, but it also reassigns VNIs, described under
+> [VNI derivation](#vni-derivation).
+
+Once your secondary networks are configured, build the cluster as usual:
+
+```bash
+cd ansible
+PROJECT_ID=${PROJECT_ID} CLUSTER_NAME=${CLUSTER_NAME} \
+  ansible-playbook create-cluster.yaml
+```
+
+The [GEM REST API](gem-api.md) accepts a `secondary_networks` array on cluster
+create, which overrides the `all.yaml` list for that build. On that path
+`pod_cidr` and `per_node_ipam_size` are optional and default.
+
+## How a secondary network is built
+
+The Ansible `vxlan` role builds the data plane, the `secondary_networks` role
+declares the intent in Kubernetes, and `gem-network-operator` translates that
+intent into Multus and MetalLB objects. The `secondary_networks` role also
+applies the CRDs, including the upstream Gateway API bundle, before the operator
+starts.
 
 ```mermaid
-graph TD
-    NET[1. Network CR<br>networking.gke.io/v1] --> CIDR[2. GKEGatewayCIDR<br>networking.gke.io/v1]
-    CIDR --> GW[3. Gateway<br>gateway.networking.k8s.io/v1]
-    GW --> ROUTE[4. GKEL4Route<br>networking.gke.io/v1]
-    EP_SEL[4. GKEEndpointSelector<br>networking.gke.io/v1] --> ROUTE
-    ROUTE --> PODS[5. Backend Workload Pods<br>networking.gke.io/interfaces]
-    GW --> CLIENT[6. Client Workloads<br>http://gateway-name.ns.gkegw.cluster.local]
+flowchart TD
+    CFG["secondary_networks in all.yaml"]
+    VX["ansible/roles/vxlan<br>on all hosts"]
+    SN["ansible/roles/secondary_networks<br>on the workstation"]
+    OP["gem-network-operator<br>on the workstation"]
+
+    CFG --> VX
+    CFG --> SN
+    VX --> IFACE["VXLAN interfaces<br>gdcenet0.vlan, sec-* on shared hosts"]
+    SN --> CM["ConfigMap gem-provisioned-networks"]
+    SN --> NET["Network resource"]
+    SN --> OP
+    NET --> OP
+    CM --> OP
+    OP --> NAD["NetworkAttachmentDefinition<br>in every namespace"]
+    OP --> MLB["MetalLB IPAddressPool<br>and L2Advertisement"]
+    OP --> WH["Pod mutating webhook"]
 ```
 
-### 1. `Network` Custom Resource
+The operator is not a workload on the cluster. It runs as a per-cluster systemd
+unit on the shared admin workstation, and the API server reaches its mutating
+webhook over the network. That is the reason `failurePolicy: Ignore` matters: if
+the unit is down or the workstation is unreachable, pods are admitted without
+their secondary interfaces and nothing reports an error. See
+[Admin Workstation](admin-workstation.md#what-runs-on-it).
 
-Declares the Layer 2/3 secondary network parameters on the cluster.
+### Interface and address assignment
+
+| Host              | Primary interface      | Secondary interface        | Secondary address                               |
+| :---------------- | :--------------------- | :------------------------- | :---------------------------------------------- |
+| Cluster nodes     | `vxlan0`               | `gdcenet0.<vlan_id>`       | `<subnet>.<host_octet>/24`, node octets 2, 3, 4 |
+| Admin workstation | `vx-<cluster6>-<vni4>` | `sec-<cluster6>-<vlan_id>` | `<subnet>.100/24`                               |
+| Edge router       | `vx-<cluster6>-<vni4>` | `sec-<cluster6>-<vlan_id>` | The network's `gateway` address                 |
+
+Nodes keep unqualified names so GDC resources and MetalLB discover them. The
+workstation and edge router attach to every cluster at once, so their interface
+names are cluster-scoped and truncated to fit the 15-character Linux limit.
+
+The edge router deliberately takes the `gateway` address. It is emulating the
+top-of-rack switch that would be the default gateway on physical hardware, which
+is what makes it able to route between segments and terminate developer tunnels.
+
+> [!NOTE]
+> Every host except the edge router gets a hardcoded `/24`, because the address
+> is built by taking the first three octets of `subnet` and appending the host
+> octet. The edge router and the `Network` resource use the real prefix. A
+> `subnet` that is not a `/24` therefore produces an inconsistent data plane.
+> Use `/24` segments.
+
+### VNI derivation
+
+Each cluster has a primary VNI derived from its name,
+`cksum(cluster_name) % 16000000 + 100`, emitted by `ansible/inventory.sh`.
+
+Each secondary network's VNI is that value plus the network's position in the
+list, counting from one. The first entry gets the cluster VNI plus one, the
+second plus two, and so on. The VLAN ID never enters the calculation.
+
+> [!WARNING]
+> Reordering, inserting, or removing an entry in `secondary_networks` and
+> re-running the `vxlan` role against a live cluster silently reassigns VNIs for
+> unrelated networks and breaks cross-node traffic on them. Append new entries
+> at the end, and treat any reordering as requiring a cluster rebuild.
+
+### MTU and MSS
+
+1410 appears in the VXLAN netdev (`MTUBytes=1410`), in the `Network` resource's
+`gdce-vlan-mtu` annotation, and as the operator's `DefaultVLANMTU`. The
+annotation is what reaches the NetworkAttachmentDefinition; `DefaultVLANMTU` is
+only the fallback for a `Network` that carries no annotation. Keep the netdev
+and the annotation in agreement, or pods get an MTU their host interface cannot
+carry.
+
+The per-cluster unit `vxlan-tcpmss-<cluster>.service` clamps TCP MSS on every
+overlay interface, secondary networks included. Without it, large TLS payloads
+are dropped silently and handshakes appear to hang.
+
+### Persistence across rebuilds
+
+The workstation's and edge router's interface files are mirrored to
+`gs://gem-${PROJECT_ID}-overlay-sync/<host>/` and pulled back by a one-minute
+cron job. This covers `/etc/systemd/network` only; MSS clamping units are not
+restored. See [Edge Router](edge-router.md) and
+[Admin Workstation](admin-workstation.md).
+
+## Kubernetes resources
+
+### The `Network` resource
+
+Rendered by Ansible, one per entry:
 
 ```yaml
 apiVersion: networking.gke.io/v1
 kind: Network
 metadata:
-  name: test-secondary-network
+  name: vlan-123
   annotations:
     networking.gke.io/gdce-vlan-id: "123"
-    networking.gke.io/gdce-vlan-mtu: "1500"
+    networking.gke.io/gdce-vlan-mtu: "1410"
+    networking.gke.io/gdce-lb-service-vip-cidrs: '["172.16.12.200-172.16.12.250"]'
+    networking.gke.io/gke-gateway-pod-cidr: "10.12.0.0/22"
+    networking.gke.io/gdce-per-node-ipam-size: "24"
 spec:
   type: L2
-  nodeInterfaceMatcher:
-    interfaceName: "gdcenet0.123"
-  gateway4: "21.0.119.254"
   IPAMMode: Internal
+  nodeInterfaceMatcher:
+    interfaceName: gdcenet0.123
+  gateway4: "172.16.12.1"
+  l2NetworkConfig:
+    prefixLength4: 24
   dnsConfig:
     nameservers:
       - 8.8.8.8
 ```
 
-> **GEM note:** `spec.type` (`L2`/`L3`) is accepted for schema fidelity with
-> real GDC manifests but is not currently read by `gem-network-operator` — GEM
-> always emulates the network as an L2 macvlan segment regardless of the
-> declared type. `gdce-vlan-mtu` is likewise informational; the VXLAN transport
-> interface itself is fixed at `1410` (see
-> [docs/gem-networking.md](gem-networking.md)) independent of what a `Network`
-> requests.
+What the operator actually reads: `gateway4`, `l2NetworkConfig.prefixLength4`,
+`nodeInterfaceMatcher.interfaceName`, `gdce-vlan-id`, `gdce-vlan-mtu`,
+`gdce-lb-service-vip-cidrs`, and `gdce-allowed-namespaces` when present.
 
-### 2. `GKEGatewayCIDR`
+`spec.type`, `IPAMMode` and `dnsConfig` are accepted for schema fidelity with
+real GDC manifests but are not read. GEM always emulates the segment as an L2
+macvlan attachment. `gke-gateway-pod-cidr` and `gdce-per-node-ipam-size` are
+inert.
 
-Defines the CIDR block from which Virtual IPs (VIPs) are allocated for Gateway
-listeners on this secondary network.
+`prefixLength4` is declared as an int-or-string in the CRD but is read as an
+integer. Quote it and it silently falls back to 24.
 
-```yaml
-apiVersion: networking.gke.io/v1
-kind: GKEGatewayCIDR
-metadata:
-  name: test-secondary-network
-spec:
-  ip4cidr: 21.0.119.224/27
-  network: test-secondary-network
-```
+### The provisioning guardrail
 
-### 3. `Gateway`
-
-Configures the front-end listener and assigns a stable Virtual IP from the
-`GKEGatewayCIDR` pool.
+Host interfaces only exist if the `vxlan` role created them, so a `Network` can
+name an interface that is not there on any node. Ansible records what was
+actually provisioned in a ConfigMap:
 
 ```yaml
-apiVersion: gateway.networking.k8s.io/v1
-kind: Gateway
+apiVersion: v1
+kind: ConfigMap
 metadata:
-  name: test-secondary-network-gateway
-  annotations:
-    networking.gke.io/network: test-secondary-network
-spec:
-  gatewayClassName: gke-cluster-ip
-  listeners:
-    - name: test-secondary-network-service
-      protocol: TCP
-      port: 80
-      allowedRoutes:
-        kinds:
-          - kind: GKEL4Route
+  name: gem-provisioned-networks
+  namespace: kube-system
+data:
+  "123": gdcenet0.123
 ```
 
-### 4. `GKEEndpointSelector` & `GKEL4Route`
+The operator matches each `Network` against it, by VLAN ID first and then by
+interface name. On a miss it emits a `MissingHostInterface` warning event and
+sets `Ready=False`. Networks named `pod-network` or `default` are exempt by
+name, as are networks that declare neither a VLAN ID nor an interface name.
 
-Discovers pods attached to the secondary network and binds them as backend
-endpoints to the Gateway listener.
+> [!IMPORTANT]
+> The guardrail reports, it does not gate. The NetworkAttachmentDefinitions, the
+> MetalLB pool and the L2Advertisement are created whether or not the host
+> interface was provisioned, so `Ready=False` is a diagnosis rather than an
+> interlock. A pod can attach to a network that has no data plane behind it.
 
-```yaml
-apiVersion: networking.gke.io/v1
-kind: GKEEndpointSelector
-metadata:
-  name: test-secondary-network-endpointselector
-spec:
-  network: test-secondary-network
-  selector:
-    matchLabels:
-      app: test-secondary-network-svc
----
-apiVersion: networking.gke.io/v1
-kind: GKEL4Route
-metadata:
-  name: test-secondary-network-l4route
-spec:
-  parentRefs:
-    - name: test-secondary-network-gateway
-  rules:
-    - name: test-secondary-network-service
-      backendRefs:
-        - kind: GKEEndpointSelector
-          port: 80
-          group: networking.gke.io
-          name: test-secondary-network-endpointselector
-```
+Each `Network` carries two status conditions:
 
-### 5. Workload Pod Interface Annotations
+| Condition      | Meaning                                                                          |
+| :------------- | :------------------------------------------------------------------------------- |
+| `Ready`        | `NetworkReady`, or `MissingHostInterface`, or `ChildResourceError`               |
+| `CoreDNSReady` | Whether `kube-system/coredns-config` contains the `.gkegw.cluster.local` rewrite |
 
-Pods attach secondary interfaces by declaring `networking.gke.io/interfaces` in
-their pod metadata:
+> [!NOTE]
+> `Ready=True` means the guardrail passed and the child objects were written. It
+> does not verify that the interface is actually up on every node.
+
+A cluster built with no `secondary_networks` at all never gets the ConfigMap, so
+every `Network` added afterwards reports `MissingHostInterface`.
+
+### Generated objects
+
+For each `Network`, the operator creates:
+
+- A `NetworkAttachmentDefinition` named after the network **in every
+  non-terminating namespace**, configured as `macvlan` in `bridge` mode with
+  `master` set to the host interface, the network's MTU, and `host-local` IPAM
+  whose subnet is derived from `gateway4` and `prefixLength4`. Namespaces
+  created later are backfilled.
+- A MetalLB `IPAddressPool` named `<network>-pool` in `kube-system` with
+  `autoAssign: false` and the addresses from the VIP annotation.
+- A MetalLB `L2Advertisement` named `l2advertise-<network>` restricted to that
+  host interface.
+
+All three carry an owner reference to the `Network`, and a finalizer removes
+them when it is deleted.
+
+Because `autoAssign` is false, a `Service` must opt in. Annotate it with
+`networking.gke.io/network: <network>` and the operator binds it to that pool. A
+network can also restrict which namespaces may bind, using
+`networking.gke.io/gdce-allowed-namespaces`; a denied binding emits a
+`ServiceBindingDenied` warning.
+
+## Attaching a pod
+
+Declare interfaces with the standard GDC annotation:
 
 ```yaml
 apiVersion: v1
 kind: Pod
 metadata:
-  name: test-secondary-network-server
+  name: secondary-network-server
   labels:
-    app: test-secondary-network-svc
+    app: secondary-network-svc
   annotations:
     networking.gke.io/default-interface: eth0
     networking.gke.io/interfaces: |
       [
         {"interfaceName":"eth0","network":"pod-network"},
-        {"interfaceName":"eth1","network":"test-secondary-network"}
+        {"interfaceName":"eth1","network":"vlan-123"}
       ]
 spec:
   containers:
@@ -210,148 +337,287 @@ spec:
         - containerPort: 80
 ```
 
-______________________________________________________________________
+A mutating admission webhook, registered as `gem-pod-interface-mutator`,
+intercepts pod creation and rewrites this into something Multus understands:
 
-## 4. Critical Lifecycle & Ordering Constraints
+1. It splits the declared interfaces into primary (`pod-network`, `default`, or
+   empty) and secondary.
+2. For each secondary interface it allocates an address and injects a
+   `k8s.v1.cni.cncf.io/networks` entry carrying an explicit `ips` value. The
+   allocator excludes the network and broadcast addresses, the gateway, a fixed
+   `.2` to `.9` window for node addresses, the MetalLB VIP ranges, any
+   `GKEGatewayCIDR` ranges for that network, and every address already claimed
+   in another live pod's annotations.
+3. It rewrites `networking.gke.io/interfaces` to list only the primary
+   interfaces, so Cilium configures `eth0` and leaves `eth1` alone.
+4. It sets `networking.gke.io/default-interface: eth0` if absent.
 
-Through extensive end-to-end validation on physical GDC and GEM environments,
-several load-bearing rules and operational gotchas must be adhered to by
-automation agents:
+Constraints worth knowing:
 
-### ⚠️ Constraint 1: Creation Ordering & Pod Immutability
+- The webhook fires on pod **CREATE** only. Adding the annotation to an existing
+  pod has no effect.
+- `kube-system`, `gatekeeper-system`, and `gke-system` are excluded.
+- `failurePolicy` is `Ignore`. If the operator is down, pods are admitted
+  unmutated, so they come up with no secondary interface and no error. A pod
+  that is missing `eth1` is the symptom.
+- The node exclusion window is `.2` to `.9`, so it does not cover the admin
+  workstation's `<subnet>.100`. A pod can be handed the workstation's own
+  secondary address.
 
-> **Rule:** `GKEGatewayCIDR` **MUST** be deployed **BEFORE** backend and client
-> pods are created.
+## Multi-network Services with the Gateway API
 
-- **Reasoning:** In GDC, pods are immutable after creation. GDC's Mutating
-  Admission Webhook inspects active `GKEGatewayCIDR` resources at pod scheduling
-  time and dynamically injects the secondary network routing table into the
-  pod's network namespace (e.g. `21.0.119.224/27 via 21.0.119.254 dev eth1`).
-- **Failure Mode:** If a pod is scheduled *before* `GKEGatewayCIDR` exists, the
-  pod will be missing the kernel routing entry for the Gateway VIP. All requests
-  sent to the Gateway will fail with `curl: (28) Connection timed out`.
+A standard `Service` is tied to the primary pod network. To expose a service on
+a secondary network with a stable VIP and DNS, GDC uses the Multi-Network
+Gateway API, which GEM reimplements in `gem-network-operator`.
 
-### ⚠️ Constraint 2: Teardown Ordering & Finalizer Deadlocks
-
-> **Rule:** Teardown must delete child routing resources (`GKEL4Route`)
-> **BEFORE** parent resources (`Gateway`, `GKEEndpointSelector`,
-> `GKEGatewayCIDR`).
-
-- **Reasoning:** `GKEL4Route` has a finalizer
-  (`networking.gke.io/gkel4route-enpointslice-finalizer`). The `gke-cluster-ip`
-  controller only removes this finalizer while the parent `Gateway` and
-  referenced `GKEEndpointSelector` are still active.
-- **Failure Mode:** If `Gateway` is deleted first, `GKEL4Route` will remain
-  stuck in `Terminating` indefinitely, blocking namespace deletion.
-
-### ⚠️ Constraint 3: Teardown Latency & Connect Gateway Polling Timeouts
-
-> **Rule:** Always set delete and cleanup timeouts to **at least 3–5 minutes**
-> (`delete: 3m`, `cleanup: 3m`).
-
-- **Reasoning:** Deleting `GKEGatewayCIDR` and `Network` triggers IPAM
-  deallocation across all cluster nodes and reconciles finalizers in etcd. Under
-  Connect Gateway proxying, deletion polling takes ~75–90 seconds. Chainsaw's
-  default 60-second cleanup timeout will trigger a false-negative
-  `context deadline exceeded` error if not configured.
-
-### ⚠️ Constraint 4: CoreDNS Gateway Propagation Window
-
-> **Rule:** Multi-network Gateway API DNS names follow
-> `gateway-name.namespace.gkegw.cluster.local`. Clients must implement an
-> initial retry loop (up to 60s).
-
-- **Reasoning:** GDC's internal Gateway DNS controller synchronizes new
-  `.gkegw.cluster.local` records across CoreDNS instances in 20–35 seconds after
-  Gateway status reaches `Programmed: True`.
-
-### ⚠️ Constraint 5: Don't Disable `clusterdns-controller` to "Fix" CoreDNS Races
-
-> **Rule:** Never scale the pre-existing `clusterdns-controller` deployment to
-> zero when reconciling the `coredns-config` ConfigMap for Gateway API DNS.
-
-- **Reasoning:** Both `gem-network-operator` (its
-  `GatewayReconciler.reconcileCoreDNS`) and Ansible's CoreDNS task idempotently
-  append the `.gkegw.cluster.local` rewrite rule to
-  `coredns-config`/`coredns-template`, and both do so alongside the cluster's
-  existing `clusterdns-controller`/`clusterdns-webhook` component, which also
-  reconciles that ConfigMap. An earlier attempt disabled `clusterdns-controller`
-  to sidestep the apparent race; this broke `clusterdns-webhook` functionality
-  and was reverted. The correct approach — already implemented — is to leave
-  `clusterdns-controller` running and make the CoreDNS edit idempotent (only
-  append the rewrite rule if it's not already present).
-
-______________________________________________________________________
-
-## 5. End-to-End Test Architecture (Chainsaw)
-
-E2E testing is structured into two focused, isolated test suites under
-\[`tests/e2e/secondary-networks/`\](file:///usr/local/google/home/benchapman/src/gem-features/secondary-networks/tests/e2e/secondary-networks):
-
-### 1. Intra-Node Suite (`tests/e2e/secondary-networks/intra-node/`)
-
-- **Mechanism:** Uses Kubernetes `podAffinity` on the client job targeting
-  `app: test-secondary-network-svc` with `topologyKey: kubernetes.io/hostname`.
-- **Execution Environment:**
-  - **Physical GDC Connected:** **PASS (Expected)**. Can be run safely on any
-    physical cluster with synthetic/mock VLAN IDs (e.g. VLAN 123) without
-    requiring switch re-configuration.
-  - **GEM Emulation:** **PASS (Expected)**.
-- **Command:** `chainsaw test tests/e2e/secondary-networks/intra-node`
-
-### 2. Cross-Node Suite (`tests/e2e/secondary-networks/cross-node/`)
-
-- **Mechanism:** Uses Kubernetes `podAntiAffinity` on the client job targeting
-  `app: test-secondary-network-svc` with `topologyKey: kubernetes.io/hostname`
-  to force client and server pods onto different nodes.
-- **Execution Environment:**
-  - **Physical GDC Connected:** **PASS** only if using a real, physically
-    trunked VLAN (e.g. `fuel-network-3421`, `pci-network-3430`). Will fail with
-    connection timeout on synthetic VLANs.
-  - **GEM Emulation:** **PASS (Expected)**. Thoroughly tests GEM's dynamic VXLAN
-    overlay encapsulation across GCE VM instances.
-- **Command:** `chainsaw test tests/e2e/secondary-networks/cross-node`
-
-______________________________________________________________________
-
-## 6. Implementation Guide for GEM Automation
-
-When building secondary network automation in GEM via Ansible
-(`ansible/roles/secondary_networks/` and `ansible/roles/vxlan/`):
-
-### 1. Ansible Data Model (`ansible/group_vars/all.yaml`)
-
-```yaml
-secondary_networks:
-  - name: "secondary-vlan-123"
-    vlan_id: 123
-    subnet: "21.0.119.0/24"
-    gateway: "21.0.119.254"
-    vip_pool: "21.0.119.64-21.0.119.126"  # MetalLB IP range, not CIDR — see note below
-    gateway_cidr: "21.0.119.224/27"
-    pod_cidr: "21.0.119.128/25"
+```mermaid
+flowchart TD
+    NET["1. Network"] --> CIDR["2. GKEGatewayCIDR"]
+    CIDR --> GW["3. Gateway"]
+    EPS["4. GKEEndpointSelector"] --> ROUTE["5. GKEL4Route"]
+    GW --> ROUTE
+    ROUTE --> PODS["6. Backend pods"]
+    GW --> CLIENT["7. Clients resolve<br>gateway.namespace.gkegw.cluster.local"]
 ```
 
-> **GEM note:** `vip_pool` is a MetalLB-style address **range** string
-> (`start-end`), not CIDR notation. It's passed through as-is: rendered into the
-> `Network`'s `networking.gke.io/gdce-lb-service-vip-cidrs` annotation (a JSON
-> array of strings, despite the "cidrs" name) and then directly into the
-> generated `IPAddressPool.spec.addresses`. See `ansible/group_vars/all.yaml`
-> for real examples (e.g. `"172.16.12.200-172.16.12.250"`).
+Declare the VIP pool that Gateways on this network draw from:
 
-### 2. Node Interface Generation (`systemd-networkd`)
+```yaml
+apiVersion: networking.gke.io/v1
+kind: GKEGatewayCIDR
+metadata:
+  name: vlan-123
+spec:
+  ip4cidr: 172.16.12.224/27
+  network: vlan-123
+```
 
-- **NetDev Profile** (`/etc/systemd/network/10-gdcenet0.<vlan_id>.netdev`):
-  - Kind: `vxlan`
-  - Name: `gdcenet0.<vlan_id>`
-  - MTU: `1410`
-  - VNI: Derived deterministically from cluster hash + VLAN ID.
-- **Network Profile** (`/etc/systemd/network/10-gdcenet0.<vlan_id>.network`):
-  - Interface Match: `Name=gdcenet0.<vlan_id>`
-  - Address: Assigned per-node secondary IP (e.g. `21.0.119.2/24` on Node 1).
-  - FDB MAC Forwarding Entries: Full mesh forwarding to peer nodes.
+Declare the Gateway. The `networking.gke.io/network` annotation is what ties it
+to the network, and therefore to the CIDR it draws its VIP from:
 
-### 3. Shared Host Profiles (Workstation & Edge Router)
+```yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: vlan-123-gateway
+  annotations:
+    networking.gke.io/network: vlan-123
+spec:
+  gatewayClassName: gke-cluster-ip
+  listeners:
+    - name: vlan-123-service
+      protocol: TCP
+      port: 80
+      allowedRoutes:
+        kinds:
+          - kind: GKEL4Route
+```
 
-- Name pattern: `sec-<truncated_cluster>-<vlan_id>` (must stay strictly under 15
-  characters for Linux `IFNAMSIZ` compliance).
+> [!NOTE]
+> GEM's operator does not read `spec.gatewayClassName`, `spec.listeners`, or
+> `allowedRoutes`, and no `GatewayClass` object exists in the cluster. They are
+> carried for schema fidelity with physical GDC manifests. The port a backend is
+> actually reached on comes from the `GKEL4Route` below, not from the listener.
+
+Select backends and bind them:
+
+```yaml
+apiVersion: networking.gke.io/v1
+kind: GKEEndpointSelector
+metadata:
+  name: vlan-123-endpointselector
+spec:
+  network: vlan-123
+  selector:
+    matchLabels:
+      app: secondary-network-svc
+---
+apiVersion: networking.gke.io/v1
+kind: GKEL4Route
+metadata:
+  name: vlan-123-l4route
+spec:
+  parentRefs:
+    - name: vlan-123-gateway
+  rules:
+    - name: vlan-123-service
+      backendRefs:
+        - kind: GKEEndpointSelector
+          port: 80
+          group: networking.gke.io
+          name: vlan-123-endpointselector
+```
+
+`backendRefs[].port` is the one field here that changes behavior, and it
+defaults to 80 if you omit it. The operator matches backends on
+`selector.matchLabels` alone.
+
+The operator assigns the Gateway a VIP from the matching `GKEGatewayCIDR`,
+creates a headless `Service` with that address in `externalIPs`, and populates
+an `EndpointSlice` named `<gateway>-slice` with the pods' **secondary**
+addresses, read from their `k8s.v1.cni.cncf.io/network-status`. Only pods that
+are `Running` and `Ready` are included. It also installs a CoreDNS rewrite so
+`<gateway>.<namespace>.gkegw.cluster.local` resolves to the corresponding
+`svc.cluster.local` name.
+
+To pin a Gateway to a specific address rather than letting the operator choose,
+set `spec.addresses[0].value`. That takes precedence over CIDR allocation.
+
+## Ordering constraints
+
+These rules come from end-to-end validation on both physical GDC and GEM.
+
+### Create `GKEGatewayCIDR` before backend pods
+
+Pods are effectively immutable once created, and pod admission is the only point
+at which secondary networking is configured.
+
+On physical GDC, the admission webhook injects the Gateway VIP route into the
+pod's network namespace at scheduling time, so a pod created first has no route
+to the VIP and requests time out.
+
+In GEM the mechanism differs but the ordering still matters: the pod mutator
+consults existing `GKEGatewayCIDR` resources to **exclude** those addresses from
+pod IPAM. A pod created first can be assigned an address inside the Gateway CIDR
+and collide with a VIP allocated later.
+
+### Delete routes before their parents
+
+Delete `GKEL4Route` before the `Gateway`, `GKEEndpointSelector`, and
+`GKEGatewayCIDR` it references.
+
+On physical GDC, `GKEL4Route` carries a finalizer that the `gke-cluster-ip`
+controller only removes while the parent `Gateway` and referenced selector are
+still present. Deleting the Gateway first leaves the route stuck `Terminating`
+and blocks namespace deletion.
+
+GEM's operator does not implement that finalizer, so the deadlock does not occur
+here. Keep to the ordering anyway if your manifests are shared with physical
+GDC.
+
+### Allow generous deletion timeouts
+
+Deleting a `Network` runs a finalizer that removes its
+NetworkAttachmentDefinition from every namespace, along with the MetalLB pool
+and L2Advertisement, so it takes time proportional to the namespace count.
+`GKEGatewayCIDR` has no finalizer in GEM and deletes immediately.
+
+Under Connect Gateway proxying, deletion polling has been observed at roughly 75
+to 90 seconds, which is why the suites set `delete: 3m` and `cleanup: 3m`. The
+repo-wide Chainsaw configuration in `tests/e2e/chainsaw-configuration.yaml` sets
+5m for both.
+
+### Retry on Gateway DNS
+
+Gateway names resolve as `<gateway>.<namespace>.gkegw.cluster.local`. Clients
+should retry for up to 60 seconds after creation. Ansible installs the rewrite
+rule at build time and the operator re-asserts it on each reconcile, roughly
+every 30 seconds, so the delay is CoreDNS reload plus that interval rather than
+record propagation.
+
+### Do not disable `clusterdns-controller`
+
+Both `gem-network-operator` and the Ansible role idempotently append the
+`.gkegw.cluster.local` rewrite rule to `coredns-template` and `coredns-config`,
+alongside the cluster's own `clusterdns-controller`, which also reconciles those
+objects.
+
+An earlier attempt scaled `clusterdns-controller` to zero to avoid the apparent
+race. That broke `clusterdns-webhook` and was reverted.
+
+The shipped approach leaves the controller running, makes the edit idempotent,
+patches `coredns-template` first, and then issues a
+`kubectl rollout restart deployment clusterdns-controller` so the controller
+picks up the new template, which it only reads at startup.
+
+## Verifying and troubleshooting
+
+Check the host data plane on a cluster node:
+
+```bash
+ip link show gdcenet0.123
+ip -d link show gdcenet0.123            # confirm vxlan, VNI, and MTU 1410
+bridge fdb show dev gdcenet0.123        # peer entries for the other hosts
+sudo iptables -t mangle -S POSTROUTING  # MSS clamping rules
+```
+
+The forwarding database entries are static, generated from the cluster's host
+list at build time, so a host that was rebuilt with a different underlay IP will
+be missing from its peers' tables.
+
+An Ansible playbook checks the overlay across all nodes. It validates `vxlan0`
+only, not the secondary interfaces, and it runs against cluster nodes only, so
+the workstation and edge router `sec-*` interfaces go unchecked:
+
+```bash
+cd ansible
+CLUSTER_NAME=${CLUSTER_NAME} ansible-playbook verify-nodes.yaml
+```
+
+Check the Kubernetes side:
+
+```bash
+kubectl get network vlan-123 -o yaml                    # Ready and CoreDNSReady
+kubectl describe network vlan-123                       # MissingHostInterface events
+kubectl get configmap -n kube-system gem-provisioned-networks -o yaml
+kubectl get net-attach-def -A
+kubectl get ipaddresspool,l2advertisement -n kube-system
+kubectl get mutatingwebhookconfiguration gem-pod-interface-mutator -o yaml
+kubectl get endpointslice <gateway>-slice -o yaml
+kubectl get cm -n kube-system coredns-config -o jsonpath='{.data.Corefile}' | grep gkegw
+```
+
+Check the operator, on the admin workstation:
+
+```bash
+systemctl status gem-network-operator-${CLUSTER_NAME}
+journalctl -u gem-network-operator-${CLUSTER_NAME} -n 200
+```
+
+| Symptom                                                      | Likely cause                                                                                                                                    |
+| :----------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Network` stuck `Ready=False`, reason `MissingHostInterface` | The VLAN is not in `gem-provisioned-networks`. It was added after the cluster was built                                                         |
+| Every `Network` reports `MissingHostInterface`               | The cluster was built with no `secondary_networks`, so the ConfigMap was never created                                                          |
+| Pod starts but has no `eth1`                                 | The webhook did not fire. `failurePolicy: Ignore` masks an operator outage. Check the unit, and confirm the pod was created rather than updated |
+| Intra-node traffic works, cross-node does not                | VNI mismatch or missing forwarding database entries. Often caused by reordering `secondary_networks`                                            |
+| Connections hang on large payloads or TLS                    | MSS clamping unit missing, commonly after a workstation or edge router rebuild                                                                  |
+| `Service` gets no external IP                                | Missing the `networking.gke.io/network` annotation, or the namespace is not in `gdce-allowed-namespaces`                                        |
+| Gateway VIP unreachable from a pod                           | The pod was created before its `GKEGatewayCIDR`                                                                                                 |
+
+## End-to-end tests
+
+Three Chainsaw suites live under `tests/e2e/secondary-networks/`. They exercise
+`vlan-123` and `vlan-456`, so they only pass against a cluster built with both
+provisioned.
+
+| Suite          | Mechanism                                                          | Physical GDC                              | GEM    |
+| :------------- | :----------------------------------------------------------------- | :---------------------------------------- | :----- |
+| `intra-node/`  | `podAffinity` on the client pins it to the server's node           | Passes, including with synthetic VLAN IDs | Passes |
+| `cross-node/`  | `podAntiAffinity` on the client forces it onto a different node    | Passes only on a physically trunked VLAN  | Passes |
+| `pod-mutator/` | Asserts the injected `ips` and the sanitized interfaces annotation | Not applicable                            | Passes |
+
+```bash
+chainsaw test --config tests/e2e/chainsaw-configuration.yaml \
+  tests/e2e/secondary-networks/intra-node
+```
+
+## Known limitations
+
+| Limitation                                                  | Impact                                                                                                                                                   |
+| :---------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| VNIs derive from list position                              | Reordering `secondary_networks` reassigns VNIs for unrelated networks                                                                                    |
+| Networks cannot be added to a live cluster                  | Adding one requires a cluster rebuild                                                                                                                    |
+| The guardrail reports rather than gates                     | Child objects are created even when no host interface exists, so a pod can attach to a network with no data plane                                        |
+| `host-local` IPAM is not partitioned per node               | The webhook normally pre-allocates an address and masks this, but its exclusion window misses the workstation's `.100`, and nothing is reserved per node |
+| Gateway VIP assignment is not real IPAM                     | The first host address of the matching `GKEGatewayCIDR` is always returned, so two Gateways on one CIDR collide unless you pin `spec.addresses`          |
+| Node addresses are always `/24`                             | A non-`/24` `subnet` yields an inconsistent data plane                                                                                                   |
+| NetworkAttachmentDefinitions are created in every namespace | Object count grows with networks multiplied by namespaces, with no opt-in                                                                                |
+| The webhook handles CREATE only                             | Annotating an existing pod does nothing                                                                                                                  |
+| `sec-*` interface names omit the VNI                        | Clusters sharing a six-character prefix collide on shared hosts. See [Edge Router](edge-router.md#multiple-clusters-on-one-edge-router)                  |
+
+## Related documentation
+
+- [gem-network-operator implementation](gem-network-operator-implementation.md)
+- [GEM Networking](gem-networking.md)
+- [Edge Router](edge-router.md)
+- [Admin Workstation](admin-workstation.md)

@@ -10,12 +10,12 @@ ConfigSync, and Pods).
 - **Async Long-Running Operations**: Infrastructure build and teardown requests
   execute asynchronously, returning `202 Accepted` with unique operation
   tracking IDs.
-- **Real-Time Logs & Observability**: Stream live execution output using
+- **Real-Time Logs and Observability**: Stream live execution output using
   Server-Sent Events (`text/event-stream`) or poll step-by-step human-readable
   status.
-- **Resource Locking & Cancellation**: Mutex guards prevent concurrent race
+- **Resource Locking and Cancellation**: Mutex guards prevent concurrent race
   conditions on clusters; running operations can be cancelled safely.
-- **Cloud Run & Serverless Ready**: Configurable via environment variables and
+- **Cloud Run and Serverless Ready**: Configurable via environment variables and
   standard container lifecycles.
 
 ## Development with `uv`
@@ -23,8 +23,8 @@ ConfigSync, and Pods).
 ```bash
 cd api
 
-# Create virtual environment and sync dependencies
-uv sync --all-extras
+# Create virtual environment and sync dependencies, including the dev group
+uv sync
 
 # Run unit tests
 uv run pytest

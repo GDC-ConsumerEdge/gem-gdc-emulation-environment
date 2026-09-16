@@ -22,7 +22,7 @@ endpoints and binds the default resource quotas.
   credentials and enabling Service Account token impersonation.
 - `compute.googleapis.com`: Enables Compute Engine resources, including VPCs,
   subnets, firewalls, and cluster nodes.
-- `gkeconnect.googleapis.com` & `gkehub.googleapis.com`: Essential for
+- `gkeconnect.googleapis.com` and `gkehub.googleapis.com`: Essential for
   registering cluster fleet memberships and managing hybrid environments.
 - `connectgateway.googleapis.com`: Dynamically routes external `kubectl`
   commands to your isolated private clusters over secure Google-managed gateway
@@ -60,7 +60,7 @@ gcloud services enable \
 
 ### Verification
 
-- **GCP Console**: Go to **APIs & Services $\\rightarrow$ Enabled APIs &
+- **GCP Console**: Go to **APIs and Services $\\rightarrow$ Enabled APIs &
   services**.
 - Verify that all listed APIs appear with a green checkmark indicating
   `Enabled`.
@@ -182,7 +182,7 @@ and resource operations fail with `403` permission errors even though
 
 ### Verification
 
-- **GCP Console**: Go to **IAM & Admin $\\rightarrow$ Service Accounts**.
+- **GCP Console**: Go to **IAM and Admin $\\rightarrow$ Service Accounts**.
 - Verify `tf-provisioner` exists and shows your user account authorized under
   its *Permissions* tab as a Token Creator.
 
@@ -225,7 +225,7 @@ A dedicated private subnet residing in `us-central1` using the CIDR IP block
 `10.10.0.0/24`. This subnet houses the admin workstation and cluster worker
 nodes.
 
-#### Cloud NAT & Cloud Router
+#### Cloud NAT and Cloud Router
 
 Cluster worker nodes and the admin workstation reside in a private network with
 no public IP addresses assigned to prevent internet-facing attacks. However,
@@ -318,7 +318,7 @@ originating from outside this range is instantly dropped by GCP.
   `gem-clusters-vpc-nat` listed as active under **Network services
   $\\rightarrow$ Cloud NAT**.
 
-## Spawning the Fleet Registry & GCR IAM Roles
+## Spawning the Fleet Registry and GCR IAM Roles
 
 Running GDC Connected emulation requires two additional dedicated service
 accounts to manage image registries and register control plane gateway
@@ -336,7 +336,7 @@ endpoints.
     nodes to register fleet membership.
   - `roles/gkehub.admin`: Grants admin permissions to establish memberships in
     the fleet registry.
-  - `roles/logging.logWriter` & `roles/monitoring.metricWriter`: Enables
+  - `roles/logging.logWriter` and `roles/monitoring.metricWriter`: Enables
     log/metric streaming.
   - `roles/compute.viewer`: Allows node agents to inspect VM resources.
 
@@ -410,10 +410,10 @@ endpoints.
 
 ### Verification
 
-- GCP Console: Go to **IAM & Admin $\\rightarrow$ Service Accounts**.
+- GCP Console: Go to **IAM and Admin $\\rightarrow$ Service Accounts**.
 - Verify both `baremetal-gcr` and `gem-cluster-admin` exist and are assigned
-  their respective project IAM role bindings under **IAM & Admin $\\rightarrow$
-  IAM**.
+  their respective project IAM role bindings under **IAM and Admin
+  $\\rightarrow$ IAM**.
 
 ## Local State Configuration (`backend.tf` and `terraform.tfvars`)
 

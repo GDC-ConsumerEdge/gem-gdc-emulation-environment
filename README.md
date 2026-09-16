@@ -1,4 +1,4 @@
-<h1 align=center>GEM — GDC EMulation Environment</h1>
+<h1 align=center>GEM - GDC EMulation Environment</h1>
 </p>
 <p align=center>
 <img src="docs/img/gem-logo.png" height="250"/>
@@ -24,15 +24,15 @@ infrastructure from ephemeral GEM workload clusters:
   required to run the environment.
 - **Admin Workstation (`terraform/admin-workstation`)**: A dedicated, GCE
   instance (`gem-admin-ws`) used to build and manage the GEM workload clusters.
-- **Edge Router (`terraform/edge-router`)**: An optional ingress VM that
-  provides stable external access to the Kubernetes Services running within the
-  GEM cluster.
+- **Edge Router (`terraform/edge-router`)**: An optional VM attached to both the
+  VPC and every cluster's overlay network, which developers tunnel through to
+  reach Kubernetes Services running within the GEM cluster.
 - **GEM Clusters (`terraform/cluster`)**: A dedicated, 3-node GDC-like
   environment, used to run Kubernetes workloads, including virtual machines with
   VMRuntime. Multiple isolated GEM clusters can be deployed in the same GCP
   project.
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 
@@ -137,13 +137,14 @@ ansible-playbook admin-workstation.yaml
 ### Deploy the GEM Edge Router
 
 To access services running inside your GEM cluster including HTTP, RDP, VNC, or
-other TCP-based protocols, the GEM Edge Router is the proxy through which this
+other TCP-based protocols, the GEM Edge Router is the host through which this
 traffic will pass.
 
 The Edge Router has network connectivity to each GEM cluster in your
-environment, including to all VXLAN secondary networks. This enables the Edge
-Router to be the ingress path from your local workstation to anything running
-within a GEM environment.
+environment, including to all VXLAN secondary networks. Nothing is exposed
+directly: you reach those addresses by opening SSH port forwards through the
+Edge Router with [`scripts/gem-tunnel.sh`](scripts/gem-tunnel.sh), which turns
+its connectivity into reachability from your local workstation.
 
 ```bash
 cd ${REPO_ROOT}/terraform/edge-router
@@ -196,6 +197,18 @@ ansible-playbook create-cluster.yaml
 # Or, build a GEM cluster emulating GDC version 1.12.1
 ansible-playbook create-cluster.yaml --extra-vars "emulate_gdc_version=1.12.1"
 ```
+
+#### Automating cluster builds
+
+The commands above are great to get started with GEM. GEM ships with both Cloud
+Build pipelines and a REST API that do the same work in GCP instead. This helps
+with scaled deployments, and to ensure ensure that GEM cluster builds are
+repeatable and efficient.
+
+- **Cloud Build**: on-demand build and teardown pipelines that need no local
+  toolchain. See [Cloud Build](docs/cloud-build.md).
+- **GEM REST API**: a FastAPI service that exposes cluster lifecycle operations
+  with streaming logs and cancellation. See [GEM REST API](docs/gem-api.md).
 
 #### GDC Hardware Configurations
 
@@ -469,9 +482,10 @@ The GEM project was created with the following core objectives:
 - **GDC Configuration Parity**: Apply existing GDC configurations and workload
   manifests to a GEM environment without any changes, and expect identical
   workload behavior.
-- **Accelerated Development & Prototyping**: Provide a low-friction environment
-  for developers and operators to test GDC workloads, validate designs, and
-  perform end-to-end validation without needing access to physical hardware.
+- **Accelerated Development and Prototyping**: Provide a low-friction
+  environment for developers and operators to test GDC workloads, validate
+  designs, and perform end-to-end validation without needing access to physical
+  hardware.
 - **Isolation and Multi-Tenancy**: Support the deployment of multiple, fully
   isolated GEM clusters within a single GCP project, enabling parallel
   development and testing.

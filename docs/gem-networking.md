@@ -33,16 +33,20 @@ The GEM networking architecture consists of three distinct logical layers:
    [docs/gem-network-operator-implementation.md](gem-network-operator-implementation.md)
    for the full design and implementation detail.
 
-### Overall Network Architecture
+### Network Architecture
+
+Three layers stack on top of each other: the GCP VPC underlay that carries the
+encapsulated traffic, the primary VXLAN overlay the cluster runs on, and the
+secondary overlays that emulate VLAN-tagged networks.
 
 ```mermaid
 graph TB
     subgraph GCP VPC Underlay [GCP VPC Underlay Network - 10.10.0.0/24]
-        WS[Admin Workstation<br>10.10.0.223]
-        ER[Edge Router<br>10.10.0.8]
-        N1[Node 1<br>10.10.0.5]
-        N2[Node 2<br>10.10.0.3]
-        N3[Node 3<br>10.10.0.228]
+        WS[Admin Workstation<br>10.10.0.2 static]
+        ER[Edge Router<br>ephemeral, e.g. 10.10.0.8]
+        N1[Node 1<br>ephemeral, e.g. 10.10.0.5]
+        N2[Node 2<br>ephemeral, e.g. 10.10.0.3]
+        N3[Node 3<br>ephemeral, e.g. 10.10.0.228]
     end
 
     subgraph VXLAN Overlay [Primary VXLAN Overlay - 10.200.X.0/24]
@@ -55,10 +59,10 @@ graph TB
     end
 
     subgraph Multus Secondary [Secondary Overlay L2 - VLAN 123 / 456]
-        ER_VLAN[ER Secondary Interfaces<br>172.16.10.254 / 192.168.45.254]
-        N1_VLAN[Node 1 Secondary Interfaces<br>172.16.10.2 / 192.168.45.2]
-        N2_VLAN[Node 2 Secondary Interfaces<br>172.16.10.3 / 192.168.45.3]
-        N3_VLAN[Node 3 Secondary Interfaces<br>172.16.10.4 / 192.168.45.4]
+        ER_VLAN[ER Secondary Interfaces<br>gateway addresses<br>172.16.12.1 / 192.168.45.1]
+        N1_VLAN[Node 1 Secondary Interfaces<br>172.16.12.2 / 192.168.45.2]
+        N2_VLAN[Node 2 Secondary Interfaces<br>172.16.12.3 / 192.168.45.3]
+        N3_VLAN[Node 3 Secondary Interfaces<br>172.16.12.4 / 192.168.45.4]
     end
 
     WS -- "Encapsulated UDP 4789" --> VX[VXLAN L2 Fabric]
@@ -89,7 +93,7 @@ The core GCP network layer is provisioned by `terraform/foundation`.
 - **NAT Gateway**: A Cloud NAT is deployed to provide egress internet access for
   packages and dependencies without assigning public IP addresses to cluster
   nodes.
-- **Dynamic Routing & GCP Firewalls**: Allows all internal communication
+- **Dynamic Routing and GCP Firewalls**: Allows all internal communication
   (`icmp,udp,tcp`) within the private `10.10.0.0/24` subnet. UDP Port **`4789`**
   is kept open globally inside the VPC to allow VXLAN transport.
 
@@ -99,7 +103,7 @@ A VXLAN overlay is created dynamically via `systemd-networkd` configurations
 (`.netdev` and `.network` profiles) on the Admin Workstation, Edge Router, and
 cluster nodes.
 
-### Deterministic Hashing for VNI & IPAM Isolation
+### Deterministic Hashing for VNI and IPAM Isolation
 
 To allow for multiple isolated GEM clusters within the same GCP project and
 sharing the same VPC private subnets (`10.10.0.0/24`), GEM implements a
@@ -149,8 +153,9 @@ This unique `VXLAN_ID` serves two critical purposes:
 - It acts as the core VNI identifier in the encapsulation header of all L2 UDP
   VXLAN traffic on the underlay.
 - It is used as part of the virtual interface names on the Admin Workstation and
-  Edge Router (e.g., `vx-gemclu-13383211` or similar truncated variants) to
-  prevent kernel naming collisions.
+  Edge Router (for example `vx-gemclu-1338`, built from the first six
+  alphanumeric characters of the cluster name and the first four digits of the
+  VNI) to prevent kernel naming collisions.
 
 #### 3. Third Octet IPAM Calculation ($\\text{Octet}\_{3}$)
 
@@ -207,7 +212,7 @@ To ensure physical parity, interface names are strictly mapped:
   - Secondary Multus Interfaces: `sec-<truncated_cluster>-<vlan_id>` (e.g.,
     `sec-gemclu-123`)
 
-### 3. MTU Constraints & TCP MSS Clamping
+### 3. MTU Constraints and TCP MSS Clamping
 
 Because GCP VPC enforces an MTU limit of 1460 bytes and VXLAN encapsulation adds
 50 bytes of outer header overhead, the virtual VXLAN interface must use an MTU
@@ -220,14 +225,19 @@ freezes. GEM solves this by configuring a systemd service
 Segment Size (MSS):
 
 ```bash
-iptables -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
-iptables -t mangle -A POSTROUTING -p tcp --tcp-flags SYN,RST SYN -o vx-+ -j TCPMSS --set-mss 1370
+iptables -t mangle -A POSTROUTING -p tcp --tcp-flags SYN,RST SYN \
+  -o <iface> -j TCPMSS --clamp-mss-to-pmtu
 ```
+
+The service creates one such rule per overlay interface on the host, naming each
+interface explicitly. On a cluster node that means `vxlan0` and every
+`gdcenet0.<vlan_id>`; on the workstation and edge router it means that cluster's
+`vx-*` and `sec-*` interfaces.
 
 ## Ingress Routing (The Edge Router)
 
-The **GEM Edge Router** sits on both the GCP VPC underlay (`ens4`) and the
-virtual VXLAN overlay networks (`vx-*`, `sec-*`).
+The **GEM Edge Router** sits on both the GCP VPC underlay, through its single
+GCE network interface, and the virtual VXLAN overlay networks (`vx-*`, `sec-*`).
 
 ```mermaid
 sequenceDiagram
@@ -243,16 +253,19 @@ sequenceDiagram
     Note over ER_VPC, ER_VX: 2. Routing lookup: dev vx-gemclu-9355
     ER_VPC->>ER_VX: Forward TCP packet to 10.200.54.52:5900
     Note over ER_VX, Node: 3. UDP Port 4789 encapsulation
-    ER_VX->>Node: VXLAN Multicast/Unicast peer flood to 10.10.0.3
+    ER_VX->>Node: VXLAN unicast peer flood to 10.10.0.3
     Note over Node, VIP: 4. Decapsulate L2 packet
     Node->>VIP: Hand off packet to MetalLB interface
 ```
 
-1. **Traefik Reverse Proxy**: Traefik runs as a systemd service on the Edge
-   Router, dynamically reading Kubernetes Service endpoints.
-2. **Island-Mode Bridging**: Traefik accepts incoming SSH IAP tunnel connections
-   from your local machine and directly forwards the packets down the correct
-   local dynamic VXLAN interface.
-3. **IP Forwarding**: IP forwarding is globally enabled
+1. **SSH port forwarding**: `scripts/gem-tunnel.sh` opens an IAP-brokered SSH
+   session to the Edge Router and requests a local forward (`ssh -L`) per
+   target. The Edge Router's `sshd` opens the connection to the overlay address
+   from the VM itself, so the forwarding is done by the kernel TCP stack.
+2. **Island-mode bridging**: because the Edge Router holds an address on every
+   overlay, a locally originated connection to a MetalLB VIP resolves to the
+   correct `vx-*` or `sec-*` interface and is encapsulated there.
+3. **IP forwarding**: IP forwarding is globally enabled
    (`net.ipv4.ip_forward = 1`) on the Edge Router, letting it act as an L3
-   router between separate VLAN overlays if required.
+   router between separate VLAN overlays if required. The SSH forwarding path
+   does not depend on it.
