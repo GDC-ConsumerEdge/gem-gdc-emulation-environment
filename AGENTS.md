@@ -160,10 +160,14 @@ Platform and Tooling:
   `patch`/`apply`/`assert` operations, Terraform resources, or Ansible modules)
   rather than shelling out to raw scripts or CLI commands (`kubectl`, `gcloud`,
   etc.) whenever possible.
-- **QEMU Fallback**: If the GCP project enforces Shielded VMs (Secure Boot),
-  nested virtualization (KVM) fails and the cluster falls back to QEMU software
-  emulation, which breaks Windows VM scheduling (no Hyper-V features).
-  Workaround: set `osType: Linux` for all VMs when using QEMU.
+- **Hardware virtualization is declared, not best-effort**:
+  `terraform/cluster/cluster-nodes.tf` sets
+  `advanced_machine_features.enable_nested_virtualization = true` and
+  `shielded_instance_config.enable_secure_boot = false` on every node, and
+  `terraform/tests/unit.tftest.hcl` asserts the former. There is no QEMU
+  software-emulation fallback path: in a project that enforces
+  `constraints/compute.requireShieldedVm`, `terraform apply` fails on the policy
+  instead. Do not weaken either setting.
 - **Storage capacity vs. usable emulation**: The cluster provides ~3.9 TB
   aggregate raw storage (~1.3 TB per node via TopoLVM). Real GDC with Robin SDS
   typically yields only ~1.3 TB usable due to 3-way replication. GEM does not

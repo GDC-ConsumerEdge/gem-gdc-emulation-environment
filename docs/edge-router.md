@@ -204,9 +204,7 @@ Connection details default to your environment: the project from `$PROJECT_ID`
 or `gcloud config`, the instance from `$GEM_EDGE_ROUTER_NAME` or
 `gem-edge-router`, the zone from `$CLOUDSDK_COMPUTE_ZONE` or `gcloud config`,
 and the user `gem`. `--project-id`, `--edge-router`, `--zone` and `--user`
-override each of those. Run `gem-tunnel.sh --help` for the full usage, but note
-that its `--zone` line names a `$GEM_ZONE` variable the script does not actually
-read.
+override each of those. Run `gem-tunnel.sh --help` for the full usage.
 
 > [!WARNING]
 > When you give `gem-tunnel.sh` a `namespace/service` target it prefers the

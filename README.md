@@ -14,6 +14,11 @@ variant, rather it uses a opinionated build of
 [Google Distributed Cloud (software only) for bare metal](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/concepts/about-bare-metal)
 to accurately emulate GDC Connected Servers.
 
+Existing GDC configurations and workload manifests apply to a GEM environment
+unchanged, and behave the same way they do on physical hardware. This
+intentional parity lets you validate designs and test workloads without access
+to a real GDC Connected deployment.
+
 ## GEM Design
 
 The GEM platform takes a modular design approach to isolate stable, foundational
@@ -198,6 +203,18 @@ ansible-playbook create-cluster.yaml
 ansible-playbook create-cluster.yaml --extra-vars "emulate_gdc_version=1.12.1"
 ```
 
+The playbook prints progress as it runs. To watch the underlying installation in
+real time, SSH into the admin workstation and tail the `bmctl` log:
+
+```bash
+# Connect to the admin workstation
+# All cluster operations are run as the gem user
+gcloud compute ssh gem@gem-admin-ws --tunnel-through-iap --project=${PROJECT_ID}
+
+# Tail the build logs
+tail -f ~/bmctl-workspace/${CLUSTER_NAME}/log/create-cluster-*/create-cluster.log
+```
+
 #### Automating cluster builds
 
 The commands above are great to get started with GEM. GEM ships with both Cloud
@@ -228,28 +245,11 @@ at build time with the `-var="hardware_variant="` argument.
 | `g2-large`                                 | 64 vCPU | 128 GB | 3.84 TB SSD    |
 | `dev-and-test`                             | 8 vCPU  | 32 GB  | 150 GB SSD     |
 
-**A Note on Virtualization:** If your GCP Project enforces Shielded VMs (Secure
-Boot), the GEM cluster will seamlessly fall back to QEMU software emulation.
-However, this strips Hyper-V CPU features, causing GDC `VirtualMachine` objects
-with `osType: Windows` to fail scheduling. If you need Windows guests, you must
-either deploy in a project without Secure Boot (to enable hardware KVM) or
-temporarily set `osType: Linux` on the Windows VM manifest as a workaround.
-
 ## Accessing Your Cluster
 
-The complete cluster build process takes upwards of 30 minutes to complete, you
-can monitor the Ansible playbook output for basic build progress.
-
-To watch the installation in real-time, SSH into the admin workstation:
-
-```bash
-# Connect to the admin workstation
-# All cluster operations are run as the gem user
-gcloud compute ssh gem@gem-admin-ws --tunnel-through-iap --project=${PROJECT_ID}
-
-# Tail the build logs
-tail -f ~/bmctl-workspace/${CLUSTER_NAME}/log/create-cluster-*/create-cluster.log
-```
+Once the build has finished, you can reach the cluster from the admin
+workstation or from your local machine, and reach the Services running on it
+through the Edge Router.
 
 ### Initial GEM Cluster Access
 
@@ -313,17 +313,18 @@ application-webserver        LoadBalancer   10.109.51.163    10.200.145.52   80:
 ```
 
 Once you have a Service with an External IP, you can pass that to
-`gem-tunnel.sh`:
+`gem-tunnel.sh`, either as an address or as a `namespace/service` name that
+resolves with your local `kubectl`:
 
 ```
-${REPO_ROOT}/scripts/gem-tunnel.sh --tunnel 10.200.145.52:80=8080
+./gem-tunnel.sh --http applications/application-webserver
 
 
               \ \        💎       \ \
  ______________\ \_________________\ \_______________
 
 
- TUNNEL:  tcp://localhost:8080 → 10.200.145.52:80
+ HTTP:    http://localhost:8080 → 10.200.145.52:80
 
  _______________  __________________  _______________
                / /                 / /
@@ -348,90 +349,11 @@ Connection: close
 Content-Length: 25416
 ```
 
-GEM Tunnel has a number of convenience flags to quickly setup secure tunnels for
-typical protocols like HTTP, RDP and VNC. GEM Tunnel also supports any TCP-based
-protocol through the `--tunnel` flag.
-
-To connect to the same application webserver using a protocol helper:
-
-```
-./gem-tunnel.sh --http 10.200.145.52
-
-
-              \ \        💎       \ \
- ______________\ \_________________\ \_______________
-
-
- HTTP:    http://localhost:8080 → 10.200.145.52:80
-
- _______________  __________________  _______________
-               / /                 / /
-              / /                 / /
-
-
-  Press Ctrl-C to disconnect
-```
-
-Or to connect to the same application webserver using a protocol helper and the
-Service name:
-
-```
-./gem-tunnel.sh --http applications/application-webserver
-
-
-              \ \        💎       \ \
- ______________\ \_________________\ \_______________
-
-
- HTTP:    http://localhost:8080 → 10.200.145.52:80
-
- _______________  __________________  _______________
-               / /                 / /
-              / /                 / /
-
-
-  Press Ctrl-C to disconnect
-```
-
-This created the same secure tunnel, and you can access the same webserver
-through http://localhost:8080.
-
-If needed, you can setup a single tunnel with multiple destinations. In this
-example a secure tunnel has been setup to provide HTTP, RDP, VNC and TCP port
-3306 (MySQL/MariaDB) access to various applications and virtual machines running
-on a GEM cluster.
-
-```
-./gem-tunnel.sh \
-  --rdp 10.200.145.55 \
-  --rdp 10.200.145.53 \
-  --vnc 10.200.145.54 \
-  --http 10.200.145.52 \
-  --http 10.200.145.56 \
-  --tunnel db/application-db:3306=3306
-
-
-              \ \        💎       \ \
- ______________\ \_________________\ \_______________
-
-
- HTTP:    http://localhost:8080 → 10.200.145.52:80
- HTTP:    http://localhost:8081 → 10.200.145.56:80
- RDP:     rdp://localhost:13389 → 10.200.145.55:3389
- RDP:     rdp://localhost:13390 → 10.200.145.53:3389
- VNC:     vnc://localhost:15900 → 10.200.145.54:5900
- TUNNEL:  tcp://localhost:3306 → 10.200.145.57:3306
-
- _______________  __________________  _______________
-               / /                 / /
-              / /                 / /
-
-
-  Press Ctrl-C to disconnect
-```
-
-`${REPO_ROOT}/scripts/gem-tunnel.sh --help` provides many more examples and
-additional help.
+GEM Tunnel has convenience flags for typical protocols like HTTP, RDP and VNC,
+supports any TCP-based protocol through the `--tunnel` flag, and will open as
+many destinations as you ask for over a single tunnel. See
+[Reaching a service](docs/edge-router.md#reaching-a-service) for further
+examples, or run `${REPO_ROOT}/scripts/gem-tunnel.sh --help`.
 
 ## Cleanup
 
@@ -455,40 +377,21 @@ terraform init \
 terraform destroy -var="cluster_name=${CLUSTER_NAME}"
 ```
 
-## End-to-end Cluster Validation and Conformance
+## Documentation
 
-This project leverages
-[Kyverno Chainsaw](https://kyverno.github.io/chainsaw/latest/) to validate that
-the GEM cluster enforces the complex constraints and behaviors of a real GDC
-Connected environment.
+| Document                                                                       | What it covers                                                                   |
+| :----------------------------------------------------------------------------- | :------------------------------------------------------------------------------- |
+| [Project Setup](docs/project-setup.md)                                         | Configuring a GCP project by hand, and what `project-setup.sh` automates         |
+| [Admin Workstation](docs/admin-workstation.md)                                 | What runs on `gem-admin-ws`, how to connect, and the multi-version `bmctl` setup |
+| [Edge Router](docs/edge-router.md)                                             | Reaching cluster Services, and the full `gem-tunnel.sh` reference                |
+| [GEM Networking](docs/gem-networking.md)                                       | GEM networking overview, the GCP VPC layout and VXLAN overlay                    |
+| [Secondary Networks](docs/secondary-networks.md)                               | Emulating GDC secondary networks and the Multi-Network Gateway API               |
+| [Network Operator Implementation](docs/gem-network-operator-implementation.md) | How `gem-network-operator` reconciles those resources                            |
+| [Storage](docs/storage.md)                                                     | TopoLVM, and the Gatekeeper mutations that emulate Robin SDS                     |
+| [Cloud Build](docs/cloud-build.md)                                             | Building and tearing down clusters in CI                                         |
+| [GEM REST API](docs/gem-api.md)                                                | The FastAPI-powered GEM REST API service                                         |
 
-### Running Tests
-
-To run the full test suite against your active cluster:
-
-```bash
-cd ${REPO_ROOT}/tests/e2e
-
-chainsaw test --config chainsaw-configuration.yaml
-```
-
-## Design Goals
-
-The GEM project was created with the following core objectives:
-
-- **High Fidelity Emulation**: Accurately replicate the specific behaviors,
-  constraints, and networking topologies of a physical GDC Connected Servers
-  environment entirely within virtualized GCP infrastructure.
-- **GDC Configuration Parity**: Apply existing GDC configurations and workload
-  manifests to a GEM environment without any changes, and expect identical
-  workload behavior.
-- **Accelerated Development and Prototyping**: Provide a low-friction
-  environment for developers and operators to test GDC workloads, validate
-  designs, and perform end-to-end validation without needing access to physical
-  hardware.
-- **Isolation and Multi-Tenancy**: Support the deployment of multiple, fully
-  isolated GEM clusters within a single GCP project, enabling parallel
-  development and testing.
+To contribute to the GEM project, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

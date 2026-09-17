@@ -68,7 +68,7 @@ Linux and macOS are both supported as development machines.
 | `ansible`    | Current release of the `ansible` package, not `ansible-core` | `ansible/` playbooks and roles, the `ansible-lint` pre-commit hook, and the Ansible unit tests                                         |
 | `go`         | 1.26.6 or higher                                             | `operators/gem-network-operator`, and the Go-based pre-commit hooks                                                                    |
 | `uv`         | Current release                                              | GEM REST API, `ruff`, and `pytest`                                                                                                     |
-| `shellcheck` | Any recent release                                           | The `shellcheck` pre-commmit hook                                                                                                      |
+| `shellcheck` | Any recent release                                           | The `shellcheck` pre-commit hook                                                                                                       |
 | `jq`         | Any recent release                                           | `ansible/inventory.sh`, the dynamic inventory                                                                                          |
 
 > [!IMPORTANT]
@@ -228,7 +228,8 @@ tools are not needed to run linters or unit tests:
   and tunnels to hosts over IAP.
 - `kubectl`, to talk to a provisioned GEM cluster.
 - [Kyverno Chainsaw](https://kyverno.github.io/chainsaw/), to run the end-to-end
-  suites in `tests/e2e/`. These require a running cluster.
+  suites in `tests/e2e/`. These require a running cluster. See
+  [Kyverno Chainsaw](#kyverno-chainsaw) for how to run them.
 
 See [Getting Started](README.md#getting-started) for the provisioning workflow
 and [docs/project-setup.md](docs/project-setup.md) for GCP project
@@ -246,6 +247,88 @@ configuration.
 | Unit tests run on `git push` and you did not expect it              | The pre-push hooks are installed and working as intended                                   | Run `./scripts/run-unit-tests.sh` before pushing, or `git push --no-verify` for a work-in-progress branch |
 | The first `pre-commit run --all-files` takes several minutes        | Hook environments are being built, including four Go binaries                              | Wait it out once. Later runs read from `~/.cache/pre-commit`                                              |
 
+## Testing
+
+GEM has two tiers of tests. The unit suites mock their providers, create
+nothing, and need no GCP credentials so they run anywhere. The end-to-end test
+suites assert GDC behavior on a live cluster, so they need a built GEM
+environment to run against.
+
+[Verify your setup](#verify-your-setup) covers running the unit suites through
+`scripts/run-unit-tests.sh`. The sections below cover what each tool does and
+the configuration that differs from its defaults.
+
+### Kyverno Chainsaw
+
+[Chainsaw](https://kyverno.github.io/chainsaw/) drives the end-to-end suites in
+`tests/e2e/`. They validate that a GEM cluster enforces the constraints and
+behaviors of a real GDC Connected environment.
+
+Chainsaw talks to whatever your current kubeconfig context points at, so set
+that deliberately before you run anything.
+[Local Access via GKE Connect Gateway](README.md#local-access-via-gke-connect-gateway)
+covers pointing `kubectl` at a GEM cluster.
+
+```bash
+cd ${REPO_ROOT}/tests/e2e
+
+# Run everything
+chainsaw test --config chainsaw-configuration.yaml
+
+# Run one area, while iterating
+chainsaw test --config chainsaw-configuration.yaml storage
+```
+
+`tests/e2e/chainsaw-configuration.yaml` applies to every test suite. Two of its
+settings are worth knowing before you debug a failure:
+
+- `skipDelete: false` instructs Chainsaw to delete all resources it created
+  during a test run, including after a failed assertion. Pass `--skip-delete` to
+  leave the resources in place when you need to inspect why something failed,
+  and clean up after yourself afterwards.
+- The per-operation timeouts are raised well above Chainsaw's defaults, because
+  some GEM resources are slow to converge. A `VirtualMachine` or a
+  MetalLB-backed Service can take minutes to become ready. If you add a test
+  that waits on something slower still, set a timeout on that operation rather
+  than raising the global value.
+  - `parallel: 2` limits how many tests run in parallel. This is set to a lower
+    value, which is needed to keep from hitting rate limits on the
+    `kube-apiserver`
+
+Some e2e test suites need more than a default cluster.
+[docs/secondary-networks.md](docs/secondary-networks.md) covers the ones under
+`tests/e2e/secondary-networks/`, which expect secondary networks to be
+configured first.
+
+### Terraform
+
+`terraform test` runs against a temporary copy of `terraform/cluster` with
+`mock_provider "google"`, so it plans against fake resources. It needs no
+credentials and no state bucket, and it creates nothing in GCP. The tests live
+in `terraform/tests/` and assert that each hardware variant maps to the intended
+machine type, disk size and instance features.
+
+### Ansible
+
+The suites in `ansible/tests/` are playbooks run in check mode. They assert
+template rendering and parameter validation without connecting to a host, which
+is what makes them safe on a machine that has no GEM environment.
+
+### Python
+
+The API tests use `pytest` and live in `api/tests/`. An autouse fixture in
+`api/tests/conftest.py` enables mock mode, points the log directory at a
+temporary path, pins the project and zone to test values. The pytest suite
+therefore never shells out to Terraform or Ansible, and never picks up your real
+project configuration.
+
+### Go
+
+`operators/gem-network-operator` uses the standard Go toolchain. Its controller
+tests build a controller-runtime fake client rather than standing up an API
+server, so there are no `envtest` binaries to install and `go test ./...` works
+on a clean checkout.
+
 ## Contribution process
 
 ### Before you open a pull request
@@ -253,8 +336,8 @@ configuration.
 - Ensure that all pre-commits pass. The same precommit checks are run through
   Github workflows for each PR, and subsequent push to an open PR. These
   pre-commit checks run automatically if you've already
-  [installed the Git hooks](#install-the-git-hooks). Run the same checks CI
-  runs:
+  [installed the Git hooks](#install-the-git-hooks). You can manually run all
+  pre-commit checks through `pre-commit run --all-files`.
 
 - If your feature or bug fix changes substantial functionality, ensure the
   project documentation is updated to match.
