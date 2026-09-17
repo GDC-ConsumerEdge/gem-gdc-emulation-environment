@@ -10,8 +10,8 @@ real GCP resources. The same procedure runs in CI
 
 Never run `terraform apply`, `terraform destroy`, or a live Ansible play
 (`create-cluster.yaml`, `edge-router.yaml`, `cleanup.yaml`,
-`admin-workstation.yaml`, `restore-vxlan.yaml`, etc.) to validate a change. These
-provision or mutate billable infrastructure. Validation is read-only.
+`admin-workstation.yaml`, `restore-vxlan.yaml`, etc.) to validate a change.
+These provision or mutate billable infrastructure. Validation is read-only.
 
 ## Steps
 
@@ -34,8 +34,8 @@ provision or mutate billable infrastructure. Validation is read-only.
    ./scripts/run-unit-tests.sh
    ```
 
-   This copies `terraform/cluster` to a temp dir, removes `backend.tf` so the GCS
-   backend is bypassed, runs `terraform test`, then runs the Ansible
+   This copies `terraform/cluster` to a temp dir, removes `backend.tf` so the
+   GCS backend is bypassed, runs `terraform test`, then runs the Ansible
    render/validation playbooks under `ansible/tests/`. It does not contact GCP.
 
 ## Targeted validation

@@ -1,399 +1,446 @@
-# GEM REST API Specification
+# GEM REST API
 
-This document details the requirements and specifications for the GEM REST API built with FastAPI.
+Managing GEM clusters manually means running `terraform` and `ansible-playbook`
+yourself and monitoring your terminal until they finish. The GEM REST API is a
+FastAPI service that manages GEM clusters over HTTP instead. The API shells out
+to the same `terraform`, `ansible-playbook`, `gcloud` and `kubectl` binaries you
+would run, streams their output, and tracks each run as an operation you can
+poll, follow or cancel. It also exposes read and write access to workloads on a
+running cluster.
 
-## 1. Core Infrastructure and Lifecycle Endpoints
+The REST API is one of two orchestration paths. The other is
+[Cloud Build](cloud-build.md), which is better suited to unattended and CI
+driven builds. The API is better suited to anything interactive, or to be
+leveraged by a web application.
 
-### 1.1 Build a new GEM cluster
-* **Path:** `POST /api/v1/clusters/create`
-* **Response:** `202 Accepted` with the `operation_id` (the `cluster_name` is used as the unique operation ID).
-* **Workflow:**
-  1. Validates the request payload.
-  2. Runs Terraform build scripts (`terraform/cluster`) to provision infrastructure.
-  3. Invokes Ansible playbooks (`ansible/create-cluster.yaml`) to configure the cluster.
-  4. Returns succinct, human-readable text for intermediate and final status.
-* **Available Request Parameters and Defaults:**
-  * `cluster_name` (*string*, default: `"gem-cluster-1"`): Name of the cluster. **Constraints:** Max 26 characters; `len(cluster_name) + len(zone) + len(project_id) + 15 <= 63` to prevent Kubernetes node FQDN label limit errors.
-  * `project_id` (*string*, default: resolved from active GCP environment / `gcloud config`): Target GCP Project ID.
-  * `zone` (*string*, default: `"us-central1-a"` or `GEM_GCP_ZONE` env): Target GCP Zone (e.g. `us-central1-a`).
-  * `region` (*string*, default: derived from zone prefix, e.g. `us-central1`): Target GCP Region.
-  * `hardware_variant` (*string*, default: `"g2-small-64gb"`): Target GDC hardware offering to emulate.
-    * Supported options: `g2-small-64gb` (default, 32 vCPU, 64 GB RAM, 3.84 TB Hyperdisk), `g2-small-128gb` (32 vCPU, 128 GB RAM, 3.84 TB Hyperdisk), `g2-medium` (48 vCPU, 128 GB RAM, 3.84 TB Hyperdisk), `g2-large` (64 vCPU, 128 GB RAM, 3.84 TB Hyperdisk), `g1-medium` (32 vCPU, 64 GB RAM, 1.6 TB SSD), `g1-large` (64 vCPU, 128 GB RAM, 3.2 TB SSD), `dev-and-test` (8 vCPU, 32 GB RAM, 150 GB SSD).
-  * `emulate_gdc_version` (*string*, default: `"1.13.0"`): GDC Connected version to emulate. Maps to specific Anthos Bare Metal (`bmctl`) and gVisor versions.
-    * Supported options: `1.13.0` (ABM `1.34.100-gke.97`, gVisor `20241021.0`), `1.12.1` (ABM `1.33.300-gke.60`), `1.12.0` (ABM `1.33.300-gke.60`), `1.11.1` (ABM `1.32.700-gke.64`).
-  * `provisioning_sa_email` (*string*, default: `"tf-provisioner@<project_id>.iam.gserviceaccount.com"`): GCP SA impersonated by Terraform for cloud resource management.
-  * `gcp_cluster_admin_sa` (*string*, default: `"gem-cluster-admin@<project_id>.iam.gserviceaccount.com"`): GCP SA granted cluster-admin access via GKE Connect Gateway.
-  * `gce_network` (*string*, default: `"gem-clusters-vpc"`): VPC network name.
-  * `gce_subnetwork` (*string*, default: `"gem-clusters-subnet"`): Subnet name.
-  * `node_storage_size` (*string*, default: `"100GB"`): Size of the node local storage partition before TopoLVM volume group allocation.
-  * `pod_cidr_blocks` (*string*, default: `"10.0.0.0/17"`): CIDR block for primary pod networking.
-  * `services_cidr_blocks` (*string*, default: `"10.96.0.0/12"`): CIDR block for Kubernetes cluster services.
-  * `max_pods_per_node` (*integer*, default: `250`): Maximum pods schedulable per node.
-  * `secondary_networks` (*array of objects*, optional / default: standard VLANs from `all.yaml`): Definitions for Multus secondary networks (each with `name`, `vlan_id`, `subnet`, `gateway`, `vip_pool`, `pod_cidr`, `per_node_ipam_size`).
+The source is in [`api/`](../api).
 
-### 1.2 Tear down a previously-built GEM cluster
-* **Path:** `POST /api/v1/clusters/delete`
-* **Response:** `202 Accepted` with the `operation_id` (the `cluster_name` is used as the unique operation ID).
-* **Workflow:**
-  1. Validates the request payload.
-  2. Invokes Ansible playbooks (`ansible/cleanup.yaml`) to reset `bmctl` and unregister the cluster from GKE Hub.
-  3. Runs Terraform destroy scripts (`terraform/cluster`) to destroy the VM infrastructure.
-  4. Returns succinct, human-readable text for intermediate and final status.
-* **Request Parameters and Defaults:**
-  * `cluster_name` (*string*, **required**): Exact identifier of the cluster to be torn down.
-  * `project_id` (*string*, default: resolved from active GCP environment / `gcloud config`): GCP Project ID hosting the cluster.
-  * `zone` (*string*, default: `"us-central1-a"` or `GEM_GCP_ZONE` env): GCP Zone where cluster node VMs reside.
-  * `region` (*string*, default: derived from zone prefix, e.g. `us-central1`): GCP Region.
-  * `provisioning_sa_email` (*string*, default: `"tf-provisioner@<project_id>.iam.gserviceaccount.com"`): Email of the Terraform provisioning SA to impersonate.
-  * `tf_state_bucket` (*string*, default: `"gem-<project_id>-tfstate"`): GCS bucket holding remote state.
+## Running the API
 
-### 1.3 Build a new GEM Admin Workstation
-* **Path:** `POST /api/v1/workstation/create`
-* **Response:** `202 Accepted` with `operation_id` (e.g. `"gem-admin-ws"`).
-* **Workflow:**
-  1. Validates the request payload.
-  2. Runs Terraform build scripts (`terraform/admin-workstation`).
-  3. Invokes Ansible playbooks (`ansible/admin-workstation.yaml`).
-  4. Returns succinct, human-readable text for intermediate and final status.
-* **Available Request Parameters and Defaults:**
-  * `project_id` (*string*, default: resolved from active GCP environment): Target GCP Project ID.
-  * `zone` (*string*, default: `"us-central1-a"` or `GEM_GCP_ZONE` env): Target GCP Zone.
-  * `region` (*string*, default: derived from zone prefix, e.g. `us-central1`): Target GCP Region.
-  * `provisioning_sa_email` (*string*, default: `"tf-provisioner@<project_id>.iam.gserviceaccount.com"`): SA impersonated for Terraform provisioning.
-  * `gce_network` (*string*, default: `"gem-clusters-vpc"`): VPC network name.
-  * `gce_subnetwork` (*string*, default: `"gem-clusters-subnet"`): Subnet name.
+You need Python 3.13 or later and [uv](https://docs.astral.sh/uv/).
 
-### 1.4 Tear down a GEM Admin Workstation
-* **Path:** `POST /api/v1/workstation/delete`
-* **Response:** `202 Accepted` with `operation_id` (`"gem-admin-ws"`).
-* **Workflow:**
-  1. Validates the request payload.
-  2. Runs Terraform destroy scripts (`terraform/admin-workstation`).
-  3. Returns succinct, human-readable text for intermediate and final status.
-* **Request Parameters and Defaults:**
-  * `project_id` (*string*, default: resolved from active GCP environment / `gcloud config`): Target GCP Project ID.
-  * `zone` (*string*, default: `"us-central1-a"` or `GEM_GCP_ZONE` env): Target GCP Zone.
-  * `region` (*string*, default: derived from zone prefix, e.g. `us-central1`): Target GCP Region.
-  * `provisioning_sa_email` (*string*, default: `"tf-provisioner@<project_id>.iam.gserviceaccount.com"`): Email of the Terraform provisioning SA to impersonate.
-  * `tf_state_bucket` (*string*, default: `"gem-<project_id>-tfstate"`): GCS bucket holding remote state.
+```bash
+cd api
 
-### 1.5 Build a new GEM Edge Router
-* **Path:** `POST /api/v1/edge-router/create`
-* **Response:** `202 Accepted` with `operation_id` (e.g. `"gem-edge-router"`).
-* **Workflow:**
-  1. Validates the request payload.
-  2. Runs Terraform build scripts (`terraform/edge-router`).
-  3. Invokes Ansible playbooks (`ansible/edge-router.yaml`).
-  4. Returns succinct, human-readable text for intermediate and final status.
-* **Available Request Parameters and Defaults:**
-  * `project_id` (*string*, default: resolved from active GCP environment): Target GCP Project ID.
-  * `zone` (*string*, default: `"us-central1-a"` or `GEM_GCP_ZONE` env): Target GCP Zone.
-  * `region` (*string*, default: derived from zone prefix, e.g. `us-central1`): Target GCP Region.
-  * `provisioning_sa_email` (*string*, default: `"tf-provisioner@<project_id>.iam.gserviceaccount.com"`): SA impersonated for Terraform provisioning.
-  * `edge_router_name` (*string*, default: `"gem-edge-router"`): GCE instance name.
-  * `machine_type` (*string*, default: `"e2-small"`): GCE VM machine type.
-  * `gce_network` (*string*, default: `"gem-clusters-vpc"`): VPC network name.
-  * `gce_subnetwork` (*string*, default: `"gem-clusters-subnet"`): Subnet name.
+# Creates a managed Python virtual environment and installs API dependencies
+uv sync
 
-### 1.6 Tear down a GEM Edge Router
-* **Path:** `POST /api/v1/edge-router/delete`
-* **Response:** `202 Accepted` with `operation_id` (`"gem-edge-router"`).
-* **Workflow:**
-  1. Validates the request payload.
-  2. Runs Terraform destroy scripts (`terraform/edge-router`).
-  3. Returns succinct, human-readable text for intermediate and final status.
-* **Request Parameters and Defaults:**
-  * `project_id` (*string*, default: resolved from active GCP environment / `gcloud config`): Target GCP Project ID.
-  * `zone` (*string*, default: `"us-central1-a"` or `GEM_GCP_ZONE` env): Target GCP Zone.
-  * `region` (*string*, default: derived from zone prefix, e.g. `us-central1`): Target GCP Region.
-  * `provisioning_sa_email` (*string*, default: `"tf-provisioner@<project_id>.iam.gserviceaccount.com"`): Email of the Terraform provisioning SA to impersonate.
-  * `edge_router_name` (*string*, default: `"gem-edge-router"`): GCE instance name.
-  * `tf_state_bucket` (*string*, default: `"gem-<project_id>-tfstate"`): GCS bucket holding remote state.
+# --reload restarts the server when you edit a source file
+uv run uvicorn gem_api.main:app --reload --port 8080
 
-### 1.7 List all deployed GEM clusters
-* **Path:** `GET /api/v1/clusters`
-* **Query Parameters:**
-  * `project_id` (*string*, optional): Filter by GCP Project ID.
-* **Response:** JSON-formatted array of all deployed GEM clusters, including attributes corresponding to `gcloud container clusters list` (e.g. `name`, `location`, `master_version`, `status`, `node_count`, `endpoint`, etc.).
+# Validate service health
+curl -s localhost:8080/health
+# {"status":"ok","app":"GEM REST API","version":"0.1.0"}
+```
 
-### 1.8 List GCP Projects
-* **Path:** `GET /api/v1/projects`
-* **Query Parameters:**
-  * `limit` (*integer*, optional, default: `50`): Maximum number of projects to return.
-* **Response:**
-  ```json
-  {
-    "projects": [
-      { "project_id": "gem-dev-project", "name": "GEM Development Project" },
-      { "project_id": "gem-prod-project", "name": "GEM Production Project" }
-    ]
-  }
-  ```
+Once uvicorn is running, open the interactive docs at
+http://localhost:8080/docs:
 
-## 2. Operations and Observability Endpoints
+### Exploring without touching real infrastructure
 
-### 2.1 Query Operation Status
-* **Path:** `GET /api/v1/operations/{operation_id}`
-* **Response:**
-  ```json
-  {
-    "operation_id": "gem-cluster-1",
-    "operation_type": "CLUSTER_CREATE",
-    "status": "RUNNING",
-    "target_resource": "gem-cluster-1",
-    "current_step": "Ansible Configuration (2/2)",
-    "message": "Configuring TopoLVM storage provider and storage classes...",
-    "created_at": "2026-08-21T10:15:00Z",
-    "updated_at": "2026-08-21T10:28:30Z",
-    "completed_at": null,
-    "error": null
-  }
-  ```
+Set `GEM_MOCK_RUNNER` to `true` and the cluster, workstation and edge router
+pipelines emit pre-defined log lines instead of running `terraform` and
+`ansible-playbook`. Operations, statuses, logs and SSE streams all behave
+normally, which makes it a reasonable way to explore the lifecycle endpoints or
+develop a client against them.
 
-### 2.2 Query Operation Logs
-* **Path:** `GET /api/v1/operations/{operation_id}/logs`
-* **Query Parameters:**
-  * `tail` (*integer*, optional): Number of latest log lines to return (e.g. `tail=100`).
-  * `stream` (*boolean*, optional, default `false`): When set to `true`, streams log lines live using Server-Sent Events (`text/event-stream`).
-* **Response (JSON mode):**
-  ```json
-  {
-    "operation_id": "gem-cluster-1",
-    "status": "RUNNING",
-    "log_lines": [
-      "[2026-08-21T10:15:05Z] Initializing Terraform cluster module...",
-      "[2026-08-21T10:15:20Z] Applying Terraform resources...",
-      "[2026-08-21T10:18:40Z] Terraform completed successfully. Starting Ansible playbook create-cluster.yaml..."
-    ]
-  }
-  ```
+```bash
+GEM_MOCK_RUNNER=true uv run uvicorn gem_api.main:app --port 8080
+```
 
-### 2.3 Cancel / Abort Operation
-* **Path:** `POST /api/v1/operations/{operation_id}/cancel`
-* **Workflow:** Terminates the underlying active Terraform or Ansible process group (`SIGTERM` $\rightarrow$ `SIGKILL`), cleans up transient subprocess locks, and marks the operation status as `CANCELLED`.
-* **Response:**
-  ```json
-  {
-    "success": true,
-    "operation_id": "gem-cluster-1",
-    "status": "CANCELLED",
-    "message": "Operation 'gem-cluster-1' was cancelled and background processes terminated."
-  }
-  ```
+> [!CAUTION]
+> Mock mode covers the six lifecycle pipelines and nothing else. The workload
+> endpoints still shell out to `kubectl`, and the cluster and project lists
+> still shell out to `gcloud`. On a machine with a working kubeconfig,
+> `POST /clusters/{name}/vms`, `POST /clusters/{name}/pods`, the power endpoint
+> and both `DELETE`s create and destroy real objects on a real cluster while
+> mock mode is on.
 
-## 3. Cluster and Workload Management Endpoints
+## API Documentation
 
-### 3.1 Cluster Health and Live Metrics
-* **Path:** `GET /api/v1/clusters/{cluster_name}/status`
-* **Query Parameters:**
-  * `project_id` (*string*, optional): Target GCP Project ID.
-* **Response:**
-  ```json
-  {
-    "connected": true,
-    "cluster_name": "gem-cluster-1",
-    "mode": "Live Connected",
-    "nodes": [
-      {
-        "name": "node1",
-        "status": "Ready",
-        "role": "Control Plane",
-        "ip": "10.200.54.2",
-        "cpu_usage": "320m",
-        "cpu_percent": 4,
-        "mem_usage": "3100Mi",
-        "mem_percent": 5
-      }
-    ],
-    "metrics": {
-      "total_cpu": "96 vCPU",
-      "used_cpu": "18 vCPU",
-      "total_mem": "192 GB",
-      "used_mem": "42 GB",
-      "storage_allocated": "850 GB / 3.9 TB"
-    }
-  }
-  ```
+FastAPI automatically produces OpenAPI documentation which is available through
+the following paths:
 
-### 3.2 Secondary Networks Management
-* **Path:** `GET /api/v1/clusters/{cluster_name}/networks`
-* **Query Parameters:**
-  * `project_id` (*string*, optional): Target GCP Project ID.
-* **Workflow:** Queries the Kubernetes API for `networking.gke.io/v1 Network` Custom Resources deployed on the target cluster.
-* **Response:**
-  ```json
-  {
-    "networks": [
-      {
-        "name": "vlan-123",
-        "vlan_id": 123,
-        "subnet": "172.16.12.0/24",
-        "gateway": "172.16.12.1",
-        "vip_pool": "172.16.12.200-172.16.12.250",
-        "purpose": "Secondary VLAN Overlay",
-        "interface_name": "gdcenet0.123",
-        "status": "Active"
-      }
-    ]
-  }
-  ```
+| Path            | What it is                                      |
+| :-------------- | :---------------------------------------------- |
+| `/docs`         | Swagger UI. Interactive, you can call endpoints |
+| `/redoc`        | ReDoc. Better for reading                       |
+| `/openapi.json` | The raw OpenAPI schema, for generating clients  |
 
-### 3.3 Virtual Machine Management (VMRuntime)
+### API Requirements
 
-#### List Virtual Machines
-* **Path:** `GET /api/v1/clusters/{cluster_name}/vms`
-* **Query Parameters:**
-  * `project_id` (*string*, optional): Target GCP Project ID.
-  * `namespace` (*string*, optional, default: all namespaces): Filter by Kubernetes namespace.
-* **Workflow:** Queries the Kubernetes API for `kubevirt.io/v1 VirtualMachine` resources.
-* **Response:**
-  ```json
-  {
-    "vms": [
-      {
-        "name": "ubuntu-edge-server-01",
-        "namespace": "default",
-        "status": "Running",
-        "cpus": 4,
-        "memory": "8Gi",
-        "ip": "10.240.1.50",
-        "image": "ubuntu-22.04-server-cloudimg-amd64",
-        "uptime": "18h 32m",
-        "power_state": "Running"
-      }
-    ]
-  }
-  ```
+When not using the mock runner, the REST API needs access to `terraform`,
+`ansible-playbook`, `gcloud` and `kubectl` on your `PATH`, a checkout of this
+repository at `REPO_ROOT`, and credentials that can impersonate the provisioning
+service account. The API runs those binaries as itself, with its own
+credentials, so run it where you would run them by hand.
 
-#### Deploy Virtual Machine
-* **Path:** `POST /api/v1/clusters/{cluster_name}/vms`
-* **Request Body:**
-  * `name` (*string*, **required**): Name of the virtual machine.
-  * `namespace` (*string*, default: `"default"`): Kubernetes namespace.
-  * `cpus` (*integer*, default: `2`): Number of vCPU cores.
-  * `memory` (*string*, default: `"4Gi"`): Memory allocation (e.g. `"4Gi"`, `"8Gi"`).
-  * `image` (*string*, **required**): Disk image name or URL.
-  * `image_type` (*string*, default: `"preset"`): `"preset"` (containerDisk: Ubuntu, Debian, RHEL, CentOS) or `"custom-url"` (DataVolume HTTP source).
-* **Response:** `201 Created` with the deployed VM metadata.
+## Running it in a container
 
-#### Power State Toggle (Start / Stop)
-* **Path:** `POST /api/v1/clusters/{cluster_name}/vms/{vm_name}/power`
-* **Request Body:**
-  * `namespace` (*string*, default: `"default"`): Kubernetes namespace.
-  * `running` (*boolean*, **required**): Desired power state (`true` to start, `false` to stop).
-* **Workflow:** Patches `spec.running` on the target `kubevirt.io/v1 VirtualMachine` object.
-* **Response:**
-  ```json
-  {
-    "success": true,
-    "vm_name": "ubuntu-edge-server-01",
-    "power_state": "Running",
-    "message": "VM 'ubuntu-edge-server-01' power state set to Running."
-  }
-  ```
+Build from the repository root rather than from `api/`. The image needs the API
+sources, `api/uv.lock`, and `ansible/group_vars/all.yaml`, none of which are
+reachable from an `api/` context:
 
-#### Delete Virtual Machine
-* **Path:** `DELETE /api/v1/clusters/{cluster_name}/vms/{vm_name}`
-* **Query Parameters:**
-  * `namespace` (*string*, default: `"default"`): Kubernetes namespace.
-* **Response:**
-  ```json
-  {
-    "success": true,
-    "vm_name": "ubuntu-edge-server-01",
-    "message": "VirtualMachine 'ubuntu-edge-server-01' deleted successfully."
-  }
-  ```
+```bash
+# Note the trailing '.': the build context is the repository root
+docker build -f api/Dockerfile -t gem-api .
 
-### 3.4 ConfigSync RootSync Management
-* **Path:** `GET /api/v1/clusters/{cluster_name}/configsync`
-* **Query Parameters:**
-  * `project_id` (*string*, optional): Target GCP Project ID.
-* **Workflow:** Queries `configsync.gke.io/v1beta1 RootSync` objects from the `config-management-system` namespace.
-* **Response:**
-  ```json
-  {
-    "root_syncs": [
-      {
-        "name": "root-sync-foundation",
-        "namespace": "config-management-system",
-        "repo": "https://github.com/google-cloud-platform/gdc-hybrid-manifests.git",
-        "branch": "main",
-        "dir": "/clusters/core-infrastructure",
-        "auth": "none",
-        "period": "15s",
-        "status": "SYNCED",
-        "commit": "4b825dc6f",
-        "last_synced": "2026-08-21T11:00:00Z",
-        "message": "Foundation networking, Robin SDS storage class, and ingress controllers reconciled."
-      }
-    ]
-  }
-  ```
+docker run --rm -p 8080:8080 -e GEM_MOCK_RUNNER=true gem-api
+```
 
-### 3.5 Pod Management
+The image runs as a non-root user and listens on `$PORT`, defaulting to 8080.
+The base image, pinned dependency set and environment defaults are all in the
+[Dockerfile](../api/Dockerfile). The dependency install is `--frozen`, so a
+`uv.lock` that has drifted from `pyproject.toml` fails the build rather than
+resolving around it.
 
-#### List Pods
-* **Path:** `GET /api/v1/clusters/{cluster_name}/pods`
-* **Query Parameters:**
-  * `project_id` (*string*, optional): Target GCP Project ID.
-  * `namespace` (*string*, optional, default: all namespaces): Filter by Kubernetes namespace.
-  * `label_selector` (*string*, optional): Kubernetes label selector query (e.g. `app=nginx`).
-* **Workflow:** Queries the Kubernetes CoreV1 API for Pod resources in the cluster.
-* **Response:**
-  ```json
-  {
-    "pods": [
-      {
-        "name": "nginx-webserver-7f89b4c-9kl2z",
-        "namespace": "default",
-        "status": "Running",
-        "ready": "1/1",
-        "restarts": 0,
-        "age": "3h 12m",
-        "ip": "10.0.1.42",
-        "node_name": "node1",
-        "containers": [
-          {
-            "name": "nginx",
-            "image": "nginx:alpine",
-            "ready": true,
-            "state": "running"
-          }
-        ]
-      }
-    ]
-  }
-  ```
+> [!IMPORTANT]
+> The image deliberately contains none of `terraform`, `ansible-playbook`,
+> `gcloud` or `kubectl`, and it copies only `ansible/group_vars/all.yaml` rather
+> than the `terraform/` and `ansible/` trees. Lifecycle endpoints still accept a
+> request and return `202`, then fail almost immediately with the operation in
+> `FAILED`. Workload writes return 503, and the reads return empty results. The
+> image is for serving the API surface and for mock mode. Real builds need an
+> environment with the full toolchain.
 
-#### Create / Deploy Pod
-* **Path:** `POST /api/v1/clusters/{cluster_name}/pods`
-* **Request Body:**
-  * `name` (*string*, **required**): Name of the pod.
-  * `namespace` (*string*, default: `"default"`): Kubernetes namespace.
-  * `image` (*string*, **required**): Container image.
-  * `command` (*array of strings*, optional): Container entrypoint command.
-  * `port` (*integer*, optional): Container port to expose.
-  * `env` (*object / key-value map*, optional): Environment variables.
-  * `labels` (*object / key-value map*, optional): Pod metadata labels.
-  * `annotations` (*object / key-value map*, optional): Pod annotations (e.g., `networking.gke.io/interfaces` for secondary networks or `gvisor.gke.io/runtime` for sandboxing).
-  * `raw_manifest` (*string*, optional): Raw YAML/JSON string manifest for full custom Pod specifications.
-* **Workflow:** Submits a `v1/Pod` definition to the Kubernetes API.
-* **Response:** `201 Created` with the created pod metadata.
+Nothing in this repository deploys the API. There is no Terraform module,
+Ansible role or Cloud Build pipeline for it, so running it somewhere shared is
+currently a manual exercise. Read [Security](#security) before you do that.
 
-#### Delete Pod
-* **Path:** `DELETE /api/v1/clusters/{cluster_name}/pods/{pod_name}`
-* **Query Parameters:**
-  * `project_id` (*string*, optional): Target GCP Project ID.
-  * `namespace` (*string*, default: `"default"`): Kubernetes namespace.
-  * `grace_period_seconds` (*integer*, optional): Deletion grace period in seconds.
-* **Workflow:** Deletes the pod resource via the Kubernetes CoreV1 API.
-* **Response:**
-  ```json
-  {
-    "success": true,
-    "pod_name": "nginx-webserver-7f89b4c-9kl2z",
-    "namespace": "default",
-    "message": "Pod 'nginx-webserver-7f89b4c-9kl2z' deleted successfully."
-  }
-  ```
+## Common tasks
+
+The examples below assume the service is on http://localhost:8080.
+
+### Build a cluster
+
+`cluster_name` and `zone` are the two you will usually set. Everything else has
+a default, and `/docs` lists them:
+
+```bash
+curl -s -X POST localhost:8080/api/v1/clusters/create \
+  -H 'Content-Type: application/json' \
+  -d '{"cluster_name": "gem-cluster-1", "zone": "us-east4-b"}'
+```
+
+```json
+{
+  "operation_id": "gem-cluster-1",
+  "status": "QUEUED",
+  "message": "Cluster build initiated for 'gem-cluster-1'.",
+  "target_resource": "gem-cluster-1"
+}
+```
+
+The response is `202 Accepted` and returns immediately. The build itself takes
+as long as Terraform and `bmctl` take, which is expected to be around 30
+minutes.
+
+To override the secondary networks for this cluster, pass a `secondary_networks`
+array. Omit the key entirely and the defaults from `ansible/group_vars/all.yaml`
+apply. See [Secondary Networks](secondary-networks.md).
+
+### Check on an operation
+
+The REST operation ID is the cluster name:
+
+```bash
+curl -s localhost:8080/api/v1/operations/gem-cluster-1
+```
+
+```json
+{
+  "operation_id": "gem-cluster-1",
+  "operation_type": "CLUSTER_CREATE",
+  "status": "RUNNING",
+  "target_resource": "gem-cluster-1",
+  "current_step": "Ansible Configuration (2/2)",
+  "message": "Ansible task: topolvm : Install TopoLVM via Helm",
+  "created_at": "2026-08-21T10:15:00+00:00",
+  "updated_at": "2026-08-21T10:28:30+00:00",
+  "completed_at": null,
+  "error": null
+}
+```
+
+`current_step` is a high-level progress description, such as
+`Terraform Provisioning (1/2)` or `Ansible Configuration (2/2)`. `message` is
+finer grained, scraped from the subprocess output: Ansible `TASK [...]` headers,
+and Terraform's `Creating...`, `Modifying...` and `Destroying...` lines.
+
+`status` moves through `QUEUED`, `RUNNING`, and then one of `SUCCEEDED`,
+`FAILED` or `CANCELLED`. On failure, `error` is populated.
+
+There is no endpoint that lists operations.
+
+### View operation logs
+
+To view operation logs:
+
+```bash
+curl -s localhost:8080/api/v1/operations/gem-cluster-1/logs
+
+# Just the last 50 lines
+curl -s 'localhost:8080/api/v1/operations/gem-cluster-1/logs?tail=50'
+```
+
+To tail logs:
+
+```bash
+curl -N 'localhost:8080/api/v1/operations/gem-cluster-1/logs?stream=true'
+```
+
+This replays the buffered history first and then closes the stream when the
+operation finishes.
+
+Logs are read from `<GEM_LOG_DIR>/<operation_id>.log` when that file exists.
+
+> [!NOTE]
+> In streaming mode an unknown operation ID is only detected after the response
+> has begun, so you see an aborted stream rather than a clean 404. Check
+> `GET /operations/{id}` first if you receive an error when attempting to stream
+> logs.
+
+### Cancel a running build
+
+```bash
+curl -s -X POST localhost:8080/api/v1/operations/gem-cluster-1/cancel
+```
+
+This sends `SIGTERM` to the operation's process group and escalates to `SIGKILL`
+after two seconds. Cancelling an operation that has already finished returns 200
+with `success: false` and the original status, so it is safe to call
+speculatively.
+
+> [!CAUTION]
+> Cancelling mid-`apply` leaves partially provisioned infrastructure, and can
+> leave the Terraform state lock held. Check with `terraform force-unlock` and
+> clean up before you retry.
+
+### Destroy an existing cluster
+
+```bash
+curl -s -X POST localhost:8080/api/v1/clusters/delete \
+  -H 'Content-Type: application/json' \
+  -d '{"cluster_name": "gem-cluster-1"}'
+```
+
+This runs `ansible-playbook cleanup.yaml` to reset the cluster with `bmctl` and
+unregister it from the fleet, then destroys the VMs with Terraform. It reuses
+the cluster name as the operation ID, so poll it exactly as you polled the
+build.
+
+### Build the admin workstation and edge router
+
+The admin workstation and the edge router have the same create and delete pair,
+and their request bodies are optional. An empty POST uses all defaults:
+
+```bash
+curl -s -X POST localhost:8080/api/v1/workstation/create
+curl -s -X POST localhost:8080/api/v1/edge-router/create
+```
+
+The workstation's operation ID is always `gem-admin-ws` regardless of project or
+zone. The edge router's is its instance name.
+
+### Inspect a running cluster
+
+```bash
+# Fleet memberships, plus anything holding Terraform state
+curl -s localhost:8080/api/v1/clusters
+
+# Node-level status
+curl -s localhost:8080/api/v1/clusters/gem-cluster-1/status
+
+# Pods, optionally filtered
+curl -s 'localhost:8080/api/v1/clusters/gem-cluster-1/pods?namespace=default'
+curl -s 'localhost:8080/api/v1/clusters/gem-cluster-1/pods?label_selector=app%3Dnginx'
+
+# Secondary networks, Config Sync RootSyncs, KubeVirt VMs
+curl -s localhost:8080/api/v1/clusters/gem-cluster-1/networks
+curl -s localhost:8080/api/v1/clusters/gem-cluster-1/configsync
+curl -s localhost:8080/api/v1/clusters/gem-cluster-1/vms
+```
+
+`GET /clusters` is the odd one out. It is `gcloud`-backed, and unions the fleet
+memberships with a listing of the Terraform state bucket, so it also reports
+clusters that were built but never registered with the fleet. The rest shell out
+to `kubectl` against a kubeconfig the service discovers on disk, with a six
+second timeout per call.
+
+> [!WARNING]
+> None of these endpoints report failure. A missing kubeconfig, an unreachable
+> cluster, a timed-out call or output that does not parse all produce an empty
+> list or `connected: false`, logged at debug level. `/networks` is the trap:
+> when the live read fails it falls back to the `secondary_networks` defaults
+> from `ansible/group_vars/all.yaml` and returns them as though they were
+> present on the cluster. Check the server log before you trust any of these
+> responses.
+
+Some of what comes back is not measured. Cluster status reports fixed CPU and
+memory figures and derives its totals from the node count, the VM list reports a
+fixed size and image for every VM, and pod age is always `10m`. Treat these
+endpoints as a convenience for a UI, and use `kubectl` when the numbers matter.
+
+### Run a VM
+
+Unlike the reads above, the workload write endpoints do report failure: 404 when
+the object is not found, 409 when it already exists, 503 when `kubectl` is
+missing, and 502 for anything else.
+
+```bash
+curl -s -X POST localhost:8080/api/v1/clusters/gem-cluster-1/vms \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "ubuntu-edge-01",
+    "image": "quay.io/containerdisks/ubuntu:24.04",
+    "cpus": 2,
+    "memory": "4Gi"
+  }'
+
+# Stop it, then start it again
+curl -s -X POST localhost:8080/api/v1/clusters/gem-cluster-1/vms/ubuntu-edge-01/power \
+  -H 'Content-Type: application/json' -d '{"running": false}'
+
+curl -s -X DELETE localhost:8080/api/v1/clusters/gem-cluster-1/vms/ubuntu-edge-01
+```
+
+The pod endpoints are deliberately simple. `POST .../pods` runs the equivalent
+of `kubectl run <name> --image=<image> -n <namespace>` and nothing more. To
+create a pod with commands, ports, environment variables, or the
+`networking.gke.io/interfaces` annotation that
+[secondary networks](secondary-networks.md) need, apply a manifest with
+`kubectl`.
+
+> [!WARNING]
+> The schema promises more than it delivers. `PodCreateRequest` still declares
+> `command`, `port`, `env`, `labels`, `annotations` and `raw_manifest`, and
+> `VirtualMachineDeployRequest` still declares `image_type`. Every one of them
+> is accepted, answered with a `201`, and then discarded. `/docs` describes
+> `annotations` as the place to put `networking.gke.io/interfaces`, which does
+> nothing. Every workload endpoint also takes a `project_id` query parameter
+> that is read and thrown away, so it will not retarget a request at another
+> project.
+
+## How operations work
+
+Lifecycle endpoints are asynchronous. A create or delete validates its payload,
+registers an operation, schedules an `asyncio` task in the same process, and
+returns `202` before any work has happened.
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant A as API
+    participant T as terraform / ansible
+    C->>A: POST /clusters/create
+    A-->>C: 202 QUEUED, operation_id
+    A->>T: terraform init, apply
+    T-->>A: streamed stdout
+    A->>T: ansible-playbook create-cluster.yaml
+    T-->>A: streamed stdout
+    C->>A: GET /operations/{id}
+    A-->>C: RUNNING, current_step
+    C->>A: GET /operations/{id}/logs?stream=true
+    A-->>C: text/event-stream
+```
+
+- Operation IDs are resource names, not UUIDs. Convenient, because you can poll
+  without storing anything. The cost is that re-running an operation against the
+  same resource overwrites the previous record and truncates its log file. There
+  is no operation history.
+
+- One active operation per resource. A second create or delete against a
+  resource that already has a `QUEUED` or `RUNNING` operation gets
+  `409 Conflict`. The guard matches on the operation's target resource, not on
+  its ID, so a create and a delete for the same resource conflict with each
+  other too.
+
+- State is in memory. Operation records live in a module-level dictionary.
+  Restarting the process loses them, although the log files on disk survive and
+  stay readable. The service is therefore single-instance only: two replicas
+  would each keep their own operation table, so status lookups would land on the
+  wrong instance and the conflict guard would not hold.
+
+- A failure after an operation has been accepted (HTTP/202) is not an HTTP
+  error. The request to the API was successful, but has failed somewhere
+  downstream. A failed pipeline shows up as `status: FAILED` with a populated
+  `error` on the operation.
+
+### What each pipeline runs
+
+| Operation          | Commands, in order                                                                  |
+| :----------------- | :---------------------------------------------------------------------------------- |
+| Cluster create     | `terraform init` and `apply` in `terraform/cluster`, then `create-cluster.yaml`     |
+| Cluster delete     | `cleanup.yaml`, then `terraform init` and `destroy`                                 |
+| Workstation create | `terraform init` and `apply` in `terraform/admin-workstation`, then the ws playbook |
+| Workstation delete | `terraform init` and `destroy`                                                      |
+| Edge router create | `terraform init` and `apply` in `terraform/edge-router`, then `edge-router.yaml`    |
+| Edge router delete | `terraform init` and `destroy`                                                      |
+
+> [!WARNING]
+> The API and the [Cloud Build pipelines](cloud-build.md) use the same Terraform
+> state prefix for a cluster. Running both against one cluster contends for a
+> single state lock. Pick one orchestration path per cluster.
+
+## Configuration
+
+Most settings are read from an environment variable of the same name,
+case-insensitive, or from a `.env` file in the working directory.
+`GEM_MOCK_RUNNER` and `GEM_GROUP_VARS_PATH` are the two exceptions. They are
+read straight from the process environment, so putting them in `.env` does
+nothing.
+
+| Variable               | Default              | Purpose                                                              |
+| :--------------------- | :------------------- | :------------------------------------------------------------------- |
+| `REPO_ROOT`            | The parent of `api/` | Working directory for Terraform and Ansible                          |
+| `GEM_LOG_DIR`          | `/tmp/gem-api/logs`  | Where operation log files are written                                |
+| `LOG_DIR`              | unset                | The same thing, and it wins over `GEM_LOG_DIR` if both are set       |
+| `MAX_LOG_BUFFER_LINES` | `1000`               | In-memory log buffer per operation, and the most a stream can replay |
+| `GEM_MOCK_RUNNER`      | unset                | `true`, `1` or `yes` enables mock mode                               |
+| `GEM_GROUP_VARS_PATH`  | unset                | Pins the manifest path instead of searching for it                   |
+| `DEFAULT_PROJECT_ID`   | unset                | Sets the project directly, skipping the resolution below             |
+| `DEFAULT_ZONE`         | unset                | Sets the zone directly, skipping the resolution below                |
+
+`HOST`, `PORT` and `DEBUG` are only honoured when you run the package directly
+with `python -m gem_api.main`, which is what the container does. Under the
+`uv run uvicorn` command above, pass `--host`, `--port` and `--reload` instead.
+The container also overrides `GEM_LOG_DIR` to `/var/log/gem-api`.
+
+When `GEM_GROUP_VARS_PATH` is unset the service tries
+`ansible/group_vars/all.yaml` under `REPO_ROOT`, then
+`/app/ansible/group_vars/all.yaml` for the container layout, then a path
+relative to the installed package. Setting it makes that path the only
+candidate, so a typo produces a hard failure rather than a fallback.
+
+The project, zone and kubeconfig are each resolved by trying a series of sources
+in order:
+
+- **Project**: `PROJECT_ID`, `GCP_PROJECT`, `gcloud config get-value project`,
+  then `gem-default-project`.
+- **Zone**: `GEM_GCP_ZONE`, `CLOUDSDK_COMPUTE_ZONE`,
+  `gcloud config get-value compute/zone`, then `us-central1-a`. The region is
+  the zone minus its final segment.
+- **Kubeconfig**: `$KUBECONFIG`, `~/.kube/<cluster>-kubeconfig`,
+  `/tmp/<cluster>-kubeconfig`, `/home/gem/.kube/config`, `~/.kube/config`.
+
+These resolve when the API first starts, `gcloud` lookups happen once at
+startup.
+
+## Security
+
+The service performs no authentication and no authorization. There is no API
+key, no OIDC verification and no IAM check on any endpoint. CORS is configured
+to allow all origins with credentials enabled.
+
+Any client that can reach the port can create and destroy GCP infrastructure
+using whatever credentials the process holds, and can read and write workloads
+on every cluster it can reach. Bind it to a trusted interface, keep it inside
+the VPC or behind IAP, and do not put it on an untrusted network.
+
+## Related documentation
+
+- [Cloud Build](cloud-build.md) for the other orchestration path
+- [Project Setup](project-setup.md) for the service accounts the API
+  impersonates
+- [Secondary Networks](secondary-networks.md) for the `secondary_networks`
+  schema
