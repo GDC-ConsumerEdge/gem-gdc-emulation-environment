@@ -390,6 +390,7 @@ terraform destroy -var="cluster_name=${CLUSTER_NAME}"
 | [Storage](docs/storage.md)                                                     | TopoLVM, and the Gatekeeper mutations that emulate Robin SDS                     |
 | [Cloud Build](docs/cloud-build.md)                                             | Building and tearing down clusters in CI                                         |
 | [GEM REST API](docs/gem-api.md)                                                | The FastAPI-powered GEM REST API service                                         |
+| [Code Style](docs/style.md)                                                    | Where GEM departs from each language's usual conventions                         |
 
 To contribute to the GEM project, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
