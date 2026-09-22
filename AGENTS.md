@@ -28,6 +28,11 @@ Never run `terraform apply` or live Ansible plays against real GCP resources to
 validate a change unless approved. Both operations create or mutate live
 infrastructure.
 
+Formatting and linting are automated, so do not hand-apply style. What is not
+automated is documented in [docs/style.md](docs/style.md), which records only
+where GEM departs from each language's usual conventions. Read it before writing
+code in a part of the tree you have not touched before.
+
 ## Task Playbooks
 
 Step-by-step procedures for common changes live in [skills/](skills/). Read the
