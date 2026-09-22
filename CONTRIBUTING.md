@@ -342,6 +342,10 @@ on a clean checkout.
 - If your feature or bug fix changes substantial functionality, ensure the
   project documentation is updated to match.
 
+- The formatters settle most style questions for you.
+  [docs/style.md](docs/style.md) covers the rest, meaning the places where GEM
+  departs from a language's usual conventions.
+
 ### Code reviews
 
 All submissions, including those from project members, require review. Code
@@ -350,9 +354,43 @@ changes are accepted through
 
 Give the pull request a
 [Conventional Commits](https://www.conventionalcommits.org/) title. A
-non-conforming title will fails presubmit checks.
+non-conforming title will fail presubmit checks.
+
+Pull requests are squash merged, so the title becomes the commit subject, and
+`release-please` turns it into the release note entry in both `CHANGELOG.md` and
+the GitHub release, attributed to you. The type you choose decides which section
+it lands in:
+
+| Type             | Section                   |
+| :--------------- | :------------------------ |
+| `feat`           | Features                  |
+| `fix`            | Bug Fixes                 |
+| `perf`           | Performance Improvements  |
+| `refactor`       | Code Refactoring          |
+| `docs`           | Documentation             |
+| `test`           | Tests                     |
+| `build`          | Build System              |
+| `ci`             | Continuous Integration    |
+| `revert`         | Reverts                   |
+| `chore`, `style` | Hidden from release notes |
+
+Write the title for someone reading the release notes later, who has no context
+on the pull request.
 
 When approved, a team member submits the change and it merges automatically.
+
+### Versioning
+
+The type you choose also sets the size of the next version bump. A `fix` title
+bumps the patch version, a `feat` title bumps the minor version, and a breaking
+change bumps the major version.
+
+Mark a breaking change either with a `!` after the type, as in
+`feat!: drop support for the 1.9.x control plane`, or with a `BREAKING CHANGE:`
+footer at the end of the pull request description. Both work, because pull
+requests are squash merged with the description as the commit body, so a footer
+written there reaches `release-please` intact. A footer must be the last item in
+the PR description.
 
 ## Review our Community Guidelines
 
