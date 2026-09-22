@@ -30,8 +30,12 @@ uv run uvicorn gem_api.main:app --reload --port 8080
 
 # Validate service health
 curl -s localhost:8080/health
-# {"status":"ok","app":"GEM REST API","version":"0.1.0"}
+# {"status":"ok","app":"GEM REST API","version":"<gem release version>"}
 ```
+
+The API does not carry a version of its own. It reports the GEM release it was
+built from, so the number moves whenever GEM is released, whether or not the API
+itself changed. The stable contract for clients is the `/api/v1` path prefix.
 
 Once uvicorn is running, open the interactive docs at
 http://localhost:8080/docs:

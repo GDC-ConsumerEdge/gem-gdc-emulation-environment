@@ -18,7 +18,8 @@
     ".": {
       "release-type": "simple",
       "package-name": "gem",
-      "changelog-path": "CHANGELOG.md"
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": ["api/gem_api/__init__.py"]
     }
   }
 }

@@ -14,6 +14,8 @@
 
 from fastapi.testclient import TestClient
 
+from gem_api import __version__
+
 
 def test_healthz_endpoint(client: TestClient):
     response = client.get("/healthz")
@@ -21,7 +23,7 @@ def test_healthz_endpoint(client: TestClient):
     data = response.json()
     assert data["status"] == "ok"
     assert "GEM REST API" in data["app"]
-    assert "0.1.0" in data["version"]
+    assert data["version"] == __version__
 
 
 def test_health_endpoint(client: TestClient):
@@ -30,7 +32,7 @@ def test_health_endpoint(client: TestClient):
     data = response.json()
     assert data["status"] == "ok"
     assert "GEM REST API" in data["app"]
-    assert "0.1.0" in data["version"]
+    assert data["version"] == __version__
 
 
 def test_api_v1_health_endpoint(client: TestClient):
@@ -39,3 +41,15 @@ def test_api_v1_health_endpoint(client: TestClient):
     data = response.json()
     assert data["status"] == "ok"
     assert "GEM REST API" in data["app"]
+    assert data["version"] == __version__
+
+
+def test_openapi_version_matches_package_version(client: TestClient):
+    """The OpenAPI document reports the package version.
+
+    gem_api.__init__ is the only place the version is declared, and it is
+    rewritten by release-please. This fails if someone reintroduces a literal.
+    """
+    response = client.get("/openapi.json")
+    assert response.status_code == 200
+    assert response.json()["info"]["version"] == __version__
