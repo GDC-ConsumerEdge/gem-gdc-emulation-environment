@@ -35,7 +35,7 @@ hooks.
 
 ## Rules that apply everywhere
 
-### Every file carries the Apache license header
+### Every file must have a license header
 
 This includes YAML, Bash, Terraform, Python, Go and Jinja templates. You do not
 have to type it: the `addlicense` hook inserts a missing header, choosing the
