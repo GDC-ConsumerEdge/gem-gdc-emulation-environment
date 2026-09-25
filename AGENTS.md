@@ -131,10 +131,14 @@ Storage (see [docs/storage.md](docs/storage.md)):
   `ReadWriteOnce` (TopoLVM is RWO-only). Keep these in sync if you touch storage
   emulation.
 - **Partition boundary coupling**: `node_storage_size` (default `100GB`) is the
-  split point between the `node_storage` partition created by Terraform
-  cloud-init (`terraform/cluster/cluster-nodes.tf`) and the TopoLVM partition
-  created by the Ansible `cluster_nodes` role. The two are defined in different
-  tools and **must** agree, or you get a gap or overlap on the disk.
+  split point between the `node_storage` partition created by cloud-init
+  (`terraform/cluster/cluster-nodes.tf`) and the TopoLVM partition created by
+  the Ansible `cluster_nodes` role. It is defined once, as a Terraform variable:
+  `terraform/cluster/outputs.tf` exports it and `ansible/inventory.sh` passes it
+  to Ansible as a host var. Do not add it to `group_vars` or pass it with `-e`,
+  which would override the Terraform value and leave a gap or overlap on the
+  disk. If the output is missing from state, `get_tf_output` returns an empty
+  string and the Ansible `parted` call fails.
 
 Documentation (see [skills/technical-writer.md](skills/technical-writer.md) for
 the full style):
@@ -173,10 +177,14 @@ Platform and Tooling:
   software-emulation fallback path: in a project that enforces
   `constraints/compute.requireShieldedVm`, `terraform apply` fails on the policy
   instead. Do not weaken either setting.
-- **Storage capacity vs. usable emulation**: The cluster provides ~3.9 TB
-  aggregate raw storage (~1.3 TB per node via TopoLVM). Real GDC with Robin SDS
-  typically yields only ~1.3 TB usable due to 3-way replication. GEM does not
-  enforce this lower limit, to allow testing larger single volumes.
+- **Storage capacity vs. usable emulation**: TopoLVM capacity per node is the
+  data disk size minus `node_storage_size` minus TopoLVM's 10 GB `spare-gb`. The
+  data disk size depends on `hardware_variant`
+  (`terraform/cluster/hardware-variants.tf`); the default `g2-small-64gb` gives
+  a 3840 GB disk, so roughly 3.7 TB per node and 11 TB across three nodes. Real
+  GDC with Robin SDS yields about a third of raw capacity as usable because of
+  3-way replication. GEM does not enforce that lower limit, to allow testing
+  larger single volumes.
 
 ## Key Workflows
 
