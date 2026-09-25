@@ -17,6 +17,9 @@ on:
   push:
     branches:
       - main
+  # Re-run on demand, for example after editing the release note override block
+  # in a merged PR's description. Editing a description does not trigger a push.
+  workflow_dispatch:
 
 permissions:
   contents: write
