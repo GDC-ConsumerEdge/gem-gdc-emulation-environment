@@ -1,41 +1,179 @@
-# GEM Storage Design
+# GEM Storage
 
-This document describes how GEM emulates the storage behavior of a physical Google Distributed Cloud (GDC) Connected environment, including the on-disk layout, the TopoLVM provisioner, and the Gatekeeper mutations used to translate GDC storage configurations without modifying workload manifests.
+Workloads on a GEM cluster request storage exactly as they would on GDC
+Connected: through a `robin` StorageClass. The storage volumes are really
+provided by [TopoLVM](https://github.com/topolvm/topolvm), which provision LVM
+logical volumes out of a data disk on each node. OPA Gatekeeper mutations
+rewrite the GDC requests into a form TopoLVM accepts, so the manifests
+themselves never change.
 
-## Storage Overview
+That translation keeps manifests portable, but it does not make the storage
+behave like Robin. A TopoLVM volume lives on one node, with no replication and
+no shared access. Read [Differences from GDC](#differences-from-gdc) before
+testing anything that depends on failover, shared volumes or capacity.
 
-A physical GDC Connected environment uses Symcloud Storage (formerly Robin) as its default software-defined storage (SDS) provider, exposing `robin` StorageClasses with `ReadWriteMany` (RWX) support backed by 3-way replication. GEM does not run Robin. Instead, it provisions storage with [TopoLVM](https://github.com/topolvm/topolvm), an LVM-backed CSI driver that allocates logical volumes from a node-local volume group.
+## Why this exists
 
-Because a requirement of GEM is to apply unmodified GDC workload manifests and observe identical behavior, the gap between Robin and TopoLVM is bridged with OPA Gatekeeper mutations rather than by editing manifests. Workloads continue to request `robin` StorageClasses and RWX volumes; the mutations rewrite those requests into the equivalent TopoLVM-compatible form at admission time.
+GDC Connected ships Symcloud Storage (formerly Robin) as its software-defined
+storage. It exposes `robin` StorageClasses, and has the ability to replicate
+data between cluster nodes if requested.
 
-## On-Disk Layout
+A core tenant of GEM is that unmodified GDC manifests apply cleanly and behave
+the same way as they would on a GDC cluster. Editing manifests to name a
+different provisioner would break that requirement, so the translation happens
+at admission time instead. Workloads keep asking for Robin, and Gatekeeper
+answers on TopoLVM's behalf.
 
-Each cluster node is provisioned with a dedicated 1400 GB `pd-ssd` data disk (`terraform/cluster/cluster-nodes.tf`) attached as `/dev/disk/by-id/google-data`. The disk is split into two partitions at a boundary controlled by the `node_storage_size` variable (default `100GB`):
+## Requesting storage
 
-| Partition | Range | Created by | Purpose |
-| :--- | :--- | :--- | :--- |
-| `node_storage` (part1) | `0%` → `node_storage_size` | Terraform cloud-init (`cluster-nodes.tf`) | ext4 filesystem mounted at `/mnt/node_storage` for node-local files. |
-| `topolvm` (part2) | `node_storage_size` → `100%` | Ansible `cluster_nodes` role | Physical volume added to the `topolvm-vg` volume group consumed by TopoLVM. |
+Nothing in GEM creates a `robin` StorageClass, so the admission webhook mutates
+any StorageClass whose name contains `robin`:
 
-The two partitions are defined in different tools but must meet exactly at `node_storage_size`. See the coupling note in [AGENTS.md](../AGENTS.md) before changing either value.
+```yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: robin
+provisioner: robin # rewritten to topolvm.io on admission
+parameters:
+  csi.storage.k8s.io/fstype: ext4
+allowVolumeExpansion: true
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: data
+spec:
+  storageClassName: robin
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi
+```
 
-## TopoLVM Provisioner
+To confirm the translation took effect:
 
-TopoLVM is deployed via Helm into the `topolvm-system` namespace by the `topolvm` Ansible role (`ansible/roles/topolvm`). Its configuration (`topolvm-values.yaml.j2`) establishes a single default device class, `gdc-storage`, backed by the `topolvm-vg` volume group with a 10 GB spare reservation.
+```bash
+# Prints topolvm.io, not robin
+kubectl get storageclass robin -o jsonpath='{.provisioner}{"\n"}'
 
-Two non-default settings are deliberate and load-bearing:
+# Shows ReadWriteOnce
+kubectl get pvc data -o jsonpath='{.spec.accessModes}{"\n"}'
 
-*   **No default StorageClass** (`storageClasses: []`): GDC-style `robin` StorageClasses are supplied by workloads and mutated to use the `topolvm.io` provisioner, so TopoLVM must not create a competing default.
-*   **Pod mutating webhook disabled** (`webhook.podMutatingWebhook.enabled: false`): TopoLVM normally injects a synthetic `topolvm.io/capacity` resource request to steer the scheduler toward nodes with free capacity. Under Anthos Bare Metal with containerd, the device plugin fails to advertise that capacity to the kubelet, leaving pods stuck `Pending` with `FailedScheduling`. Disabling the webhook lets native `WaitForFirstConsumer` binding handle placement instead.
+# On the node running the pod, lists one logical volume per bound claim
+sudo lvs topolvm-vg
+```
 
-## Gatekeeper Storage Mutations
+## How it works
 
-The mutations live in `policies/storage/` and translate Robin semantics to TopoLVM at admission time:
+Three layers produce a volume: Terraform and Ansible split each node's data disk
+into partitions, TopoLVM allocates volumes from one of them, and Gatekeeper
+steers `robin` requests to TopoLVM.
 
-*   **Provisioner translation** (`sc-robin-emulation.yaml`): rewrites the `provisioner` of any `*robin*` StorageClass to `topolvm.io`.
-*   **Binding mode** (`force-wait-for-first-consumer.yaml`): forces `*robin*` StorageClasses to `volumeBindingMode: WaitForFirstConsumer`. Robin may use `Immediate` binding, which lets TopoLVM provision a workload's PVCs across different nodes simultaneously and deadlocks scheduling; delaying provisioning until the consuming pod is scheduled keeps all of a pod's volumes on one node.
-*   **Access mode downgrade** (`rwx-mutation.yaml`): prunes `ReadWriteMany` from PVC access modes and merges in `ReadWriteOnce`, because TopoLVM only supports RWO.
+### Disk layout
 
-## Capacity Caveat
+Every cluster node has a dedicated data disk, attached as
+`/dev/disk/by-id/google-data`. Its size and type come from the cluster's
+`hardware_variant`, defined in
+[hardware-variants.tf](../terraform/cluster/hardware-variants.tf). The disk is
+split into two partitions at the `node_storage_size` boundary, `100GB` by
+default:
 
-TopoLVM exposes roughly 1.3 TB of usable storage per node (about 3.9 TB aggregate across the three-node cluster). A real GDC cluster running Robin SDS typically yields only ~1.3 TB of usable space in total due to 3-way replication. GEM does not currently enforce this lower effective limit, which allows testing of larger single volumes up to the per-node capacity. Keep this difference in mind when validating capacity-sensitive behavior.
+| Partition              | Range                        | Created by                                                                 | Purpose                                                         |
+| :--------------------- | :--------------------------- | :------------------------------------------------------------------------- | :-------------------------------------------------------------- |
+| `node_storage` (part1) | `0%` → `node_storage_size`   | cloud-init, from [cluster-nodes.tf](../terraform/cluster/cluster-nodes.tf) | ext4, mounted at `/mnt/node_storage`. No GEM component uses it. |
+| `topolvm` (part2)      | `node_storage_size` → `100%` | The [`cluster_nodes`](../ansible/roles/cluster_nodes/) Ansible role        | The sole physical volume in the `topolvm-vg` volume group.      |
+
+Both steps check for an existing partition before creating one, so neither
+repartitions a disk that is already set up.
+
+### TopoLVM
+
+The [`topolvm`](../ansible/roles/topolvm/) Ansible role installs TopoLVM with
+Helm into the `topolvm-system` namespace. Its
+[values file](../ansible/roles/topolvm/templates/topolvm-values.yaml.j2) defines
+a single device class backed by `topolvm-vg`, and departs from the chart
+defaults in two places:
+
+- **It creates no StorageClasses.** The `robin` StorageClass a workload defines
+  is meant to be the only route to TopoLVM, so the chart's own class is
+  disabled.
+- **The pod mutating webhook is off.** TopoLVM normally adds a synthetic
+  `topolvm.io/capacity` resource request to each pod so the scheduler favors
+  nodes with free space. On Anthos Bare Metal with containerd, the device plugin
+  never advertises that resource to the kubelet, and every pod that uses a
+  volume sits `Pending` with `FailedScheduling`. `WaitForFirstConsumer` binding
+  handles placement instead.
+
+### Gatekeeper mutations
+
+The mutations live in [policies/storage/](../policies/storage/) and are applied
+by the [`gatekeeper`](../ansible/roles/gatekeeper/) Ansible role along with the
+rest of `policies/`:
+
+- **Provisioner.** Any StorageClass whose name contains `robin` has its
+  `provisioner` set to `topolvm.io`.
+- **Binding mode.** The same StorageClasses are forced to
+  `volumeBindingMode: WaitForFirstConsumer`. With `Immediate` binding, TopoLVM
+  would create each of a pod's volumes as soon as its claim appeared, possibly
+  on different nodes. A pod that needs volumes on two nodes can never be
+  scheduled.
+- **Access mode.** `ReadWriteMany` is removed from a claim's access modes and
+  `ReadWriteOnce` is added, because a TopoLVM volume lives on one node and
+  cannot be mounted from any other. Unlike the other two, this mutation matches
+  **every PVC in the cluster**, whatever its StorageClass.
+
+## Differences from GDC
+
+The mutations make GDC manifests apply cleanly. They do not reproduce Robin's
+behavior, and each difference below changes what a test on GEM can tell you.
+
+- **Volumes are pinned to one node.** A TopoLVM volume is a logical volume on a
+  single node's disk, so a pod using it can only ever run on that node. If the
+  node is drained, the pod cannot move. If the node is lost, so is the data. On
+  GDC, Robin's replicas let the pod restart elsewhere. Failover, drain and
+  node-loss testing on GEM does not reflect GDC.
+
+- **Capacity is larger than on GDC.** Each node offers roughly its data disk
+  size, minus `node_storage_size`. Robin's three-way replication means a real
+  cluster offers about a third of its raw capacity. GEM does not enforce that
+  lower limit, which lets you test volumes larger than GDC could provision, but
+  capacity-sensitive behavior will differ. The reverse also applies on small
+  variants: `node_storage_size` is a fixed amount, so `dev-and-test`, with a 150
+  GB data disk, leaves only about 40 GB per node for volumes.
+
+- **Other StorageClasses exist.** Anthos Bare Metal creates its own local volume
+  classes, `node-disk` and `local-shared`, configured in the
+  [cluster template](../ansible/roles/gdc_deploy/templates/cluster.yaml.j2).
+  They are backed by paths on the boot disk, not the data disk, and sit outside
+  the emulation entirely.
+
+## Changing the partition boundary
+
+`node_storage_size` is a variable of the [cluster](../terraform/cluster/)
+Terraform module. Set it in the module's `terraform.tfvars`, or on the command
+line when you build the cluster:
+
+```bash
+terraform apply -var="cluster_name=${CLUSTER_NAME}" -var="node_storage_size=50GB"
+```
+
+Set it only in Terraform. The Ansible inventory reads the value back from
+Terraform state, so both partitions always use the same boundary. Passing
+`node_storage_size` to `ansible-playbook` would override that value and leave a
+gap or an overlap on the disk.
+
+The value only affects nodes when they are first built. Both partitioning steps
+skip a disk that is already partitioned, so changing it on an existing cluster
+does nothing until the cluster is rebuilt. Neither the
+[Cloud Build pipelines](cloud-build.md) nor the [GEM REST API](gem-api.md) pass
+this variable, so clusters built through them always use the default.
+
+## Related documentation
+
+- [README: GDC Hardware Configurations](../README.md#gdc-hardware-configurations)
+  lists the hardware variants and how to choose one.
+- [TopoLVM documentation](https://github.com/topolvm/topolvm/tree/main/docs)
+  covers device classes, capacity-aware scheduling and the Helm chart.
+- [Gatekeeper mutation](https://open-policy-agent.github.io/gatekeeper/website/docs/mutation/)
+  documents the `Assign` and `ModifySet` mutators used here.
