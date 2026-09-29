@@ -65,8 +65,8 @@ SSH Secret       : ${SSH_SECRET}
 EOF
 
 # There's an order of operations, where the admin workstation needs to be created before
-# this script it run. The admin workstation uploads it's SSH key to Secret Manager, which
-# is then used by Cloudbuild to ssh into the admin workstation to start a GEM cluster
+# this script is run. The admin workstation uploads it's SSH key to Secret Manager, which
+# is then used by Cloud Build to ssh into the admin workstation to start a GEM cluster
 # build. This validated that Secret exists, and if not provides a handy info message.
 if ! gcloud secrets versions describe latest --secret="${SSH_SECRET}" --project="${PROJECT_ID}" --impersonate-service-account="${PROVISIONING_SA_EMAIL}" &>/dev/null; then
   cat <<EOF
@@ -85,7 +85,7 @@ cat <<EOF
 
 Next steps:
 
-🔨 Build the Cloud Build, builder image. This is a one-time requirement, or when the Dockerfile changes:
+🧰 Build the Cloud Build builder container image. This is a one-time requirement, or when the Dockerfile changes:
 
 gcloud builds submit \\
   --config=${REPO_ROOT}/cloudbuild/builder/cloudbuild.yaml \\

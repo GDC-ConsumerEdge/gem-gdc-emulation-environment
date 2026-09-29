@@ -20,6 +20,7 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from gem_api import __version__
 from gem_api.config import get_settings
 from gem_api.routers import (
     cluster_operations_router,
@@ -59,7 +60,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
 app = FastAPI(
     title="GEM REST API",
     description="REST API for the Google Distributed Cloud (GDC) Connected Emulation Environment (GEM).",
-    version="0.1.0",
+    version=__version__,
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",

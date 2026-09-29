@@ -150,7 +150,9 @@ fi
 if [ "$RUN_PYTHON" = true ]; then
     if [ -d "$GEM_ROOT/api" ]; then
         echo "Running Python API Unit Tests..."
-        (cd "$GEM_ROOT/api" && uv run pytest -v --cov=gem_api)
+        # --frozen runs against the locked dependencies and stops uv rewriting
+        # api/uv.lock when tests run
+        (cd "$GEM_ROOT/api" && uv run --frozen pytest -v --cov=gem_api)
     fi
 fi
 

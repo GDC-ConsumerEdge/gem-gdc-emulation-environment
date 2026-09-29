@@ -43,7 +43,7 @@ Forwarding flags:
 Connection overrides:
   --project-id <id>      GCP project ID (default: $PROJECT_ID or gcloud config get-value project)
   --edge-router <name>   GEM Edge Router VM name (default: gem-edge-router)
-  --zone <zone>          GCP Zone where VMs reside (default: $GEM_ZONE)
+  --zone <zone>          GCP Zone where VMs reside (default: $CLOUDSDK_COMPUTE_ZONE or gcloud config get-value compute/zone)
   --user <name>          SSH user (default: gem)
   --print                Print the ssh command instead of running it
   -h, --help             Show this help

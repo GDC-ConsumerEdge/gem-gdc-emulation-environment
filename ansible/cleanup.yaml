@@ -47,13 +47,33 @@
       ansible.builtin.file:
         path: "{{ gem_home }}/bmctl-workspace/{{ cluster_name }}"
         state: absent
-- name: Clean up VXLAN networking on Workstation
-  hosts: workstation
+- name: Clean up VXLAN networking on shared overlay hosts
+  # The workstation and the edge router both attach to every cluster's overlay
+  # using the same cluster-scoped interface names, so both need cleaning up.
+  # Cluster nodes are not included: Terraform destroys those VMs outright.
+  hosts: workstation:edge_router
   become: true
   vars:
     firewall_service: "vxlan-tcpmss-{{ cluster_name }}.service"
+    operator_service: "gem-network-operator-{{ cluster_name }}.service"
     vx_iface: "{{ vxlan_primary_iface }}"
+    cluster_slug: "{{ cluster_name | replace('-', '') | truncate(6, True, '', 0) }}"
   tasks:
+    - name: Stop and disable the per-cluster network operator
+      # Only the workstation runs the operator. Without this the unit restarts
+      # forever against the kubeconfig the first play just deleted.
+      ansible.builtin.systemd:
+        name: "{{ operator_service }}"
+        state: stopped
+        enabled: false
+      failed_when: false
+      when: inventory_hostname in groups['workstation']
+    - name: Remove the per-cluster network operator unit file
+      ansible.builtin.file:
+        path: "/etc/systemd/system/{{ operator_service }}"
+        state: absent
+      when: inventory_hostname in groups['workstation']
+      notify: Reload systemd
     - name: Stop and disable TCP MSS clamping firewall service
       ansible.builtin.systemd:
         name: "{{ firewall_service }}"
@@ -64,6 +84,7 @@
       ansible.builtin.file:
         path: "/etc/systemd/system/{{ firewall_service }}"
         state: absent
+      notify: Reload systemd
     - name: Delete primary VXLAN interface from kernel
       ansible.builtin.command: "ip link delete {{ vx_iface }}"
       failed_when: false
@@ -74,17 +95,19 @@
       failed_when: false
       changed_when: true
     - name: Remove declarative systemd-networkd configuration files from GCS overlay sync bucket
+      # Covers both host directories, so it only needs to run once.
       ansible.builtin.shell: >
         gcloud storage rm
-        "gs://gem-{{ gcp_project_id }}-overlay-sync/gem_admin_ws/*{{ (cluster_name | replace('-', '') | truncate(6, True, '', 0)) }}*"
-        "gs://gem-{{ gcp_project_id }}-overlay-sync/edge_router_host/*{{ (cluster_name | replace('-', '') | truncate(6, True, '', 0)) }}*"
+        "gs://gem-{{ gcp_project_id }}-overlay-sync/gem_admin_ws/*{{ cluster_slug }}*"
+        "gs://gem-{{ gcp_project_id }}-overlay-sync/edge_router_host/*{{ cluster_slug }}*"
         || true
       args:
         executable: /bin/bash
       changed_when: true
+      when: inventory_hostname in groups['workstation']
     - name: Remove declarative systemd-networkd configuration files
       ansible.builtin.shell: >
-        rm -f /etc/systemd/network/*{{ (cluster_name | replace('-', '') | truncate(6, True, '', 0)) }}*
+        rm -f /etc/systemd/network/*{{ cluster_slug }}*
       args:
         executable: /bin/bash
       changed_when: true
@@ -92,3 +115,7 @@
       ansible.builtin.systemd:
         name: systemd-networkd
         state: restarted
+  handlers:
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: true

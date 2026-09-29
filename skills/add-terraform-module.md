@@ -48,12 +48,13 @@ terraform {
 ```
 
 `variables.tf` should expose at least `project_id`, `region` (default
-`us-central1`), and `zone` (default `us-central1-a`), matching the other modules.
+`us-central1`), and `zone` (default `us-central1-a`), matching the other
+modules.
 
 ## Init and apply pattern
 
-The module is initialized against the shared state bucket with an impersonated
-provisioning service account and a module-specific state prefix:
+The module is initialized against the shared Terraform state bucket with an
+impersonated provisioning service account and a module-specific state prefix:
 
 ```bash
 terraform -chdir=terraform/<name> init \
@@ -64,11 +65,11 @@ terraform -chdir=terraform/<name> init \
 
 ## Register the module for CI validation
 
-CI validates each module by stripping its backend and running `terraform
-validate`. The module list is hardcoded in the "Terraform Init Mocks" step of
-`.github/workflows/pr-validations.yml`. If the new module should be validated in
-CI, add its path to that loop. If it needs unit tests, follow the pattern in
-`terraform/tests/` and `scripts/run-unit-tests.sh`.
+CI validates each module by stripping its backend and running
+`terraform validate`. The module list is hardcoded in the "Terraform Init Mocks"
+step of `.github/workflows/pr-validations.yml`. If the new module should be
+validated in CI, add its path to that loop. If it needs unit tests, follow the
+pattern in `terraform/tests/` and `scripts/run-unit-tests.sh`.
 
 ## Validate
 

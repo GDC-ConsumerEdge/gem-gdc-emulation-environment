@@ -87,19 +87,25 @@ resource "google_compute_instance" "gdc_vms" {
     ssh-keys  = "gem:${lookup(data.google_compute_instance.gem_admin_ws.metadata, "workstation_pubkey", "")}"
     user-data = <<-EOF
 #cloud-config
-bootcmd:
-  # Initialize the secondary disk with a GPT label
-  - parted -s /dev/disk/by-id/google-data mklabel gpt
-  # Create a partition for node_storage (leaves the rest unpartitioned for cluster SDS)
-  - parted -s /dev/disk/by-id/google-data mkpart node_storage ext4 0% ${var.node_storage_size}
 runcmd:
-  # Wait for the partition to populate in /dev
-  - udevadm settle
-  # Format and mount the node_storage partition (Partition 1 of the secondary disk)
-  - mkfs.ext4 -F /dev/disk/by-id/google-data-part1
+  # Partition and format the data disk on first boot only. This must not live in
+  # bootcmd, which cloud-init runs on every boot: on later boots parted refuses
+  # to relabel the disk while partition 1 is mounted, so cloud-init reports an
+  # error on every boot, and if partition 1 is ever not mounted the relabel
+  # succeeds and drops partition 2, the TopoLVM physical volume that the
+  # cluster_nodes Ansible role adds after this. Every step is guarded so that
+  # runcmd is safe to re-run, for example after an instance-id change.
+  - |
+    if ! parted -s /dev/disk/by-id/google-data print 2>/dev/null | grep -q node_storage; then
+      parted -s /dev/disk/by-id/google-data mklabel gpt
+      # The rest of the disk is left unpartitioned for cluster storage
+      parted -s /dev/disk/by-id/google-data mkpart node_storage ext4 0% ${var.node_storage_size}
+      udevadm settle
+      mkfs.ext4 -F /dev/disk/by-id/google-data-part1
+    fi
   - mkdir -p /mnt/node_storage
-  - mount /dev/disk/by-id/google-data-part1 /mnt/node_storage
-  - echo "UUID=$(blkid -s UUID -o value /dev/disk/by-id/google-data-part1) /mnt/node_storage ext4 defaults 0 2" >> /etc/fstab
+  - mountpoint -q /mnt/node_storage || mount /dev/disk/by-id/google-data-part1 /mnt/node_storage
+  - grep -q ' /mnt/node_storage ' /etc/fstab || echo "UUID=$(blkid -s UUID -o value /dev/disk/by-id/google-data-part1) /mnt/node_storage ext4 defaults 0 2" >> /etc/fstab
 EOF
   }
 

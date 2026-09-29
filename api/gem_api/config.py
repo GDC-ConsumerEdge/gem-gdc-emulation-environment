@@ -22,6 +22,8 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from gem_api import __version__
+
 logger = logging.getLogger("gem_api.config")
 
 
@@ -84,7 +86,7 @@ class Settings(BaseSettings):
     # get_settings.cache_clear() after changing the environment would hand back
     # the stale value. It also keeps the gcloud lookups out of module import.
     app_name: str = "GEM REST API"
-    app_version: str = "0.1.0"
+    app_version: str = __version__
     debug: bool = False
 
     # Server binding
