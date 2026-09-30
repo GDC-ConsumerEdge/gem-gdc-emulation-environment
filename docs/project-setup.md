@@ -320,7 +320,7 @@ originating from outside this range is instantly dropped by GCP.
 
 ## Spawning the Fleet Registry and GCR IAM Roles
 
-Running GDC Connected emulation requires two additional dedicated service
+Running GEM requires two additional dedicated service
 accounts to manage image registries and register control plane gateway
 endpoints.
 
