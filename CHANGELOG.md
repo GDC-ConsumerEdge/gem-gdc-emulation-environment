@@ -1,5 +1,40 @@
 # Changelog
 
+## [1.0.0](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/compare/gem-v0.1.12...gem-v1.0.0) (2026-10-02)
+
+
+### Features
+
+* **api:** release of the GEM REST API ([#37](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/issues/37)) ([5e3ad83](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/5e3ad834e06256c6280d936743d7234be302b15c))
+* **pull-request:** add PR helper script to generate release notes ([e11523e](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/e11523e6d70d4b400006d9bcfe7998478c0da45e))
+
+
+### Bug Fixes
+
+* **docs:** cloud build and readme fixes, bump builder image dockerfile ([#39](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/issues/39)) ([9d59fdd](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/9d59fdd84d289a9f12c0565984dc26d8a9c02c56))
+* **gem-tunnel:** fix help text for zone argument ([e11523e](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/e11523e6d70d4b400006d9bcfe7998478c0da45e))
+* **storage:** fix disk partition race condition ([e11523e](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/e11523e6d70d4b400006d9bcfe7998478c0da45e))
+* **workflow:** fix syntax for extra_args in PR validations workflow ([296722f](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/296722f62ed522777a5fe7c972df24feaaf3c41b))
+
+
+### Code Refactoring
+
+* **api:** enable release-please versioning for the GEM API ([e11523e](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/e11523e6d70d4b400006d9bcfe7998478c0da45e))
+* **builds:** add gcloudignore to reduce cloud build bundle size ([e11523e](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/e11523e6d70d4b400006d9bcfe7998478c0da45e))
+* **release-please:** update config to support detailed release notes and changelog ([e11523e](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/e11523e6d70d4b400006d9bcfe7998478c0da45e))
+* **workflow:** add ability to run github workflow on demand ([e11523e](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/e11523e6d70d4b400006d9bcfe7998478c0da45e))
+
+
+### Documentation
+
+* add and refactor project documentation ([e11523e](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/e11523e6d70d4b400006d9bcfe7998478c0da45e))
+* **api:** update project documentation to reflect GEM REST API ([e11523e](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/e11523e6d70d4b400006d9bcfe7998478c0da45e))
+* **contributing:** add detail on local dev environments ([e11523e](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/e11523e6d70d4b400006d9bcfe7998478c0da45e))
+* **contributing:** add detail on release-please PR formatting ([e11523e](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/e11523e6d70d4b400006d9bcfe7998478c0da45e))
+* **skills:** add technical writer skill ([e11523e](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/e11523e6d70d4b400006d9bcfe7998478c0da45e))
+* **storage:** update storage docs to reflect current capability ([e11523e](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/e11523e6d70d4b400006d9bcfe7998478c0da45e))
+* **style:** add code style documentation ([e11523e](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/e11523e6d70d4b400006d9bcfe7998478c0da45e))
+
 ## [0.1.12](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/compare/gem-v0.1.11...gem-v0.1.12) (2026-08-18)
 
 ### Features
