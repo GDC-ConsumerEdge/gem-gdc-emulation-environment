@@ -1609,3 +1609,163 @@ func TestGatewayReconciler_findGatewaysForNamespaceObject_IgnoresUnrelatedPod(t 
 		t.Errorf("Expected 1 request for a route object in prod, got %d", len(requests))
 	}
 }
+
+func TestGatewayReconciler_Reconcile_CleansUpDynamicResourcesWhenRoutesRemoved(t *testing.T) {
+	scheme := setupGatewayTestScheme()
+
+	gw := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "gateway.networking.k8s.io/v1",
+			"kind":       "Gateway",
+			"metadata": map[string]any{
+				"name":      "stale-gw",
+				"namespace": "prod",
+				"annotations": map[string]any{
+					AnnotationNetwork: "vlan-123",
+				},
+			},
+			"spec": map[string]any{
+				"addresses": []any{
+					map[string]any{"type": "IPAddress", "value": "172.16.12.200"},
+				},
+			},
+		},
+	}
+
+	staleSvc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "stale-gw",
+			Namespace: "prod",
+		},
+	}
+	staleSlice := &discoveryv1.EndpointSlice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "stale-gw-slice",
+			Namespace: "prod",
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(gw, staleSvc, staleSlice).
+		Build()
+
+	reconciler := &GatewayReconciler{
+		Client: fakeClient,
+		Scheme: scheme,
+		Log:    logr.Discard(),
+	}
+
+	ctx := context.Background()
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "prod", Name: "stale-gw"}}
+	if _, err := reconciler.Reconcile(ctx, req); err != nil {
+		t.Fatalf("Reconcile returned error: %v", err)
+	}
+
+	if err := fakeClient.Get(ctx, types.NamespacedName{Namespace: "prod", Name: "stale-gw"}, &corev1.Service{}); err == nil {
+		t.Errorf("Expected stale dynamic Service to be cleaned up when no routes remain")
+	}
+	if err := fakeClient.Get(ctx, types.NamespacedName{Namespace: "prod", Name: "stale-gw-slice"}, &discoveryv1.EndpointSlice{}); err == nil {
+		t.Errorf("Expected stale dynamic EndpointSlice to be cleaned up when no routes remain")
+	}
+}
+
+func TestGatewayReconciler_Reconcile_CoreDNSNoReloadWhenReadyLineMissing(t *testing.T) {
+	scheme := setupGatewayTestScheme()
+
+	cmConfig := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "coredns-config",
+			Namespace: "kube-system",
+		},
+		Data: map[string]string{
+			"Corefile": ".:53 {\n    errors\n    kubernetes cluster.local\n}",
+		},
+	}
+
+	corednsPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "coredns-abc123",
+			Namespace: "kube-system",
+			Labels:    map[string]string{"k8s-app": "kube-dns"},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(cmConfig, corednsPod).
+		Build()
+
+	reconciler := &GatewayReconciler{
+		Client: fakeClient,
+		Scheme: scheme,
+		Log:    logr.Discard(),
+	}
+
+	ctx := context.Background()
+	reconciler.reconcileCoreDNS(ctx)
+
+	if err := fakeClient.Get(ctx, types.NamespacedName{Namespace: "kube-system", Name: "coredns-abc123"}, &corev1.Pod{}); err != nil {
+		t.Errorf("Expected kube-dns pod NOT to be deleted when Corefile lacks a bare ready line, got: %v", err)
+	}
+}
+
+func TestGatewayReconciler_findGatewaysForCIDR(t *testing.T) {
+	scheme := setupGatewayTestScheme()
+
+	gwMatching := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "gateway.networking.k8s.io/v1",
+			"kind":       "Gateway",
+			"metadata": map[string]any{
+				"name":      "gw-vlan-123",
+				"namespace": "prod",
+				"annotations": map[string]any{
+					AnnotationNetwork: "vlan-123",
+				},
+			},
+		},
+	}
+	gwOther := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "gateway.networking.k8s.io/v1",
+			"kind":       "Gateway",
+			"metadata": map[string]any{
+				"name":      "gw-vlan-456",
+				"namespace": "staging",
+				"annotations": map[string]any{
+					AnnotationNetwork: "vlan-456",
+				},
+			},
+		},
+	}
+	cidr := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "networking.gke.io/v1",
+			"kind":       "GKEGatewayCIDR",
+			"metadata": map[string]any{
+				"name": "vlan-123-cidr",
+			},
+			"spec": map[string]any{
+				"network": "vlan-123",
+				"ip4cidr": "172.16.12.224/28",
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(gwMatching, gwOther, cidr).
+		Build()
+
+	reconciler := &GatewayReconciler{
+		Client: fakeClient,
+		Scheme: scheme,
+		Log:    logr.Discard(),
+	}
+
+	reqs := reconciler.findGatewaysForCIDR(context.Background(), cidr)
+	if len(reqs) != 1 || reqs[0].Name != "gw-vlan-123" || reqs[0].Namespace != "prod" {
+		t.Errorf("Expected 1 request for prod/gw-vlan-123, got %v", reqs)
+	}
+}

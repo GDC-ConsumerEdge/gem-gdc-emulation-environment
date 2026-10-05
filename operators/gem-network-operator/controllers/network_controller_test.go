@@ -1105,3 +1105,52 @@ func TestNetworkReconciler_Reconcile_ServiceBinding(t *testing.T) {
 		t.Errorf("Expected metallb.universe.tf/address-pool: vlan-123-pool, got %q", poolAnnotation)
 	}
 }
+
+func TestNetworkReconciler_Reconcile_InvalidMTUReportsChildResourceError(t *testing.T) {
+	scheme := setupNetworkTestScheme()
+
+	nsDefault := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}}
+	netObj := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "networking.gke.io/v1",
+			"kind":       "Network",
+			"metadata": map[string]any{
+				"name": "vlan-bad-mtu",
+				"annotations": map[string]any{
+					AnnotationVLANID:  "123",
+					AnnotationVLANMTU: "not-an-int",
+				},
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(nsDefault, netObj, provisionedNetworksCM(map[string]string{"123": "gdcenet0.123"})).
+		Build()
+
+	reconciler := &NetworkReconciler{
+		Client: fakeClient,
+		Scheme: scheme,
+		Log:    logr.Discard(),
+	}
+
+	ctx := context.Background()
+	if _, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "vlan-bad-mtu"}}); err != nil {
+		t.Fatalf("Reconcile returned error: %v", err)
+	}
+
+	updatedNet := &unstructured.Unstructured{}
+	updatedNet.SetGroupVersionKind(NetworkGVK)
+	_ = fakeClient.Get(ctx, types.NamespacedName{Name: "vlan-bad-mtu"}, updatedNet)
+	conditions, _, _ := unstructured.NestedSlice(updatedNet.Object, "status", "conditions")
+	var readyCond map[string]any
+	for _, c := range conditions {
+		if cMap, ok := c.(map[string]any); ok && cMap["type"] == "Ready" {
+			readyCond = cMap
+		}
+	}
+	if readyCond == nil || readyCond["status"] != "False" || readyCond["reason"] != "ChildResourceError" {
+		t.Errorf("Expected Ready=False/ChildResourceError for invalid MTU, got %v", readyCond)
+	}
+}

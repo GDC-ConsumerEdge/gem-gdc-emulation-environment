@@ -26,7 +26,6 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
@@ -78,11 +77,6 @@ func (m *PodInterfaceMutator) Handle(ctx context.Context, req admission.Request)
 	}
 
 	return admission.PatchResponseFromRaw(req.Object.Raw, marshaledPod)
-}
-
-func (m *PodInterfaceMutator) InjectDecoder(d admission.Decoder) error {
-	m.Decoder = d
-	return nil
 }
 
 // MutatePodInterfaces inspects a Pod's networking.gke.io/interfaces annotation without context.
@@ -138,18 +132,28 @@ func MutatePodInterfacesWithContext(ctx context.Context, c client.Client, pod *c
 	}
 
 	inUseSet := make(map[string]bool)
+	for _, existing := range existingMultus {
+		for _, ipStr := range existing.IPs {
+			if cleanIP := strings.Split(strings.TrimSpace(ipStr), "/")[0]; cleanIP != "" {
+				inUseSet[cleanIP] = true
+			}
+		}
+	}
 
 	// Merge secondary networks into Multus list and allocate dynamic IPAM if not specified
 	for _, sec := range secondaryNetworks {
 		foundIdx := -1
 		for i, existing := range existingMultus {
-			if existing.Name == sec.Name && (existing.Interface == sec.Interface || sec.Interface == "") {
+			if existing.Name == sec.Name && (existing.Interface == sec.Interface || sec.Interface == "" || existing.Interface == "") {
 				foundIdx = i
 				break
 			}
 		}
 
 		if foundIdx >= 0 {
+			if existingMultus[foundIdx].Interface == "" && sec.Interface != "" {
+				existingMultus[foundIdx].Interface = sec.Interface
+			}
 			// If existing entry has no IP and client is available, allocate one
 			if len(existingMultus[foundIdx].IPs) == 0 && c != nil {
 				ipWithPrefix, err := allocateSecondaryIP(ctx, c, sec.Name, inUseSet)
@@ -249,11 +253,7 @@ func allocateSecondaryIP(ctx context.Context, c client.Client, netName string, i
 
 	// Exclude GKEGatewayCIDR ranges for this network
 	gwCIDRList := &unstructured.UnstructuredList{}
-	gwCIDRList.SetGroupVersionKind(schema.GroupVersionKind{
-		Group:   "networking.gke.io",
-		Version: "v1",
-		Kind:    "GKEGatewayCIDRList",
-	})
+	gwCIDRList.SetGroupVersionKind(GKEGatewayCIDRGVK)
 	if err := c.List(ctx, gwCIDRList); err == nil {
 		for _, item := range gwCIDRList.Items {
 			netRef, _, _ := unstructured.NestedString(item.Object, "spec", "network")
@@ -343,8 +343,11 @@ func excludeIPRangeOrCIDR(excluded map[string]bool, val string) {
 				startU := ipToUint32(start)
 				endU := ipToUint32(end)
 				if startU <= endU {
-					for u := startU; u <= endU; u++ {
+					for u := startU; ; u++ {
 						excluded[uint32ToIP(u).String()] = true
+						if u == endU {
+							break
+						}
 					}
 				}
 			}
@@ -357,8 +360,11 @@ func excludeIPRangeOrCIDR(excluded map[string]bool, val string) {
 			startU := ipToUint32(ipNet.IP.To4())
 			maskU := binary.BigEndian.Uint32(ipNet.Mask)
 			endU := startU | (^maskU)
-			for u := startU; u <= endU; u++ {
+			for u := startU; ; u++ {
 				excluded[uint32ToIP(u).String()] = true
+				if u == endU {
+					break
+				}
 			}
 		}
 		return
