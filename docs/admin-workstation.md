@@ -147,19 +147,23 @@ CLUSTER_NAME=none ansible-playbook admin-workstation.yaml
 Four things the role does are worth knowing about, because other parts of the
 system depend on them:
 
-- It generates an RSA keypair at `/home/gem/.ssh/id_rsa` and publishes the
-  public half to instance metadata as `workstation_pubkey`. `terraform/cluster`
-  reads that metadata to authorize the `gem` user on cluster nodes, so the admin
-  workstation must be configured before any cluster is built.
+- It generates an RSA keypair at `/home/gem/.ssh/id_rsa` (or restores it from
+  Secret Manager when rebuilding the VM), authorizes it for inbound SSH as
+  `gem`, and publishes the public half to instance metadata as
+  `workstation_pubkey`. `terraform/cluster` and `terraform/edge-router` read
+  that metadata to authorize the `gem` user on cluster nodes and the edge
+  router, so the admin workstation must be configured before any cluster is
+  built.
 - It creates an Anthos service account key at `/home/gem/bm-gcr.json` and
   exports `GOOGLE_APPLICATION_CREDENTIALS` in `~/.bashrc`. `bmctl` needs this to
   pull images.
 - It pins the Docker daemon to MTU 1410 and raises the inotify limits, both of
   which KinD and `bmctl` require.
-- If the Cloud Build SSH secret already exists, it authorizes the key for
-  inbound SSH and publishes the private key as a new Secret Manager version. The
-  secret has to exist first, which is why the playbook is re-run after
-  `cloudbuild/setup.sh`. See [Cloud Build](cloud-build.md).
+- If the Cloud Build SSH secret already exists, it restores
+  `/home/gem/.ssh/id_rsa` from Secret Manager when the file is missing on disk,
+  or publishes the local private key as a new Secret Manager version when they
+  differ. The secret has to exist first, which is why the playbook is re-run
+  after `cloudbuild/setup.sh`. See [Cloud Build](cloud-build.md).
 
 ## bmctl versions
 
@@ -217,13 +221,12 @@ It holds two credentials worth protecting:
 - `/home/gem/bm-gcr.json` is a downloaded service account key used by `bmctl` to
   pull images and register fleet memberships.
 - `/home/gem/.ssh/id_rsa` is the admin workstation's SSH private key, which is
-  authorized on every cluster node and, when Cloud Build is configured, stored
-  in Secret Manager. Anyone with shell access as `gem` has cluster-admin on
-  every GEM cluster in the project.
+  authorized on the workstation itself, the edge router, and every cluster node,
+  and, when Cloud Build is configured, stored in Secret Manager. Anyone with
+  shell access as `gem` has cluster-admin on every GEM cluster in the project.
 
-When Cloud Build is configured that same key is also added to the workstation's
-own `authorized_keys`, so read access to the secret is read access to this host,
-not just to the nodes.
+Read access to the Secret Manager secret therefore grants SSH access to the
+workstation, the edge router, and every cluster node.
 
 The VM runs as the project's default Compute Engine service account with the
 `cloud-platform` scope. Shell access therefore carries whatever project-wide API
@@ -236,14 +239,12 @@ access that account has been granted, which on most projects is substantial.
 You see `Permission denied (publickey)` when Ansible or `bmctl` tries to reach
 nodes as `gem`.
 
-A `terraform apply` in `terraform/admin-workstation` removed the
-`workstation_pubkey` instance metadata that the Ansible role published. The
-resource does not declare `lifecycle { ignore_changes = [metadata] }`, so
-Terraform prunes the out-of-band key, and nodes created afterwards get an empty
-`ssh-keys` value.
+The nodes were provisioned before `admin-workstation.yaml` published
+`workstation_pubkey` to instance metadata, or the key in Secret Manager is out
+of sync with `gem-admin-ws`.
 
-Re-run the admin workstation playbook to republish the key, then recreate the
-affected nodes:
+Re-run the admin workstation playbook to synchronize instance metadata and
+Secret Manager, then recreate the affected nodes:
 
 ```bash
 cd ansible
@@ -323,9 +324,9 @@ PROJECT_ID=${PROJECT_ID} CLUSTER_NAME=none ./inventory.sh | jq '.workstation'
 > under `/home/gem` lives on the boot disk: `bm-gcr.json`, every cluster's
 > kubeconfig and bmctl workspace, and the SSH keypair. Of those, only the SSH
 > private key has a copy elsewhere, in the `gem-cluster-builder-ssh-key` secret,
-> and only if you configured Cloud Build. Deleting the instance orphans running
-> clusters, which are then left with no admin credential except GKE Connect
-> Gateway.
+> and only if you configured Cloud Build. Deleting the instance deletes local
+> cluster kubeconfigs, leaving GKE Connect Gateway as the admin credential for
+> existing clusters.
 
 If you have to rebuild, re-run these in order:
 
@@ -339,15 +340,12 @@ Run `restore-vxlan.yaml` once per cluster. The ordering matters: the workstation
 playbook is what reinstalls the overlay synchronizer cron, and `restore-vxlan`
 relies on it.
 
-> [!CAUTION]
-> The workstation playbook generates a **new** SSH keypair on the fresh disk and
-> publishes the new public key to instance metadata. Nodes of clusters that
-> already exist still authorize the old key, because their metadata was written
-> when they were created. The rebuilt workstation therefore cannot SSH to them,
-> which breaks `bmctl reset`, node pool operations and any further Ansible runs
-> against those nodes. Restore the original private key from Secret Manager
-> before running the playbook, or re-apply `terraform/cluster` for each affected
-> cluster.
+If Cloud Build is configured, `admin-workstation.yaml` automatically restores
+`/home/gem/.ssh/id_rsa` from the `gem-cluster-builder-ssh-key` secret before
+generating a keypair, preserving SSH access to existing cluster nodes and the
+edge router. If Cloud Build is not configured, no off-host copy of the key
+exists, so the playbook generates a new keypair; re-run `edge-router.yaml` and
+re-apply `terraform/cluster` for each existing cluster to authorize the new key.
 
 Cluster kubeconfigs are not recoverable this way. Use Connect Gateway for
 clusters that already exist.

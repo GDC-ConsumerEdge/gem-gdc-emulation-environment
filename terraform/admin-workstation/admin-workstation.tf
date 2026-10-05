@@ -64,6 +64,13 @@ resource "google_compute_instance" "admin_ws" {
     enable-oslogin = "FALSE"
   }
 
+  lifecycle {
+    ignore_changes = [
+      metadata["workstation_pubkey"],
+      metadata["ssh-keys"],
+    ]
+  }
+
   service_account {
     scopes = ["cloud-platform"]
   }

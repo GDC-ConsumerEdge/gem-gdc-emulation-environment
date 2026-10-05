@@ -50,7 +50,10 @@ RUN pip3 install --no-cache-dir \
     && ansible --version
 
 # Collections required by the GEM playbooks.
-RUN ansible-galaxy collection install \
+# Install to /usr/share/ansible/collections rather than the default
+# ~/.ansible/collections (/root/.ansible/collections at build time), because
+# Cloud Build overrides HOME=/workspace at runtime.
+RUN ansible-galaxy collection install -p /usr/share/ansible/collections \
         ansible.posix \
         community.general \
         community.crypto

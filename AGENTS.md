@@ -276,13 +276,6 @@ Platform and Tooling:
   `172.16.12.1/24`: a duplicate address and an overlapping route on one host.
   This is independent of the `cluster6` name collision above. Secondary networks
   are effectively single-cluster until gateways are allocated per cluster.
-- **`terraform/admin-workstation` drifts away the Ansible-published SSH key**:
-  `google_compute_instance.admin_ws` has no
-  `lifecycle { ignore_changes = [metadata] }`, so a later `terraform apply`
-  prunes the out-of-band `workstation_pubkey` metadata that
-  `terraform/cluster/cluster-nodes.tf` reads. Cluster nodes created afterwards
-  get `ssh-keys = "gem:"` and are unreachable. Re-running
-  `admin-workstation.yaml` republishes it.
 - **The GEM REST API has no authentication and holds state in memory**: no auth
   dependency exists on any route, CORS allows all origins with credentials, and
   operation records live in a process-local dict keyed by resource name, so the

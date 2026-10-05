@@ -28,6 +28,38 @@ if [[ "${fqdn_len}" -gt 63 ]]; then
   exit 1
 fi
 
+secret_pubkey=$(ssh-keygen -y -f /workspace/.ssh/google_compute_engine 2>/dev/null | awk '{print $1 " " $2}' || true)
+if [[ -z "${secret_pubkey}" ]]; then
+  echo "🚫 ERROR: Failed to derive SSH public key from /workspace/.ssh/google_compute_engine. Verify the Secret Manager SSH private key." >&2
+  exit 1
+fi
+
+ws_pubkey=$(gcloud compute instances describe gem-admin-ws \
+  --zone="${GEM_GCP_ZONE}" \
+  --format="value(metadata.items.filter(key:workstation_pubkey).extract(value).flatten())" \
+  --quiet 2>/dev/null | awk '{print $1 " " $2}' || true)
+if [[ -z "${ws_pubkey}" ]]; then
+  echo "🚫 ERROR: gem-admin-ws in ${GEM_GCP_ZONE} has no 'workstation_pubkey' metadata. Run 'CLUSTER_NAME=none ansible-playbook ansible/admin-workstation.yaml' to publish it." >&2
+  exit 1
+fi
+if [[ "${ws_pubkey}" != "${secret_pubkey}" ]]; then
+  echo "🚫 ERROR: SSH key mismatch between Secret Manager and gem-admin-ws 'workstation_pubkey' metadata." >&2
+  echo "  Run 'CLUSTER_NAME=none ansible-playbook ansible/admin-workstation.yaml' to resynchronize Secret Manager with gem-admin-ws." >&2
+  exit 1
+fi
+
+if gcloud compute instances describe gem-edge-router --zone="${GEM_GCP_ZONE}" --format="value(name)" --quiet >/dev/null 2>&1; then
+  er_ssh_keys=$(gcloud compute instances describe gem-edge-router \
+    --zone="${GEM_GCP_ZONE}" \
+    --format="value(metadata.items.filter(key:ssh-keys).extract(value).flatten())" \
+    --quiet 2>/dev/null || true)
+  if [[ "${er_ssh_keys}" != *"${secret_pubkey}"* ]]; then
+    echo "🚫 ERROR: SSH key mismatch on gem-edge-router 'ssh-keys' metadata." >&2
+    echo "  Run 'CLUSTER_NAME=none ansible-playbook ansible/edge-router.yaml' to resynchronize gem-edge-router with gem-admin-ws." >&2
+    exit 1
+  fi
+fi
+
 conflict=0
 for n in 1 2 3; do
   vm="${CLUSTER_NAME}-${n}"
