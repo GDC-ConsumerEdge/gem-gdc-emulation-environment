@@ -125,12 +125,15 @@ won't find the image.
 
 Submit a cluster build with `gcloud builds submit`. `GEM_GCP_ZONE` comes from
 your [project setup](project-setup.md) environment; if it is unset the build
-fails in its `setup` step on an empty zone:
+fails in its `setup` step. `--async` is provided in the example below, so
+control is returned to your terminal after the build has been submitted
+successfully, without waiting for the operation in progress to complete:
 
 ```bash
 gcloud builds submit \
   --config=${REPO_ROOT}/cloudbuild/cluster-build.cloudbuild.yaml \
   --substitutions=_CLUSTER_NAME=gem-cluster-1,_AR_LOCATION=${GEM_AR_LOCATION:-${GEM_GCP_ZONE%-*}},_GEM_GCP_ZONE=${GEM_GCP_ZONE} \
+  --async \
   ${REPO_ROOT}
 ```
 
