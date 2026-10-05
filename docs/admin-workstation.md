@@ -214,11 +214,12 @@ rather than just SSH.
 
 It holds two credentials worth protecting:
 
-- `/home/gem/bm-gcr.json` a downloaded service account key
-- `/home/gem/.ssh/id_rsa` the admin workstation's SSH private key which is
-  authorized on every cluster node and when Cloud Build is configured, stored in
-  Secret Manager. Anyone with shell access as `gem` has cluster-admin on every
-  GEM cluster in the project.
+- `/home/gem/bm-gcr.json` is a downloaded service account key used by `bmctl` to
+  pull images and register fleet memberships.
+- `/home/gem/.ssh/id_rsa` is the admin workstation's SSH private key, which is
+  authorized on every cluster node and, when Cloud Build is configured, stored
+  in Secret Manager. Anyone with shell access as `gem` has cluster-admin on
+  every GEM cluster in the project.
 
 When Cloud Build is configured that same key is also added to the workstation's
 own `authorized_keys`, so read access to the secret is read access to this host,

@@ -63,10 +63,8 @@ Two naming details are important to understand:
 - On a secondary network the edge router takes the network's `gateway` address
   rather than a host address, because it is emulating the top-of-rack switch
   that would be the default gateway on real hardware. Every other host on that
-  segment takes `<subnet>.<host_octet>`. The edge router is also the only host
-  that uses the subnet's real prefix length; everywhere else it is hardcoded to
-  `/24`. That is invisible today because every shipped secondary network is a
-  `/24`, but it means a narrower subnet would be misconfigured on the nodes.
+  segment takes `<subnet>.<host_octet>` using the first three octets of the
+  subnet and the subnet's CIDR prefix length.
 
 ### MTU and MSS
 

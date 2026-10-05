@@ -2,9 +2,20 @@
 
 This document provides explicit, step-by-step instructions to manually configure
 a Google Cloud Platform (GCP) project to run the GEM Emulation Environment,
-serving as a manual fallback to the automated
-[`project-setup.sh`](../project-setup.sh) script. The steps within this document
-assume that you're are configuring a new GCP project exclusively for GEM.
+serving as a manual fallback and reference for the automated
+[`project-setup.sh`](../project-setup.sh) script and the
+[`terraform/foundation`](../terraform/foundation) module. The steps within this
+document assume that you are configuring a new GCP project exclusively for GEM.
+
+Before running the commands below, make sure the environment variables from
+[Environment Setup](../README.md#environment-setup) are exported, along with the
+derived region and Artifact Registry location variables that `project-setup.sh`
+computes from `GEM_GCP_ZONE`:
+
+```bash
+export GEM_GCP_REGION="${GEM_GCP_ZONE%-*}"
+export GEM_AR_LOCATION="${GEM_GCP_REGION}"
+```
 
 ## Enabling Required GCP Service APIs
 
@@ -30,7 +41,8 @@ endpoints and binds the default resource quotas.
 
 ### Manual Execution
 
-Run this command from your local terminal to activate all required APIs:
+Run this command from your local terminal to activate the initial APIs enabled
+by `project-setup.sh` and the cluster APIs enabled by `terraform/foundation`:
 
 ```bash
 gcloud services enable \
@@ -38,6 +50,10 @@ gcloud services enable \
   serviceusage.googleapis.com \
   iamcredentials.googleapis.com \
   compute.googleapis.com \
+  storage.googleapis.com \
+  secretmanager.googleapis.com \
+  cloudbuild.googleapis.com \
+  artifactregistry.googleapis.com \
   anthos.googleapis.com \
   anthosaudit.googleapis.com \
   anthosconfigmanagement.googleapis.com \
@@ -79,13 +95,13 @@ Managing state inside a GCS bucket with Object Versioning enabled guarantees:
 
 ### Manual Execution
 
-Create the GCS bucket and activate versioning:
+Create the GCS bucket in `${GEM_GCP_REGION}` and activate versioning:
 
 ```bash
-# Create the storage bucket in us-central1
+# Create the storage bucket in your configured region
 gcloud storage buckets create "gs://${TF_STATE_BUCKET}" \
   --project="${PROJECT_ID}" \
-  --location="us-central1"
+  --location="${GEM_GCP_REGION}"
 
 # Enable Object Versioning on the bucket
 gcloud storage buckets update "gs://${TF_STATE_BUCKET}" \
@@ -95,8 +111,8 @@ gcloud storage buckets update "gs://${TF_STATE_BUCKET}" \
 ### Verification
 
 - **GCP Console**: Go to **Cloud Storage $\\rightarrow$ Buckets**.
-- Verify `gs://${TF_STATE_BUCKET}` is created, resides in `us-central1`, and
-  shows `Object Versioning: Enabled`.
+- Verify `gs://${TF_STATE_BUCKET}` is created, resides in `${GEM_GCP_REGION}`,
+  and shows `Object Versioning: Enabled`.
 
 ## Establishing the Provisioner Service Account
 
@@ -117,6 +133,8 @@ we create a dedicated least-privilege provisioning Service Account
   roles to service accounts.
 - `roles/serviceusage.serviceUsageAdmin`: Allows Terraform to audit and toggle
   project-level Service APIs.
+- `roles/secretmanager.admin`: Allows Terraform to create and manage the Cloud
+  Build SSH key secret.
 
 ### Secure Token Impersonation vs. JSON Keys
 
@@ -131,16 +149,16 @@ tokens for the provisioning SA.
 
 The Token Creator binding only *permits* impersonation; it does not enable it.
 Terraform's `google` provider impersonates `tf-provisioner` only when the
-`GOOGLE_IMPERSONATE_SERVICE_ACCOUNT` environment variable is set. The
-`impersonate_service_account` value passed to `terraform init -backend-config`
-applies solely to remote state access in GCS, not to the resource API calls the
-provider makes. Export the variable before running any `terraform` command:
+`GOOGLE_IMPERSONATE_SERVICE_ACCOUNT` environment variable is set, or when
+`impersonate_service_account` is configured on the provider via
+`provisioning_sa_email`. Export the variable before running any `terraform`
+command:
 
 ```bash
 export GOOGLE_IMPERSONATE_SERVICE_ACCOUNT="${PROVISIONING_SA_EMAIL}"
 ```
 
-Without this env variable set, Terraform falls back to your user credentials,
+Without impersonation configured, Terraform falls back to your user credentials,
 and resource operations fail with `403` permission errors even though
 `tf-provisioner` holds the required roles.
 
@@ -186,7 +204,91 @@ and resource operations fail with `403` permission errors even though
 - Verify `tf-provisioner` exists and shows your user account authorized under
   its *Permissions* tab as a Token Creator.
 
-## Configuring the Core Foundation VPC Network
+## Local State Configuration (`backend.tf` and `terraform.tfvars`)
+
+Once the APIs, state bucket, and `tf-provisioner` service account exist, you
+have everything `project-setup.sh` creates in GCP. Generate the local variable
+and backend files inside your cloned repository so Terraform can synchronize
+remote state.
+
+### 1. Generate Local Variable Files (`terraform.tfvars`)
+
+Create the `terraform.tfvars` file in each Terraform module directory:
+
+```bash
+# Foundation Var File
+cat <<EOF > "${REPO_ROOT}/terraform/foundation/terraform.tfvars"
+project_id            = "${PROJECT_ID}"
+provisioning_sa_email = "${PROVISIONING_SA_EMAIL}"
+zone                  = "${GEM_GCP_ZONE}"
+region                = "${GEM_GCP_REGION}"
+EOF
+
+# Workstation Var File
+cat <<EOF > "${REPO_ROOT}/terraform/admin-workstation/terraform.tfvars"
+project_id            = "${PROJECT_ID}"
+provisioning_sa_email = "${PROVISIONING_SA_EMAIL}"
+zone                  = "${GEM_GCP_ZONE}"
+region                = "${GEM_GCP_REGION}"
+EOF
+
+# Edge Router Var File
+cat <<EOF > "${REPO_ROOT}/terraform/edge-router/terraform.tfvars"
+project_id            = "${PROJECT_ID}"
+provisioning_sa_email = "${PROVISIONING_SA_EMAIL}"
+zone                  = "${GEM_GCP_ZONE}"
+region                = "${GEM_GCP_REGION}"
+EOF
+
+# Cluster Var File
+cat <<EOF > "${REPO_ROOT}/terraform/cluster/terraform.tfvars"
+project_id            = "${PROJECT_ID}"
+provisioning_sa_email = "${PROVISIONING_SA_EMAIL}"
+cluster_name          = "${CLUSTER_NAME}"
+zone                  = "${GEM_GCP_ZONE}"
+region                = "${GEM_GCP_REGION}"
+hardware_variant      = "g2-small-64gb" # Options: g1-medium, g1-large, g2-small-64gb, g2-small-128gb, g2-medium, g2-large, dev-and-test
+EOF
+
+# Cloud Build Var File
+cat <<EOF > "${REPO_ROOT}/terraform/cloudbuild/terraform.tfvars"
+project_id            = "${PROJECT_ID}"
+provisioning_sa_email = "${PROVISIONING_SA_EMAIL}"
+zone                  = "${GEM_GCP_ZONE}"
+region                = "${GEM_GCP_REGION}"
+ar_location           = "${GEM_AR_LOCATION}"
+EOF
+```
+
+### 2. Generate Remote Backend Files (`backend.tf`)
+
+Configure each Terraform module to use your GCS bucket for remote state
+management instead of local disk:
+
+```bash
+for dir in foundation admin-workstation edge-router cluster cloudbuild; do
+  cat <<EOF > "${REPO_ROOT}/terraform/${dir}/backend.tf"
+terraform {
+  backend "gcs" {}
+}
+EOF
+done
+```
+
+At this point you have replicated everything `project-setup.sh` does. To follow
+the standard Terraform workflow, proceed directly to
+[Deploy Foundation and Admin Workstation](../README.md#deploy-foundation-and-admin-workstation)
+in the README.
+
+> [!IMPORTANT]
+> The two sections below document the VPC network, firewall rules, Cloud NAT,
+> and cluster service accounts that `terraform/foundation` manages. Do **not**
+> run the `gcloud` commands below if you plan to run `terraform apply` in
+> `terraform/foundation`, or Terraform will fail with `409 Already Exists`
+> errors on every pre-created resource. Run them only if you are bypassing
+> `terraform/foundation` completely.
+
+## Foundation VPC Network Reference (`terraform/foundation`)
 
 GEM emulates GDC Connected by establishing a fully isolated Virtual Private
 Cloud (VPC) network (`gem-clusters-vpc`).
@@ -221,9 +323,9 @@ isolation.
 
 #### Subnetwork (`gem-clusters-subnet`)
 
-A dedicated private subnet residing in `us-central1` using the CIDR IP block
-`10.10.0.0/24`. This subnet houses the admin workstation and cluster worker
-nodes.
+A dedicated private subnet residing in `${GEM_GCP_REGION}` using the CIDR IP
+block `10.10.0.0/24`. This subnet houses the admin workstation and cluster
+worker nodes.
 
 #### Cloud NAT and Cloud Router
 
@@ -259,7 +361,7 @@ encrypted SSH proxy. We create a firewall rule allowing TCP port 22 ingress
 matching target tags `["http-server", "https-server"]`. Any inbound packet
 originating from outside this range is instantly dropped by GCP.
 
-### Manual Execution
+### Manual Execution (Only When Bypassing `terraform/foundation`)
 
 1. **Create the VPC Network**:
    ```bash
@@ -272,7 +374,7 @@ originating from outside this range is instantly dropped by GCP.
    gcloud compute networks subnets create "gem-clusters-subnet" \
      --project="${PROJECT_ID}" \
      --network="gem-clusters-vpc" \
-     --region="us-central1" \
+     --region="${GEM_GCP_REGION}" \
      --range="10.10.0.0/24"
    ```
 3. **Create the Internal Firewall Rule**:
@@ -298,14 +400,14 @@ originating from outside this range is instantly dropped by GCP.
    gcloud compute routers create "gem-clusters-vpc-router" \
      --project="${PROJECT_ID}" \
      --network="gem-clusters-vpc" \
-     --region="us-central1"
+     --region="${GEM_GCP_REGION}"
    ```
 6. **Create and Bind the Cloud NAT Gateway**:
    ```bash
    gcloud compute routers nats create "gem-clusters-vpc-nat" \
      --project="${PROJECT_ID}" \
      --router="gem-clusters-vpc-router" \
-     --region="us-central1" \
+     --region="${GEM_GCP_REGION}" \
      --auto-allocate-nat-external-ips \
      --nat-all-subnet-ip-ranges
    ```
@@ -318,10 +420,11 @@ originating from outside this range is instantly dropped by GCP.
   `gem-clusters-vpc-nat` listed as active under **Network services
   $\\rightarrow$ Cloud NAT**.
 
-## Spawning the Fleet Registry and GCR IAM Roles
+## Fleet Registry and GCR Service Accounts Reference (`terraform/foundation`)
 
 Running GEM requires two additional dedicated service accounts to manage image
-registries and register control plane gateway endpoints.
+registries and register control plane gateway endpoints. These are also created
+by `terraform/foundation`.
 
 ### Required SAs
 
@@ -354,7 +457,7 @@ registries and register control plane gateway endpoints.
     authenticate through GKE Connect Gateway.
   - `roles/gkehub.admin`: Required to manage GKE Hub memberships.
 
-### Manual Execution
+### Manual Execution (Only When Bypassing `terraform/foundation`)
 
 1. Create the `baremetal-gcr` Service Account:
    ```bash
@@ -413,99 +516,3 @@ registries and register control plane gateway endpoints.
 - Verify both `baremetal-gcr` and `gem-cluster-admin` exist and are assigned
   their respective project IAM role bindings under **IAM and Admin
   $\\rightarrow$ IAM**.
-
-## Local State Configuration (`backend.tf` and `terraform.tfvars`)
-
-Now that the GCP project APIs, storage buckets, service accounts, and VPC
-networks have been created, you must create the local variables and backend
-mapping files inside your cloned repository so Terraform can synchronize remote
-state correctly.
-
-### 1. Generate Local variable Files (`terraform.tfvars`)
-
-Navigate to each Terraform directory and create the required `terraform.tfvars`
-file:
-
-```bash
-# Foundation Var File
-cat <<EOF > "${REPO_ROOT}/terraform/foundation/terraform.tfvars"
-project_id            = "${PROJECT_ID}"
-provisioning_sa_email = "${PROVISIONING_SA_EMAIL}"
-zone                  = "${GEM_GCP_ZONE}"
-region                = "${GEM_GCP_REGION}"
-EOF
-
-# Workstation Var File
-cat <<EOF > "${REPO_ROOT}/terraform/admin-workstation/terraform.tfvars"
-project_id            = "${PROJECT_ID}"
-provisioning_sa_email = "${PROVISIONING_SA_EMAIL}"
-zone                  = "${GEM_GCP_ZONE}"
-region                = "${GEM_GCP_REGION}"
-EOF
-
-# Edge Router Var File
-cat <<EOF > "${REPO_ROOT}/terraform/edge-router/terraform.tfvars"
-project_id            = "${PROJECT_ID}"
-provisioning_sa_email = "${PROVISIONING_SA_EMAIL}"
-zone                  = "${GEM_GCP_ZONE}"
-region                = "${GEM_GCP_REGION}"
-EOF
-
-# Cluster Var File
-cat <<EOF > "${REPO_ROOT}/terraform/cluster/terraform.tfvars"
-project_id            = "${PROJECT_ID}"
-provisioning_sa_email = "${PROVISIONING_SA_EMAIL}"
-cluster_name          = "${CLUSTER_NAME}"
-zone                  = "${GEM_GCP_ZONE}"
-region                = "${GEM_GCP_REGION}"
-hardware_variant      = "g2-small-64gb" # Options: g1-medium, g1-large, g2-small-64gb, g2-small-128gb, g2-medium, g2-large, dev-and-test
-EOF
-
-# Cloud Build Var File
-cat <<EOF > "${REPO_ROOT}/terraform/cloudbuild/terraform.tfvars"
-project_id            = "${PROJECT_ID}"
-provisioning_sa_email = "${PROVISIONING_SA_EMAIL}"
-zone                  = "${GEM_GCP_ZONE}"
-region                = "${GEM_GCP_REGION}"
-ar_location           = "${GEM_AR_LOCATION}"
-EOF
-```
-
-### 2. Generate Remote Backend Files (`backend.tf`)
-
-Configure Terraform to use your newly created GCS bucket for remote state
-management instead of local disk:
-
-```bash
-# Foundation Backend
-cat <<EOF > "${REPO_ROOT}/terraform/foundation/backend.tf"
-terraform {
-  backend "gcs" {}
-}
-EOF
-
-# Workstation Backend
-cat <<EOF > "${REPO_ROOT}/terraform/admin-workstation/backend.tf"
-terraform {
-  backend "gcs" {}
-}
-EOF
-
-# Edge Router Backend
-cat <<EOF > "${REPO_ROOT}/terraform/edge-router/backend.tf"
-terraform {
-  backend "gcs" {}
-}
-EOF
-
-# Cluster Backend
-cat <<EOF > "${REPO_ROOT}/terraform/cluster/backend.tf"
-terraform {
-  backend "gcs" {}
-}
-EOF
-```
-
-Your GCP project is now set up and ready to deploy the foundation and admin
-workstation as detailed in the
-[GEM README](../README.md#deploy-foundation-and-admin-workstation).

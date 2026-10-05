@@ -3,10 +3,8 @@
 Secondary networks give workload pods a second network interface on an isolated
 L2 segment, separate from the primary Cilium pod network. On physical GDC
 Connected hardware these are 802.1Q VLANs trunked from a top-of-rack switch. GEM
-emulates them with a VXLAN overlay mesh across GCE instances.
-
-For the operator's internal design, see
-[gem-network-operator implementation](gem-network-operator-implementation.md).
+emulates them with a VXLAN overlay mesh across GCE instances and reconciles GDC
+networking resources through `gem-network-operator`.
 
 ## Why this exists
 
@@ -148,11 +146,11 @@ their secondary interfaces and nothing reports an error. See
 
 ### Interface and address assignment
 
-| Host              | Primary interface      | Secondary interface        | Secondary address                               |
-| :---------------- | :--------------------- | :------------------------- | :---------------------------------------------- |
-| Cluster nodes     | `vxlan0`               | `gdcenet0.<vlan_id>`       | `<subnet>.<host_octet>/24`, node octets 2, 3, 4 |
-| Admin workstation | `vx-<cluster6>-<vni4>` | `sec-<cluster6>-<vlan_id>` | `<subnet>.100/24`                               |
-| Edge router       | `vx-<cluster6>-<vni4>` | `sec-<cluster6>-<vlan_id>` | The network's `gateway` address                 |
+| Host              | Primary interface      | Secondary interface        | Secondary address                                     |
+| :---------------- | :--------------------- | :------------------------- | :---------------------------------------------------- |
+| Cluster nodes     | `vxlan0`               | `gdcenet0.<vlan_id>`       | `<subnet>.<host_octet>/<prefix>`, node octets 2, 3, 4 |
+| Admin workstation | `vx-<cluster6>-<vni4>` | `sec-<cluster6>-<vlan_id>` | `<subnet>.100/<prefix>`                               |
+| Edge router       | `vx-<cluster6>-<vni4>` | `sec-<cluster6>-<vlan_id>` | The network's `gateway` address with `<prefix>`       |
 
 Nodes keep unqualified names so GDC resources and MetalLB discover them. The
 workstation and edge router attach to every cluster at once, so their interface
@@ -161,13 +159,15 @@ names are cluster-scoped and truncated to fit the 15-character Linux limit.
 The edge router deliberately takes the `gateway` address. It is emulating the
 top-of-rack switch that would be the default gateway on physical hardware, which
 is what makes it able to route between segments and terminate developer tunnels.
+Pods still use their primary `eth0` interface for general internet egress, so
+the edge router applies no outbound NAT masquerade rules on secondary VLANs.
 
 > [!NOTE]
-> Every host except the edge router gets a hardcoded `/24`, because the address
-> is built by taking the first three octets of `subnet` and appending the host
-> octet. The edge router and the `Network` resource use the real prefix. A
-> `subnet` that is not a `/24` therefore produces an inconsistent data plane.
-> Use `/24` segments.
+> Host addresses on the nodes and admin workstation are constructed by taking
+> the first three octets of `subnet` and appending `host_octet` (`2`, `3`, `4`,
+> or `100`) with the subnet's CIDR prefix length. Use `/24` segments (or subnets
+> where the fourth octet is the host portion) so those host offsets fall cleanly
+> inside the subnet.
 
 ### VNI derivation
 
@@ -244,8 +244,8 @@ real GDC manifests but are not read. GEM always emulates the segment as an L2
 macvlan attachment. `gke-gateway-pod-cidr` and `gdce-per-node-ipam-size` are
 inert.
 
-`prefixLength4` is declared as an int-or-string in the CRD but is read as an
-integer. Quote it and it silently falls back to 24.
+`prefixLength4` is declared as an int-or-string in the CRD and is parsed as
+either an integer or a numeric string, falling back to `24` if unset or invalid.
 
 ### The provisioning guardrail
 
@@ -294,22 +294,24 @@ For each `Network`, the operator creates:
 
 - A `NetworkAttachmentDefinition` named after the network **in every
   non-terminating namespace**, configured as `macvlan` in `bridge` mode with
-  `master` set to the host interface, the network's MTU, and `host-local` IPAM
-  whose subnet is derived from `gateway4` and `prefixLength4`. Namespaces
-  created later are backfilled.
+  `master` set to the host interface, the network's MTU,
+  `"capabilities": {"ips": true}`, and `host-local` IPAM whose subnet is derived
+  from `gateway4` and `prefixLength4`. Namespaces created later are backfilled.
 - A MetalLB `IPAddressPool` named `<network>-pool` in `kube-system` with
   `autoAssign: false` and the addresses from the VIP annotation.
 - A MetalLB `L2Advertisement` named `l2advertise-<network>` restricted to that
   host interface.
 
-All three carry an owner reference to the `Network`, and a finalizer removes
-them when it is deleted.
+All three carry an owner reference to the `Network`, and a finalizer
+(`networking.gke.io/network-finalizer`) removes them when it is deleted.
 
 Because `autoAssign` is false, a `Service` must opt in. Annotate it with
-`networking.gke.io/network: <network>` and the operator binds it to that pool. A
-network can also restrict which namespaces may bind, using
-`networking.gke.io/gdce-allowed-namespaces`; a denied binding emits a
-`ServiceBindingDenied` warning.
+`networking.gke.io/network: <network>` and the operator binds it to that pool by
+setting `metallb.universe.tf/address-pool: <network>-pool`. A network can also
+restrict which namespaces may bind using the comma-separated
+`networking.gke.io/gdce-allowed-namespaces` annotation (or `*` for all); a
+denied binding leaves the Service unbound and emits a `ServiceBindingDenied`
+warning event on the `Network`.
 
 ## Attaching a pod
 
@@ -344,8 +346,9 @@ intercepts pod creation and rewrites this into something Multus understands:
    empty) and secondary.
 2. For each secondary interface it allocates an address and injects a
    `k8s.v1.cni.cncf.io/networks` entry carrying an explicit `ips` value. The
-   allocator excludes the network and broadcast addresses, the gateway, a fixed
-   `.2` to `.9` window for node addresses, the MetalLB VIP ranges, any
+   allocator excludes the network and broadcast addresses, the gateway, the
+   reserved host offsets (`.2` to `.9` for cluster nodes, `.100` for the admin
+   workstation, and `.254` for the edge router), the MetalLB VIP ranges, any
    `GKEGatewayCIDR` ranges for that network, and every address already claimed
    in another live pod's annotations.
 3. It rewrites `networking.gke.io/interfaces` to list only the primary
@@ -360,9 +363,6 @@ Constraints worth knowing:
 - `failurePolicy` is `Ignore`. If the operator is down, pods are admitted
   unmutated, so they come up with no secondary interface and no error. A pod
   that is missing `eth1` is the symptom.
-- The node exclusion window is `.2` to `.9`, so it does not cover the admin
-  workstation's `<subnet>.100`. A pod can be handed the workstation's own
-  secondary address.
 
 ## Multi-network Services with the Gateway API
 
@@ -453,15 +453,38 @@ defaults to 80 if you omit it. The operator matches backends on
 `selector.matchLabels` alone.
 
 The operator assigns the Gateway a VIP from the matching `GKEGatewayCIDR`,
-creates a headless `Service` with that address in `externalIPs`, and populates
-an `EndpointSlice` named `<gateway>-slice` with the pods' **secondary**
-addresses, read from their `k8s.v1.cni.cncf.io/network-status`. Only pods that
-are `Running` and `Ready` are included. It also installs a CoreDNS rewrite so
+creates a headless `Service` (`clusterIP: None`) with that address in
+`externalIPs`, and populates an `EndpointSlice` named `<gateway>-slice` with the
+pods' **secondary** addresses, read from their
+`k8s.v1.cni.cncf.io/network-status`. Only pods that are `Running` and have
+`PodReady: True` are included, and backend addresses are deduplicated across all
+bound routes and rules. On deletion, the
+`networking.gke.io/gateway-ip-protection` finalizer removes the dynamic
+`Service` and `EndpointSlice`.
+
+The operator also installs a CoreDNS rewrite so
 `<gateway>.<namespace>.gkegw.cluster.local` resolves to the corresponding
-`svc.cluster.local` name.
+`svc.cluster.local` name, and restarts the `k8s-app=kube-dns` pods in
+`kube-system` whenever the Corefile actually changes.
 
 To pin a Gateway to a specific address rather than letting the operator choose,
 set `spec.addresses[0].value`. That takes precedence over CIDR allocation.
+
+## Operator daemon and CLI flags
+
+`gem-network-operator` is compiled from source onto the admin workstation at
+`/usr/local/bin/gem-network-operator` and runs as a per-cluster systemd service
+(`/etc/systemd/system/gem-network-operator-<cluster>.service`), connecting out
+of band through `KUBECONFIG`.
+
+| Flag                          | Default     | Notes                                                                    |
+| :---------------------------- | :---------- | :----------------------------------------------------------------------- |
+| `--metrics-bind-address`      | `:8080`     | Set to `0` by the systemd unit so multiple cluster instances can coexist |
+| `--health-probe-bind-address` | `:8081`     | Set to `0` by the systemd unit                                           |
+| `--webhook-port`              | `0`         | `0` disables the webhook. The unit derives `9443 + md5(cluster) % 500`   |
+| `--webhook-host`              | `10.10.0.2` | Advertised in the webhook's client URL and certificate SANs              |
+| `--webhook-cert-dir`          | `""`        | Defaults to `/tmp/gem-network-operator-certs-<port>`                     |
+| `--leader-elect`              | `false`     | Leader election ID `gem-network-operator.gke.io`                         |
 
 ## Ordering constraints
 
@@ -603,21 +626,20 @@ chainsaw test --config tests/e2e/chainsaw-configuration.yaml \
 
 ## Known limitations
 
-| Limitation                                                  | Impact                                                                                                                                                   |
-| :---------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| VNIs derive from list position                              | Reordering `secondary_networks` reassigns VNIs for unrelated networks                                                                                    |
-| Networks cannot be added to a live cluster                  | Adding one requires a cluster rebuild                                                                                                                    |
-| The guardrail reports rather than gates                     | Child objects are created even when no host interface exists, so a pod can attach to a network with no data plane                                        |
-| `host-local` IPAM is not partitioned per node               | The webhook normally pre-allocates an address and masks this, but its exclusion window misses the workstation's `.100`, and nothing is reserved per node |
-| Gateway VIP assignment is not real IPAM                     | The first host address of the matching `GKEGatewayCIDR` is always returned, so two Gateways on one CIDR collide unless you pin `spec.addresses`          |
-| Node addresses are always `/24`                             | A non-`/24` `subnet` yields an inconsistent data plane                                                                                                   |
-| NetworkAttachmentDefinitions are created in every namespace | Object count grows with networks multiplied by namespaces, with no opt-in                                                                                |
-| The webhook handles CREATE only                             | Annotating an existing pod does nothing                                                                                                                  |
-| `sec-*` interface names omit the VNI                        | Clusters sharing a six-character prefix collide on shared hosts. See [Edge Router](edge-router.md#multiple-clusters-on-one-edge-router)                  |
+| Limitation                                                  | Impact                                                                                                                                          |
+| :---------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------- |
+| VNIs derive from list position                              | Reordering `secondary_networks` reassigns VNIs for unrelated networks                                                                           |
+| Networks cannot be added to a live cluster                  | Adding one requires a cluster rebuild                                                                                                           |
+| The guardrail reports rather than gates                     | Child objects are created even when no host interface exists, so a pod can attach to a network with no data plane                               |
+| `host-local` IPAM is not partitioned per node               | The webhook pre-allocates conflict-free `ips` at pod admission, while the underlying `host-local` range is unpartitioned across nodes           |
+| Gateway VIP assignment is not real IPAM                     | The first host address of the matching `GKEGatewayCIDR` is always returned, so two Gateways on one CIDR collide unless you pin `spec.addresses` |
+| Host IP octets assume a `/24`-aligned fourth octet          | Node and workstation secondary IPs concatenate the first three octets of `subnet` with `host_octet`                                             |
+| NetworkAttachmentDefinitions are created in every namespace | Object count grows with networks multiplied by namespaces, with no opt-in                                                                       |
+| The webhook handles CREATE only                             | Annotating an existing pod does nothing                                                                                                         |
+| `sec-*` interface names omit the VNI                        | Clusters sharing a six-character prefix collide on shared hosts. See [Edge Router](edge-router.md#multiple-clusters-on-one-edge-router)         |
 
 ## Related documentation
 
-- [gem-network-operator implementation](gem-network-operator-implementation.md)
 - [GEM Networking](gem-networking.md)
 - [Edge Router](edge-router.md)
 - [Admin Workstation](admin-workstation.md)

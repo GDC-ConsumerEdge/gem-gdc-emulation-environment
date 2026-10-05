@@ -29,9 +29,8 @@ The GEM networking architecture consists of three distinct logical layers:
    interfaces. Provisioning of these networks (VLANs, IPAM, MetalLB pools) and
    their Gateway API integration is managed at the Kubernetes level by
    `gem-network-operator`; see
-   [docs/secondary-networks.md](secondary-networks.md) and
-   [docs/gem-network-operator-implementation.md](gem-network-operator-implementation.md)
-   for the full design and implementation detail.
+   [docs/secondary-networks.md](secondary-networks.md) for the full design and
+   implementation detail.
 
 ### Network Architecture
 
@@ -120,7 +119,7 @@ First, the cluster name is passed to `cksum`. This produces a highly distributed
 32-bit unsigned integer representation of the cluster name:
 
 ```math
-\text{Hash} = (\text{CRC32}(\text{CLUSTER\_NAME})
+\text{Hash} = \text{CRC32}(\text{CLUSTER\_NAME})
 ```
 
 <br>
@@ -197,7 +196,7 @@ octets:
 | Admin Workstation  | `.100`        | `10.200.8.100` |
 | Edge Router        | `.254`        | `10.200.8.254` |
 
-### 2. Naming Conventions
+### Naming Conventions
 
 To ensure physical parity, interface names are strictly mapped:
 
@@ -212,7 +211,7 @@ To ensure physical parity, interface names are strictly mapped:
   - Secondary Multus Interfaces: `sec-<truncated_cluster>-<vlan_id>` (e.g.,
     `sec-gemclu-123`)
 
-### 3. MTU Constraints and TCP MSS Clamping
+### MTU Constraints and TCP MSS Clamping
 
 Because GCP VPC enforces an MTU limit of 1460 bytes and VXLAN encapsulation adds
 50 bytes of outer header overhead, the virtual VXLAN interface must use an MTU

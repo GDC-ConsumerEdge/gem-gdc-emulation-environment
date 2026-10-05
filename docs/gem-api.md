@@ -38,7 +38,7 @@ built from, so the number moves whenever GEM is released, whether or not the API
 itself changed. The stable contract for clients is the `/api/v1` path prefix.
 
 Once uvicorn is running, open the interactive docs at
-http://localhost:8080/docs:
+http://localhost:8080/docs.
 
 ### Exploring without touching real infrastructure
 
@@ -194,17 +194,15 @@ curl -N 'localhost:8080/api/v1/operations/gem-cluster-1/logs?stream=true'
 ```
 
 This replays the buffered history first and then closes the stream when the
-operation finishes.
+operation finishes. If the operation ID is not registered in memory and has no
+log file on disk, both standard and streaming requests return `404 Not Found`.
 
 Logs are read from `<GEM_LOG_DIR>/<operation_id>.log` when that file exists.
 
-> [!NOTE]
-> In streaming mode an unknown operation ID is only detected after the response
-> has begun, so you see an aborted stream rather than a clean 404. Check
-> `GET /operations/{id}` first if you receive an error when attempting to stream
-> logs.
-
 ### Cancel a running build
+
+Send a `POST` request to the operation's `cancel` endpoint to stop an in-flight
+build:
 
 ```bash
 curl -s -X POST localhost:8080/api/v1/operations/gem-cluster-1/cancel
@@ -221,6 +219,8 @@ speculatively.
 > clean up before you retry.
 
 ### Destroy an existing cluster
+
+Submit a cluster delete request with the target `cluster_name`:
 
 ```bash
 curl -s -X POST localhost:8080/api/v1/clusters/delete \
@@ -247,6 +247,8 @@ The workstation's operation ID is always `gem-admin-ws` regardless of project or
 zone. The edge router's is its instance name.
 
 ### Inspect a running cluster
+
+Query cluster inventory, node status, and day-2 resources with `GET` requests:
 
 ```bash
 # Fleet memberships, plus anything holding Terraform state
@@ -388,27 +390,29 @@ sequenceDiagram
 
 ## Configuration
 
-Most settings are read from an environment variable of the same name,
-case-insensitive, or from a `.env` file in the working directory.
-`GEM_MOCK_RUNNER` and `GEM_GROUP_VARS_PATH` are the two exceptions. They are
-read straight from the process environment, so putting them in `.env` does
-nothing.
+Settings declared as fields on `Settings` in
+[`config.py`](../api/gem_api/config.py) are read from environment variables of
+the same name (case-insensitive) or from a `.env` file in the working directory.
+Environment variables read in `model_post_init` (`PROJECT_ID`, `GCP_PROJECT`,
+`GEM_GCP_ZONE`, `CLOUDSDK_COMPUTE_ZONE`, `LOG_DIR`, `GEM_MOCK_RUNNER`, and
+`GEM_GROUP_VARS_PATH`) are read from the process environment if the
+corresponding `Settings` field was not already populated.
 
 | Variable               | Default              | Purpose                                                              |
 | :--------------------- | :------------------- | :------------------------------------------------------------------- |
 | `REPO_ROOT`            | The parent of `api/` | Working directory for Terraform and Ansible                          |
 | `GEM_LOG_DIR`          | `/tmp/gem-api/logs`  | Where operation log files are written                                |
-| `LOG_DIR`              | unset                | The same thing, and it wins over `GEM_LOG_DIR` if both are set       |
+| `LOG_DIR`              | unset                | Fallback for `GEM_LOG_DIR` when read from the process environment    |
 | `MAX_LOG_BUFFER_LINES` | `1000`               | In-memory log buffer per operation, and the most a stream can replay |
 | `GEM_MOCK_RUNNER`      | unset                | `true`, `1` or `yes` enables mock mode                               |
 | `GEM_GROUP_VARS_PATH`  | unset                | Pins the manifest path instead of searching for it                   |
 | `DEFAULT_PROJECT_ID`   | unset                | Sets the project directly, skipping the resolution below             |
 | `DEFAULT_ZONE`         | unset                | Sets the zone directly, skipping the resolution below                |
 
-`HOST`, `PORT` and `DEBUG` are only honoured when you run the package directly
-with `python -m gem_api.main`, which is what the container does. Under the
-`uv run uvicorn` command above, pass `--host`, `--port` and `--reload` instead.
-The container also overrides `GEM_LOG_DIR` to `/var/log/gem-api`.
+The container entrypoint runs `uvicorn` with `--host ${HOST:-0.0.0.0}` and
+`--port ${PORT:-8080}`, and sets `GEM_LOG_DIR` to `/var/log/gem-api`. `DEBUG`
+only takes effect when you run `python -m gem_api.main` directly. Under
+`uv run uvicorn`, pass `--host`, `--port` and `--reload` on the command line.
 
 When `GEM_GROUP_VARS_PATH` is unset the service tries
 `ansible/group_vars/all.yaml` under `REPO_ROOT`, then

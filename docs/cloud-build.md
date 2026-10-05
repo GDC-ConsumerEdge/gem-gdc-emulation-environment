@@ -123,9 +123,9 @@ won't find the image.
 
 ## Building a cluster
 
-With setup out of the way, a cluster build is one command. `GEM_GCP_ZONE` comes
-from your [project setup](project-setup.md) environment; if it is unset the
-build fails in its `setup` step on an empty zone.
+Submit a cluster build with `gcloud builds submit`. `GEM_GCP_ZONE` comes from
+your [project setup](project-setup.md) environment; if it is unset the build
+fails in its `setup` step on an empty zone:
 
 ```bash
 gcloud builds submit \
@@ -169,12 +169,12 @@ set:
 | `_SSH_SECRET_VERSION`                        | `latest`                     | Pin to a numeric version to roll back a rotated key                                                           |
 | `_TF_STATE_BUCKET`, `_PROVISIONING_SA_EMAIL` | Derived from `${PROJECT_ID}` | Resolved at runtime to `gem-${PROJECT_ID}-tfstate` and `tf-provisioner@${PROJECT_ID}.iam.gserviceaccount.com` |
 
-> [!WARNING]
-> Overriding `_TF_STATE_BUCKET` will break the build. The Terraform steps honour
-> it, but `ansible/inventory.sh` hardcodes `gem-${PROJECT_ID}-tfstate`, so the
-> `ansible-create-cluster` step would build its inventory from a different
-> bucket and find no hosts. A non-default state bucket is not supported end to
-> end.
+> [!NOTE]
+> Both the Terraform steps and `ansible/inventory.sh` read `TF_STATE_BUCKET`
+> (defaulting to `gem-${PROJECT_ID}-tfstate`), and the pipeline forwards that
+> variable to the admin workstation over SSH. If you override
+> `_TF_STATE_BUCKET`, pass the same value on teardown and when running
+> `ansible/inventory.sh` manually.
 
 Teardown accepts the same substitutions, minus the three that only mean
 something when you're creating a cluster: `_HARDWARE_VARIANT`,
