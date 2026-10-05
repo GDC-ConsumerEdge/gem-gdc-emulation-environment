@@ -13,16 +13,17 @@ hardware.
 
 ## Project Type and Tooling
 
-GEM is an infrastructure-as-code project, not an application codebase. It is
-built from Terraform (`terraform/`), Ansible (`ansible/`), Bash (`scripts/`,
-`cloudbuild/`), and Cloud Build pipelines.
+GEM is an infrastructure-as-code project built from Terraform (`terraform/`),
+Ansible (`ansible/`), Go (`operators/gem-network-operator/`), Python (`api/`),
+Bash (`scripts/`, `cloudbuild/`), and Cloud Build pipelines.
 
 Validate changes locally without provisioning real infrastructure:
 
 - `pre-commit run --all-files`: formatting, linting, license headers, and secret
   scanning.
-- `./scripts/run-unit-tests.sh`: Terraform `terraform test` plus Ansible check
-  playbooks.
+- `./scripts/run-unit-tests.sh`: runs all four offline test suites (Terraform
+  `terraform test` across all five modules, Ansible check-mode playbooks, Go
+  operator tests, and Python API `pytest` suite).
 
 Never run `terraform apply` or live Ansible plays against real GCP resources to
 validate a change unless approved. Both operations create or mutate live
@@ -76,18 +77,18 @@ GEM is built from independent components, each provisioned by Terraform and
 configured by Ansible. Start here to find the right code and the deep-dive doc
 for the area you are changing.
 
-| Component                                                                 | Primary code                                                                       | Deep-dive doc                                                                                                                                        |
-| :------------------------------------------------------------------------ | :--------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Foundation (VPC `gem-clusters-vpc`, subnets, Cloud NAT, APIs)             | `terraform/foundation`                                                             | [docs/gem-networking.md](docs/gem-networking.md)                                                                                                     |
-| Admin Workstation (`gem-admin-ws`, runs `bmctl`)                          | `terraform/admin-workstation`, `ansible/roles/workstation`                         | [docs/admin-workstation.md](docs/admin-workstation.md)                                                                                               |
-| GEM Clusters (3-node GDC-like environments)                               | `terraform/cluster`, `ansible/roles/{cluster_nodes,gdc_deploy,gvisor,gvisor_node}` | [docs/project-setup.md](docs/project-setup.md)                                                                                                       |
-| Edge Router (Traefik proxy to MetalLB VIPs)                               | `terraform/edge-router`, `ansible/roles/edge_router`                               | [docs/edge-router.md](docs/edge-router.md)                                                                                                           |
-| Networking and VXLAN overlay                                              | `ansible/roles/{vxlan,secondary_networks}`                                         | [docs/gem-networking.md](docs/gem-networking.md)                                                                                                     |
-| Secondary Networks and Multi-Network Gateway API (`gem-network-operator`) | `operators/gem-network-operator`, `ansible/roles/secondary_networks`               | [docs/secondary-networks.md](docs/secondary-networks.md), [docs/gem-network-operator-implementation.md](docs/gem-network-operator-implementation.md) |
-| Storage (TopoLVM + Gatekeeper mutations)                                  | `ansible/roles/{topolvm,gatekeeper}`, `policies/storage`                           | [docs/storage.md](docs/storage.md)                                                                                                                   |
-| Cloud Build pipelines                                                     | `cloudbuild/`, `terraform/cloudbuild`                                              | [docs/cloud-build.md](docs/cloud-build.md)                                                                                                           |
-| GEM REST API (FastAPI orchestration service)                              | `api/`                                                                             | [docs/gem-api.md](docs/gem-api.md)                                                                                                                   |
-| Project / GCP setup                                                       | `project-setup.sh`                                                                 | [docs/project-setup.md](docs/project-setup.md)                                                                                                       |
+| Component                                                                 | Primary code                                                                       | Deep-dive doc                                            |
+| :------------------------------------------------------------------------ | :--------------------------------------------------------------------------------- | :------------------------------------------------------- |
+| Foundation (VPC `gem-clusters-vpc`, subnets, Cloud NAT, APIs)             | `terraform/foundation`                                                             | [docs/gem-networking.md](docs/gem-networking.md)         |
+| Admin Workstation (`gem-admin-ws`, runs `bmctl`)                          | `terraform/admin-workstation`, `ansible/roles/workstation`                         | [docs/admin-workstation.md](docs/admin-workstation.md)   |
+| GEM Clusters (3-node GDC-like environments)                               | `terraform/cluster`, `ansible/roles/{cluster_nodes,gdc_deploy,gvisor,gvisor_node}` | [docs/project-setup.md](docs/project-setup.md)           |
+| Edge Router (SSH tunnel gateway to MetalLB VIPs and overlays)             | `terraform/edge-router`, `ansible/edge-router.yaml`, `scripts/gem-tunnel.sh`       | [docs/edge-router.md](docs/edge-router.md)               |
+| Networking and VXLAN overlay                                              | `ansible/roles/{vxlan,secondary_networks}`                                         | [docs/gem-networking.md](docs/gem-networking.md)         |
+| Secondary Networks and Multi-Network Gateway API (`gem-network-operator`) | `operators/gem-network-operator`, `ansible/roles/secondary_networks`               | [docs/secondary-networks.md](docs/secondary-networks.md) |
+| Storage (TopoLVM + Gatekeeper mutations)                                  | `ansible/roles/{topolvm,gatekeeper}`, `policies/storage`                           | [docs/storage.md](docs/storage.md)                       |
+| Cloud Build pipelines                                                     | `cloudbuild/`, `terraform/cloudbuild`                                              | [docs/cloud-build.md](docs/cloud-build.md)               |
+| GEM REST API (FastAPI orchestration service)                              | `api/`                                                                             | [docs/gem-api.md](docs/gem-api.md)                       |
+| Project / GCP setup                                                       | `project-setup.sh`                                                                 | [docs/project-setup.md](docs/project-setup.md)           |
 
 ## Constraints and Gotchas
 
@@ -106,9 +107,11 @@ Networking (see [docs/gem-networking.md](docs/gem-networking.md)):
   hosts (workstation, edge router) use `vx-<truncated_cluster>-<vni>` and
   `sec-<truncated_cluster>-<vlan_id>`. Do not rename without updating every
   consumer.
-- **Hostname Assumption**: The VXLAN scripts assume hostnames end in a number
-  (e.g., `node1`) to derive IP octets. Do not change node naming without
-  updating the scripts.
+- **Host Octet Assignment**: `ansible/inventory.sh` emits `host_octet` in each
+  host's hostvars (`2`, `3`, `4` for `node1`–`node3`, `100` for `gem_admin_ws`,
+  and `254` for `edge_router_host`), and the `vxlan` role falls back to parsing
+  the trailing digit of `inventory_hostname` when `host_octet` is unset. Do not
+  change node naming without updating `ansible/inventory.sh` and `vxlan`.
 - **`gem-network-operator` runs per-cluster on the shared Admin Workstation**:
   Multiple clusters' operator instances coexist on one host, so the systemd unit
   disables metrics/health-probe binding
@@ -135,10 +138,9 @@ Storage (see [docs/storage.md](docs/storage.md)):
   (`terraform/cluster/cluster-nodes.tf`) and the TopoLVM partition created by
   the Ansible `cluster_nodes` role. It is defined once, as a Terraform variable:
   `terraform/cluster/outputs.tf` exports it and `ansible/inventory.sh` passes it
-  to Ansible as a host var. Do not add it to `group_vars` or pass it with `-e`,
-  which would override the Terraform value and leave a gap or overlap on the
-  disk. If the output is missing from state, `get_tf_output` returns an empty
-  string and the Ansible `parted` call fails.
+  to Ansible as a host var (defaulting to `"100GB"` if missing from state). Do
+  not add it to `group_vars` or pass it with `-e`, which would override the
+  Terraform value and leave a gap or overlap on the disk.
 
 Documentation (see [skills/technical-writer.md](skills/technical-writer.md) for
 the full style):

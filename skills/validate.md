@@ -1,9 +1,9 @@
 # Validate a change
 
 How to check a GEM change locally without provisioning real infrastructure. GEM
-is infrastructure-as-code (Terraform, Ansible, Bash, Cloud Build), so validation
-means linting, formatting, and **dry** unit tests — never creating or mutating
-real GCP resources. The same procedure runs in CI
+is built from Terraform, Ansible, Go, Python, Bash, and Cloud Build, so
+validation means linting, formatting, and **dry** unit tests, never creating or
+mutating real GCP resources. The same procedure runs in CI
 (`.github/workflows/pr-validations.yml`).
 
 ## Hard rule
@@ -23,10 +23,11 @@ These provision or mutate billable infrastructure. Validation is read-only.
    pre-commit run --all-files
    ```
 
-   This covers trailing whitespace, end-of-file, YAML lint/format, secret
-   scanning (gitleaks), license headers (addlicense, which inserts missing
-   headers automatically), shellcheck, ansible-lint, and Terraform
-   `fmt`/`validate`/`tflint`. The output must be pristine.
+   This covers trailing whitespace, end-of-file, YAML lint/format, Markdown
+   format, secret scanning (gitleaks), license headers (addlicense, which
+   inserts missing headers automatically), shellcheck, ansible-lint, ruff,
+   golangci-lint, and Terraform `fmt`/`validate`/`tflint`. The output must be
+   pristine.
 
 2. Run the project unit tests:
 
@@ -34,9 +35,19 @@ These provision or mutate billable infrastructure. Validation is read-only.
    ./scripts/run-unit-tests.sh
    ```
 
-   This copies `terraform/cluster` to a temp dir, removes `backend.tf` so the
-   GCS backend is bypassed, runs `terraform test`, then runs the Ansible
-   render/validation playbooks under `ansible/tests/`. It does not contact GCP.
+   This runs four offline suites:
+
+   - `--terraform`: copies each module under `terraform/` to a temporary
+     directory, strips `backend.tf` so the GCS backend is bypassed, and runs
+     `terraform test`.
+   - `--ansible`: runs the four check-mode playbooks under `ansible/tests/`
+     (covering GDC cluster template rendering, parameter validation, VXLAN
+     rendering, and component templates/helper scripts).
+   - `--go`: runs `go test -v -cover ./...` in
+     `operators/gem-network-operator/`.
+   - `--python`: runs `uv run --frozen pytest -v --cov=gem_api` in `api/`.
+
+   None of these suites contact GCP.
 
 ## Targeted validation
 
@@ -57,6 +68,6 @@ pre-commit run ansible-lint --all-files
 
 ## Interpreting results
 
-Treat any non-pristine output as a failure to fix, not noise — lint, format, and
+Treat any non-pristine output as a failure to fix, not noise. Lint, format, and
 test output frequently carry the actual problem. Report failures with their
 output rather than summarizing them away.
