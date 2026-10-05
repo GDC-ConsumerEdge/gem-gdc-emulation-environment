@@ -16,12 +16,12 @@
   become: true
   become_user: "{{ gem_user }}"
   vars:
-    # Ensure these are passed via --extra-vars or defined in group_vars
+    cluster_name: "{{ tf_cluster_name }}"
     kubeconfig_path: "{{ gem_home }}/bmctl-workspace/{{ cluster_name | default('UNSET') }}/{{ cluster_name | default('UNSET') }}-kubeconfig"
   tasks:
     - name: Ensure cluster_name is provided
       ansible.builtin.fail:
-        msg: "The 'cluster_name' variable is required. Please pass it via --extra-vars (e.g. -e 'cluster_name=my-cluster')"
+        msg: "The 'cluster_name' variable is required. Set CLUSTER_NAME in your environment or pass -e 'cluster_name=my-cluster'."
       when: cluster_name is undefined or cluster_name | length == 0
     - name: Check if kubeconfig exists
       ansible.builtin.stat:
@@ -54,6 +54,7 @@
   hosts: workstation:edge_router
   become: true
   vars:
+    cluster_name: "{{ tf_cluster_name }}"
     firewall_service: "vxlan-tcpmss-{{ cluster_name }}.service"
     operator_service: "gem-network-operator-{{ cluster_name }}.service"
     vx_iface: "{{ vxlan_primary_iface }}"
@@ -105,12 +106,16 @@
         executable: /bin/bash
       changed_when: true
       when: inventory_hostname in groups['workstation']
+    - name: Find declarative systemd-networkd configuration files for cluster
+      ansible.builtin.find:
+        paths: /etc/systemd/network
+        patterns: "*{{ cluster_slug }}*"
+      register: cleanup_networkd_files
     - name: Remove declarative systemd-networkd configuration files
-      ansible.builtin.shell: >
-        rm -f /etc/systemd/network/*{{ cluster_slug }}*
-      args:
-        executable: /bin/bash
-      changed_when: true
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ cleanup_networkd_files.files }}"
     - name: Restart systemd-networkd to synchronize active kernel netdevs
       ansible.builtin.systemd:
         name: systemd-networkd

@@ -94,6 +94,7 @@ get_tf_json() {
 }
 
 # Fetch Admin Workstation details (Required)
+ENV_GEM_GCP_ZONE="${GEM_GCP_ZONE:-}"
 GEM_WS_NAME=$(get_tf_output "admin-workstation" "workstation_name")
 GEM_WS_INTERNAL_IP=$(get_tf_output "admin-workstation" "workstation_ip")
 GCP_PROJECT=$(get_tf_output "admin-workstation" "project_id")
@@ -107,7 +108,7 @@ GCP_PROJECT_NUMBER=$(get_tf_output "foundation" "project_number")
 
 # If Terraform state did not have the zone, fallback to the environment variable.
 if [ -z "$GEM_GCP_ZONE" ]; then
-  GEM_GCP_ZONE="${GEM_GCP_ZONE:-}"
+  GEM_GCP_ZONE="$ENV_GEM_GCP_ZONE"
 fi
 
 if [[ ! "${GEM_GCP_ZONE:-}" =~ ^[a-z]+-[a-z0-9]+-[a-z]$ ]]; then

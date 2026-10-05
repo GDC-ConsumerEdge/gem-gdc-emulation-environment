@@ -11,11 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-- name: Check if Traefik is installed
-  ansible.builtin.command: which traefik
-  register: workstation_traefik_check
-  failed_when: false
-  changed_when: false
 - name: Download and install Traefik
   ansible.builtin.unarchive:
     src: https://github.com/traefik/traefik/releases/download/v3.0.0/traefik_v3.0.0_linux_amd64.tar.gz
@@ -27,16 +22,10 @@
     path: /usr/local/bin/traefik
     mode: "0755"
 - name: Grant Traefik capability to bind privileged ports
-  ansible.builtin.shell: |
-    set -o pipefail
-    if ! getcap /usr/local/bin/traefik | grep -q "cap_net_bind_service+ep"; then
-      setcap 'cap_net_bind_service=+ep' /usr/local/bin/traefik
-      echo "CHANGED"
-    fi
-  args:
-    executable: /bin/bash
-  register: workstation_setcap_output
-  changed_when: '"CHANGED" in workstation_setcap_output.stdout'
+  community.general.capabilities:
+    path: /usr/local/bin/traefik
+    capability: cap_net_bind_service+ep
+    state: present
   become: true
 - name: Create Traefik configuration directory
   ansible.builtin.file:

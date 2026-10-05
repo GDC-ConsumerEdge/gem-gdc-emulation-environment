@@ -49,31 +49,24 @@
     - /var/log/runsc/panic
     - /var/log/runsc/debug
 - name: Create cluster storage partition
-  ansible.builtin.shell:
-    cmd: |
-      set -o pipefail
-      # Only create partition 2 if it doesn't already exist
-      if ! parted -s /dev/disk/by-id/google-data print | grep -q "^ 2"; then
-        parted -s /dev/disk/by-id/google-data mkpart topolvm {{ node_storage_size }} 100%
-        udevadm settle # Wait for udev to populate the partition device
-        echo "CHANGED"
-      fi
-  args:
-    executable: /bin/bash
-  register: cluster_nodes_partition_output
-  changed_when: '"CHANGED" in cluster_nodes_partition_output.stdout'
+  community.general.parted:
+    device: /dev/disk/by-id/google-data
+    number: 2
+    label: gpt
+    name: topolvm
+    part_start: "{{ node_storage_size }}"
+    part_end: 100%
+    state: present
+  become: true
+- name: Wait for udev to populate cluster storage partition device
+  ansible.builtin.command: udevadm settle
+  changed_when: false
   become: true
 - name: Create Volume Group topolvm-vg
-  ansible.builtin.shell:
-    cmd: |
-      if ! vgs topolvm-vg >/dev/null 2>&1; then
-        vgcreate -y topolvm-vg /dev/disk/by-id/google-data-part2
-        echo "CHANGED"
-      fi
-  args:
-    executable: /bin/bash
-  register: cluster_nodes_vg_output
-  changed_when: '"CHANGED" in cluster_nodes_vg_output.stdout'
+  community.general.lvg:
+    vg: topolvm-vg
+    pvs: /dev/disk/by-id/google-data-part2
+    state: present
   become: true
 - name: Ensure GEM platform user exists
   ansible.builtin.user:
