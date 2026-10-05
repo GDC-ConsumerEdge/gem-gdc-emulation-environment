@@ -50,16 +50,7 @@ spec:
                   - condition: "False"
                     reason: ReconcileFinished
                     type: reconciling
-      cleanup:
-        - patch:
-            resource:
-              apiVersion: networking.gke.io/v1alpha1
-              kind: ClusterDNS
-              metadata:
-                name: default
-              spec:
-                domains: null
-                upstreamNameservers: null
+      cleanup: []
 
     # Verify CoreDNS ConfigMap in kube-system reflects Corefile configuration.
     - name: 2. Verify CoreDNS ConfigMap In Kube-System
@@ -100,3 +91,28 @@ spec:
               - check:
                   ($error != null): true
                   (contains($error || '', 'there can only be one ClusterDNS') || contains($error || '', 'denied')): true
+
+    # Restore ClusterDNS/default to its baseline configuration.
+    - name: 5. Restore Default ClusterDNS Configuration
+      try:
+        - patch:
+            resource:
+              apiVersion: networking.gke.io/v1alpha1
+              kind: ClusterDNS
+              metadata:
+                name: default
+              spec:
+                domains: null
+                upstreamNameservers: null
+        - assert:
+            timeout: 30s
+            resource:
+              apiVersion: networking.gke.io/v1alpha1
+              kind: ClusterDNS
+              metadata:
+                name: default
+              status:
+                conditions:
+                  - condition: "False"
+                    reason: ReconcileFinished
+                    type: reconciling
