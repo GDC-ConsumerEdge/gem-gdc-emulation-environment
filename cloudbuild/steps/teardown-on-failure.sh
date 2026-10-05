@@ -37,30 +37,6 @@ fi
 
 echo "⚠️  Failure detected ($(cat /workspace/state/failed-stage)); tearing down ${CLUSTER_NAME}."
 
-install -m 700 -d /root/.ssh
-install -m 600 /workspace/.ssh/google_compute_engine /root/.ssh/google_compute_engine
-[[ -f /workspace/.ssh/config ]] && install -m 600 /workspace/.ssh/config /root/.ssh/config
-
-cd ansible
-# Best-effort: cleanup needs the workstation reachable and the cluster far
-# enough along to have a kubeconfig.
-ansible-playbook cleanup.yaml -e "cluster_name=${CLUSTER_NAME}" || true
-cd ..
-
-backend_args=(
-  -backend-config="bucket=${TF_STATE_BUCKET}"
-  -backend-config="prefix=clusters/${CLUSTER_NAME}/state"
-)
-destroy_args=(
-  -auto-approve
-  -input=false
-  -var="project_id=${PROJECT_ID}"
-  -var="cluster_name=${CLUSTER_NAME}"
-)
-if [[ -n "${PROVISIONING_SA_EMAIL}" ]]; then
-  backend_args+=(-backend-config="impersonate_service_account=${PROVISIONING_SA_EMAIL}")
-  destroy_args+=(-var="provisioning_sa_email=${PROVISIONING_SA_EMAIL}")
-  export GOOGLE_IMPERSONATE_SERVICE_ACCOUNT="${PROVISIONING_SA_EMAIL}"
-fi
-terraform -chdir=terraform/cluster init "${backend_args[@]}" || true
-terraform -chdir=terraform/cluster destroy "${destroy_args[@]}" || true
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+bash "${SCRIPT_DIR}/ansible-cleanup.sh" || true
+bash "${SCRIPT_DIR}/tf-destroy.sh" || true

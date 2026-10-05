@@ -38,11 +38,10 @@ if [[ -n "${PROVISIONING_SA_EMAIL}" ]]; then
   export GOOGLE_IMPERSONATE_SERVICE_ACCOUNT="${PROVISIONING_SA_EMAIL}"
 fi
 
-if ! terraform -chdir=terraform/cluster init "${backend_args[@]}"; then
-  echo "tf-init" >/workspace/state/failed-stage
-  exit 1
-fi
-if ! terraform -chdir=terraform/cluster apply "${apply_args[@]}"; then
-  echo "tf-apply" >/workspace/state/failed-stage
-  exit 1
-fi
+echo "tf-init" >/workspace/state/failed-stage
+terraform -chdir=terraform/cluster init "${backend_args[@]}"
+
+echo "tf-apply" >/workspace/state/failed-stage
+terraform -chdir=terraform/cluster apply "${apply_args[@]}"
+
+rm -f /workspace/state/failed-stage

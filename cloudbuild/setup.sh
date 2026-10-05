@@ -2,7 +2,7 @@
 # Copyright 2026 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the Lqicense.
+# you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
 #     https://www.apache.org/licenses/LICENSE-2.0
@@ -25,6 +25,7 @@ REQUIRED_ENV_VARS=(
   "PROJECT_ID"
   "TF_STATE_BUCKET"
   "PROVISIONING_SA_EMAIL"
+  "GEM_GCP_ZONE"
 )
 
 for var in "${REQUIRED_ENV_VARS[@]}"; do
@@ -33,6 +34,13 @@ for var in "${REQUIRED_ENV_VARS[@]}"; do
     exit 1
   fi
 done
+
+if [[ ! "${GEM_GCP_ZONE}" =~ ^[a-z]+-[a-z0-9]+-[a-z]$ ]]; then
+  echo "🚫 ERROR: Invalid GEM_GCP_ZONE '${GEM_GCP_ZONE}'. Provide a valid GCP zone (e.g. 'us-east1-a')." >&2
+  exit 1
+fi
+GEM_GCP_REGION="${GEM_GCP_ZONE%-*}"
+GEM_AR_LOCATION="${GEM_AR_LOCATION:-$GEM_GCP_REGION}"
 
 REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
@@ -48,7 +56,10 @@ echo -e "\n🔄 Applying terraform/cloudbuild..."
 # project-setup.sh has been re-run to generate terraform.tfvars.
 terraform -chdir="${REPO_ROOT}/terraform/cloudbuild" apply -auto-approve \
   -var="project_id=${PROJECT_ID}" \
-  -var="provisioning_sa_email=${PROVISIONING_SA_EMAIL}"
+  -var="provisioning_sa_email=${PROVISIONING_SA_EMAIL}" \
+  -var="zone=${GEM_GCP_ZONE}" \
+  -var="region=${GEM_GCP_REGION}" \
+  -var="ar_location=${GEM_AR_LOCATION}"
 
 BUILDER_SA_EMAIL=$(terraform -chdir="${REPO_ROOT}/terraform/cloudbuild" output -raw builder_sa_email)
 AR_REPO=$(terraform -chdir="${REPO_ROOT}/terraform/cloudbuild" output -raw artifact_registry_repo)

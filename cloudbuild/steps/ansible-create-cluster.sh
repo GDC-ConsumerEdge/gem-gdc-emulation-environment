@@ -40,8 +40,7 @@ if [[ -n "${EMULATE_GDC_VERSION}" ]]; then
   extra_vars+=(--extra-vars "emulate_gdc_version=${EMULATE_GDC_VERSION}")
 fi
 
+echo "ansible-create-cluster" >/workspace/state/failed-stage
 cd ansible
-if ! ansible-playbook create-cluster.yaml "${extra_vars[@]}"; then
-  echo "ansible-create-cluster" >/workspace/state/failed-stage
-  exit 1
-fi
+ansible-playbook create-cluster.yaml "${extra_vars[@]}"
+rm -f /workspace/state/failed-stage

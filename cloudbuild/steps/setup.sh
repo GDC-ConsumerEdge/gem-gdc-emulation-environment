@@ -62,7 +62,7 @@ echo "GEM_GCP_REGION     = ${GEM_GCP_REGION}"
 # Ansible playbooks and ansible/ansible.cfg expect.
 mkdir -p /workspace/.ssh
 chmod 700 /workspace/.ssh
-printf '%s' "${SSH_PRIVATE_KEY}" >/workspace/.ssh/google_compute_engine
+printf '%s\n' "${SSH_PRIVATE_KEY}" >/workspace/.ssh/google_compute_engine
 chmod 600 /workspace/.ssh/google_compute_engine
 
 # Disable strict host checking for direct ssh/scp invocations (bmctl, etc.)
