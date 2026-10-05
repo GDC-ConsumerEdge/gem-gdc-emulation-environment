@@ -26,8 +26,7 @@ variable "zone" {
 
 }
 
-# This variable is used by the Ansible playbooks
-# tflint-ignore: terraform_unused_declarations
+# This variable is used by the provider impersonation block and Ansible playbooks
 variable "provisioning_sa_email" {
   type    = string
   default = ""
@@ -37,20 +36,24 @@ variable "cluster_name" {
   type    = string
   default = "gem-cluster-1"
   validation {
-    condition     = length(var.cluster_name) <= 26
-    error_message = "🚫 ERROR: The cluster_name value must be 26 characters or fewer to prevent GCE VM hostnames from exceeding the strict 63-character Kubernetes metadata label limits."
+    condition     = length(var.cluster_name) <= 26 && (length(var.cluster_name) + length(var.zone) + length(var.project_id) + 15) <= 63
+    error_message = "🚫 ERROR: The cluster_name value must be 26 characters or fewer and the combined node FQDN (<cluster_name>-<node>.<zone>.c.<project_id>.internal) must not exceed 63 characters."
   }
 }
 
 variable "bmctl_version" {
   type    = string
-  default = "1.33.300-gke.60"
+  default = "1.34.100-gke.97"
 }
 
 variable "hardware_variant" {
   type        = string
   description = "The target GDC hardware offering variant to emulate (see hardware-variants.tf for available options)."
   default     = "g2-small-64gb"
+  validation {
+    condition     = contains(keys(local.hardware_variants), var.hardware_variant)
+    error_message = "🚫 ERROR: The hardware_variant value '${var.hardware_variant}' must be one of: ${join(", ", keys(local.hardware_variants))}."
+  }
 }
 
 variable "gce_network" {
@@ -61,19 +64,6 @@ variable "gce_network" {
 variable "gce_subnetwork" {
   type    = string
   default = "gem-clusters-subnet"
-}
-
-# tflint-ignore: terraform_unused_declarations
-variable "gem_user" {
-  type    = string
-  default = "gdc"
-}
-
-# tflint-ignore: terraform_unused_declarations
-variable "ssh_public_key" {
-  type        = string
-  description = "The public SSH key to add to the gdc user's authorized_keys."
-  default     = ""
 }
 
 variable "node_storage_size" {

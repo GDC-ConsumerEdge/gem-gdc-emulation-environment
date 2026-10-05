@@ -13,27 +13,11 @@
 # limitations under the License.
 
 output "cluster_nodes_ips" {
-  value = {
-    node1 = google_compute_instance.gdc_vms["node1"].network_interface[0].network_ip
-    node2 = google_compute_instance.gdc_vms["node2"].network_interface[0].network_ip
-    node3 = google_compute_instance.gdc_vms["node3"].network_interface[0].network_ip
-  }
+  value = { for k, v in google_compute_instance.gdc_vms : k => v.network_interface[0].network_ip }
 }
 
 output "cluster_nodes_names" {
-  value = {
-    node1 = google_compute_instance.gdc_vms["node1"].name
-    node2 = google_compute_instance.gdc_vms["node2"].name
-    node3 = google_compute_instance.gdc_vms["node3"].name
-  }
-}
-
-output "workstation_name" {
-  value = data.google_compute_instance.gem_admin_ws.name
-}
-
-output "workstation_ip" {
-  value = data.google_compute_instance.gem_admin_ws.network_interface[0].network_ip
+  value = { for k, v in google_compute_instance.gdc_vms : k => v.name }
 }
 
 output "cluster_name" { value = var.cluster_name }
