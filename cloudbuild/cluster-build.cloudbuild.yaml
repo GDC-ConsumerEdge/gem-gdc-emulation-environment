@@ -67,8 +67,11 @@ availableSecrets:
 
 steps:
   # Setup the Cloud Build environment for downstream steps.
+  # Uses the pre-cached Cloud Build gcloud image so missing/invalid substitutions
+  # (such as _AR_LOCATION or _GEM_GCP_ZONE) fail fast in setup.sh instead of
+  # failing to pull the builder image.
   - id: setup
-    name: ${_AR_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/builder:${_BUILDER_TAG}
+    name: gcr.io/cloud-builders/gcloud
     entrypoint: bash
     env:
       - "PROJECT_ID=${PROJECT_ID}"
@@ -79,6 +82,7 @@ steps:
       - "HARDWARE_VARIANT=${_HARDWARE_VARIANT}"
       - "DESTROY_ON_FAILURE=${_DESTROY_ON_FAILURE}"
       - "GEM_GCP_ZONE=${_GEM_GCP_ZONE}"
+      - "AR_LOCATION=${_AR_LOCATION}"
     secretEnv: ["SSH_PRIVATE_KEY"]
     args: ["cloudbuild/steps/setup.sh"]
 

@@ -45,7 +45,7 @@ GEM_AR_LOCATION="${GEM_AR_LOCATION:-$GEM_GCP_REGION}"
 REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
 echo -e "\n🔄 Initializing terraform/cloudbuild..."
-terraform -chdir="${REPO_ROOT}/terraform/cloudbuild" init \
+terraform -chdir="${REPO_ROOT}/terraform/cloudbuild" init -upgrade \
   -backend-config="bucket=${TF_STATE_BUCKET}" \
   -backend-config="prefix=cloudbuild/state" \
   -backend-config="impersonate_service_account=${PROVISIONING_SA_EMAIL}"
@@ -96,7 +96,7 @@ cat <<EOF
 
 Next steps:
 
-🧰 Build the Cloud Build builder container image. This is a one-time requirement, or when the Dockerfile changes:
+🔨 Build the Cloud Build builder container image. This is a one-time requirement, or when the Dockerfile changes:
 
 gcloud builds submit \\
   --config=${REPO_ROOT}/cloudbuild/builder/cloudbuild.yaml \\

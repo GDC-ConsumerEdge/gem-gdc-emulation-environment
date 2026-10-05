@@ -19,11 +19,22 @@
 
 set -euo pipefail
 
+if [[ -z "${CLUSTER_NAME:-}" ]]; then
+    echo "🚫 ERROR: Missing _CLUSTER_NAME substitution. Pass --substitutions=_CLUSTER_NAME=<name>." >&2
+    exit 1
+fi
+
 if [[ ! "${GEM_GCP_ZONE:-}" =~ ^[a-z]+-[a-z0-9]+-[a-z]$ ]]; then
-    echo "🚫 ERROR: Invalid or missing GEM_GCP_ZONE. Please provide a valid GCP zone (e.g. 'us-east1-a')." >&2
+    echo "🚫 ERROR: Invalid or missing _GEM_GCP_ZONE '${GEM_GCP_ZONE:-}'. Pass --substitutions=_GEM_GCP_ZONE=<zone> (e.g. 'us-east1-a')." >&2
     exit 1
 fi
 GEM_GCP_REGION="${GEM_GCP_ZONE%-*}"
+
+if [[ ! "${AR_LOCATION:-}" =~ ^[a-z]+(-[a-z0-9]+)*$ ]]; then
+    echo "🚫 ERROR: Invalid or missing _AR_LOCATION '${AR_LOCATION:-}'. Pass --substitutions=_AR_LOCATION=<location> (e.g. '${GEM_GCP_REGION}')." >&2
+    exit 1
+fi
+
 GEM_TF_STATE_LOCATION="${GEM_TF_STATE_LOCATION_IN:-$GEM_GCP_REGION}"
 
 TF_STATE_BUCKET="${TF_STATE_BUCKET_IN:-gem-${PROJECT_ID}-tfstate}"
@@ -45,6 +56,7 @@ export DESTROY_ON_FAILURE="${DESTROY_ON_FAILURE:-false}"
 export GEM_GCP_ZONE="${GEM_GCP_ZONE}"
 export GEM_GCP_REGION="${GEM_GCP_REGION}"
 export GEM_TF_STATE_LOCATION="${GEM_TF_STATE_LOCATION}"
+export AR_LOCATION="${AR_LOCATION}"
 export TF_VAR_zone="${GEM_GCP_ZONE}"
 export TF_VAR_region="${GEM_GCP_REGION}"
 ENV
@@ -57,6 +69,7 @@ echo "HARDWARE_VARIANT   = ${HARDWARE_VARIANT:-g2-small-64gb}"
 echo "DESTROY_ON_FAILURE = ${DESTROY_ON_FAILURE:-false}"
 echo "GEM_GCP_ZONE       = ${GEM_GCP_ZONE}"
 echo "GEM_GCP_REGION     = ${GEM_GCP_REGION}"
+echo "AR_LOCATION        = ${AR_LOCATION}"
 
 # SSH key from Secret Manager -> ~/.ssh/google_compute_engine (the path the
 # Ansible playbooks and ansible/ansible.cfg expect.

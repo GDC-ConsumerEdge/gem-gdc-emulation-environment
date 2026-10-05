@@ -130,7 +130,7 @@ fails in its `setup` step on an empty zone:
 ```bash
 gcloud builds submit \
   --config=${REPO_ROOT}/cloudbuild/cluster-build.cloudbuild.yaml \
-  --substitutions=_CLUSTER_NAME=gem-cluster-1,_AR_LOCATION=${AR_LOCATION},_GEM_GCP_ZONE=${GEM_GCP_ZONE} \
+  --substitutions=_CLUSTER_NAME=gem-cluster-1,_AR_LOCATION=${GEM_AR_LOCATION:-${GEM_GCP_ZONE%-*}},_GEM_GCP_ZONE=${GEM_GCP_ZONE} \
   ${REPO_ROOT}
 ```
 
@@ -149,7 +149,7 @@ A cluster teardown is similar, pointed at the other Cloud Build pipeline:
 ```bash
 gcloud builds submit \
   --config=${REPO_ROOT}/cloudbuild/cluster-teardown.cloudbuild.yaml \
-  --substitutions=_CLUSTER_NAME=gem-cluster-1,_AR_LOCATION=${AR_LOCATION},_GEM_GCP_ZONE=${GEM_GCP_ZONE} \
+  --substitutions=_CLUSTER_NAME=gem-cluster-1,_AR_LOCATION=${GEM_AR_LOCATION:-${GEM_GCP_ZONE%-*}},_GEM_GCP_ZONE=${GEM_GCP_ZONE} \
   ${REPO_ROOT}
 ```
 
@@ -252,8 +252,8 @@ the following reasons:
 
 | Symptom                                   | Cause                                                                   | Resolution                                                                                                                            |
 | :---------------------------------------- | :---------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------ |
-| Fails at `setup` with a zone error        | `_GEM_GCP_ZONE` empty or malformed                                      | Pass a valid zone                                                                                                                     |
-| Fails pulling the step image              | `_AR_LOCATION` empty, `_BUILDER_TAG` mismatched, or no image            | Check the Artifact Registry location and rebuild the image                                                                            |
+| Fails at `setup` with a validation error  | `_CLUSTER_NAME`, `_GEM_GCP_ZONE`, or `_AR_LOCATION` empty or malformed  | Pass valid `_CLUSTER_NAME`, `_GEM_GCP_ZONE`, and `_AR_LOCATION` substitutions                                                         |
+| Fails pulling the step image              | `_AR_LOCATION` mismatched, `_BUILDER_TAG` mismatched, or no image       | Check the Artifact Registry location and rebuild the image                                                                            |
 | Fails before `setup` on secret resolution | The SSH secret has no versions                                          | Re-run `admin-workstation.yaml`                                                                                                       |
 | Preflight rejects the build               | Leftover VMs, leftover fleet membership, or a long cluster name         | Run the printed cleanup commands, or shorten the cluster name                                                                         |
 | `failed-stage=tf-init`                    | Backend permissions, a bad state bucket, or a provider download failure | Check the bucket name and the impersonation grant                                                                                     |
@@ -280,7 +280,7 @@ CLUSTER_NAME=${CLUSTER_NAME} ansible-playbook ansible/cleanup.yaml \
   -e cluster_name=${CLUSTER_NAME}
 
 # terraform/cluster/backend.tf is an empty gcs block, so init has to supply it
-terraform -chdir=terraform/cluster init -reconfigure \
+terraform -chdir=terraform/cluster init -upgrade -reconfigure \
   -backend-config="bucket=${TF_STATE_BUCKET}" \
   -backend-config="prefix=clusters/${CLUSTER_NAME}/state" \
   -backend-config="impersonate_service_account=${PROVISIONING_SA_EMAIL}"
