@@ -13,11 +13,14 @@
 # limitations under the License.
 
 import re
-from typing import Any
+from typing import Any, Self
+
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 GCP_ZONE_REGEX = re.compile(r"^[a-z]+-[a-z0-9]+-[a-z]$")
 GCP_REGION_REGEX = re.compile(r"^[a-z]+-[a-z0-9]+$")
 GCP_PROJECT_ID_REGEX = re.compile(r"^[a-z][a-z0-9-]*[a-z0-9]$")
+GCE_NAME_REGEX = re.compile(r"^[a-z]([a-z0-9-]*[a-z0-9])?$")
 STORAGE_SIZE_REGEX = re.compile(r"^[1-9][0-9]*(GB|TB|GiB|TiB)$")
 EMAIL_REGEX = re.compile(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$")
 
@@ -126,3 +129,68 @@ def validate_storage_size(val: str) -> str:
             f"Invalid node_storage_size '{v}'. Expected format like '100GB' or '1TB'."
         )
     return v
+
+
+def validate_gce_resource_name(
+    val: str, field_name: str = "name", max_len: int = 63
+) -> str:
+    """Validate a GCE resource name (lowercase alphanumeric and hyphens, starting with a letter)."""
+    v = val.strip()
+    if not v:
+        raise ValueError(f"{field_name} cannot be empty.")
+    if len(v) > max_len:
+        raise ValueError(
+            f"{field_name} '{v}' exceeds the maximum allowed length of {max_len} characters."
+        )
+    if not GCE_NAME_REGEX.match(v):
+        raise ValueError(
+            f"{field_name} '{v}' must be lowercase alphanumeric with hyphens, starting with a letter."
+        )
+    return v
+
+
+class GcpTargetRequest(BaseModel):
+    """Shared base model for requests targeting a GCP project, zone, region, and provisioning SA."""
+
+    project_id: str | None = Field(
+        default=None,
+        description="Target GCP Project ID. Defaults to configured environment project.",
+    )
+    zone: str | None = Field(
+        default=None,
+        description="Target GCP Zone (e.g., 'us-central1-a'). Defaults to configured zone.",
+    )
+    region: str | None = Field(
+        default=None,
+        description="Target GCP Region. Defaults to derived zone region.",
+    )
+    provisioning_sa_email: str | None = Field(
+        default=None,
+        description="Service account email to impersonate for Terraform provisioning.",
+    )
+
+    @field_validator(
+        "project_id",
+        "zone",
+        "region",
+        "provisioning_sa_email",
+        mode="before",
+    )
+    @classmethod
+    def sanitize_optional_fields(cls, v: Any) -> Any:
+        return sanitize_optional_str(v)
+
+    @field_validator("provisioning_sa_email")
+    @classmethod
+    def validate_provisioning_sa(cls, v: str | None) -> str | None:
+        return validate_email_or_sa(v, "provisioning_sa_email")
+
+    @field_validator("project_id")
+    @classmethod
+    def validate_project(cls, v: str | None) -> str | None:
+        return validate_project_id(v)
+
+    @model_validator(mode="after")
+    def validate_gcp_target_parameters(self) -> Self:
+        self.zone, self.region = validate_zone_and_region(self.zone, self.region)
+        return self

@@ -198,6 +198,100 @@ class ProcessRunner:
             if delay > 0:
                 await asyncio.sleep(delay)
 
+    def _prepare_gcp_context(
+        self,
+        request: Any,
+        operation_id: str,
+        *,
+        cluster_name: str = "none",
+        tf_state_bucket: str | None = None,
+    ) -> tuple[str, str, str, str | None, str, dict[str, str]]:
+        """Resolve project, zone, region, service account, bucket, and subprocess environment."""
+        settings = get_settings()
+        project_id = _clean_str(request.project_id) or settings.default_project_id
+        zone, region = _resolve_zone_and_region(
+            request.zone,
+            request.region,
+            settings.default_zone,
+            settings.default_region,
+        )
+        provisioning_sa = _clean_str(
+            request.provisioning_sa_email
+        ) or settings.get_provisioning_sa(project_id)
+        bucket = _clean_str(tf_state_bucket) or settings.get_tf_state_bucket(project_id)
+
+        env = os.environ.copy()
+        env["CLUSTER_NAME"] = cluster_name
+        env["PROJECT_ID"] = project_id
+        env["GEM_GCP_ZONE"] = zone
+        env["TF_DATA_DIR"] = str(settings.log_dir / f".terraform-{operation_id}")
+        env["TF_VAR_project_id"] = project_id
+        env["TF_VAR_zone"] = zone
+        env["TF_VAR_region"] = region
+        if provisioning_sa:
+            env["TF_VAR_provisioning_sa_email"] = provisioning_sa
+            env["GOOGLE_IMPERSONATE_SERVICE_ACCOUNT"] = provisioning_sa
+
+        return project_id, zone, region, provisioning_sa, bucket, env
+
+    @staticmethod
+    def _build_tf_init_cmd(
+        bucket: str, prefix: str, provisioning_sa: str | None
+    ) -> list[str]:
+        """Construct the terraform init command for a remote GCS backend."""
+        cmd = [
+            "terraform",
+            "init",
+            "-input=false",
+            "-reconfigure",
+            f"-backend-config=bucket={bucket}",
+            f"-backend-config=prefix={prefix}",
+        ]
+        if provisioning_sa:
+            cmd.append(f"-backend-config=impersonate_service_account={provisioning_sa}")
+        return cmd
+
+    async def _finalize_pipeline(
+        self,
+        operation_id: str,
+        success_message: str,
+        *,
+        log_completion: bool = False,
+    ) -> None:
+        """Mark an uncancelled operation as SUCCEEDED."""
+        record = self.op_mgr._operations.get(operation_id)
+        if record and record.status != OperationStatus.CANCELLED:
+            await self.op_mgr.update_operation(
+                operation_id=operation_id,
+                status=OperationStatus.SUCCEEDED,
+                current_step="Completed",
+                message=success_message,
+                completed=True,
+            )
+            if log_completion:
+                self.op_mgr.append_log(
+                    operation_id,
+                    f"[{datetime.now(UTC).strftime('%Y-%m-%dT%H:%M:%SZ')}] "
+                    f"Cluster build completed successfully.",
+                )
+
+    async def _fail_pipeline(
+        self, operation_id: str, error_label: str, exc: Exception
+    ) -> None:
+        """Record a pipeline exception against an uncancelled operation."""
+        record = self.op_mgr._operations.get(operation_id)
+        if record and record.status != OperationStatus.CANCELLED:
+            err_msg = str(exc)
+            logger.error("%s for %s: %s", error_label, operation_id, err_msg)
+            await self.op_mgr.update_operation(
+                operation_id=operation_id,
+                status=OperationStatus.FAILED,
+                current_step="Failed",
+                message=f"{error_label}: {err_msg}",
+                error=err_msg,
+                completed=True,
+            )
+
     # Cluster Create / Delete Pipelines
 
     async def run_cluster_create(
@@ -238,30 +332,15 @@ class ProcessRunner:
                 tf_dir = repo_root / "terraform" / "cluster"
                 ansible_dir = repo_root / "ansible"
 
-                project_id = (
-                    _clean_str(request.project_id) or settings.default_project_id
+                project_id, zone, region, provisioning_sa, bucket, env = (
+                    self._prepare_gcp_context(
+                        request, operation_id, cluster_name=request.cluster_name
+                    )
                 )
-                zone, region = _resolve_zone_and_region(
-                    request.zone,
-                    request.region,
-                    settings.default_zone,
-                    settings.default_region,
-                )
-                provisioning_sa = _clean_str(
-                    request.provisioning_sa_email
-                ) or settings.get_provisioning_sa(project_id)
                 cluster_admin_sa = _clean_str(
                     request.gcp_cluster_admin_sa
                 ) or settings.get_cluster_admin_sa(project_id)
-                bucket = settings.get_tf_state_bucket(project_id)
 
-                env = os.environ.copy()
-                env["CLUSTER_NAME"] = request.cluster_name
-                env["PROJECT_ID"] = project_id
-                env["GEM_GCP_ZONE"] = zone
-                env["TF_VAR_project_id"] = project_id
-                env["TF_VAR_zone"] = zone
-                env["TF_VAR_region"] = region
                 env["TF_VAR_cluster_name"] = request.cluster_name
                 env["TF_VAR_hardware_variant"] = request.hardware_variant
                 env["TF_VAR_gce_network"] = request.gce_network
@@ -277,26 +356,13 @@ class ProcessRunner:
                 bmctl_version = get_abm_version(request.emulate_gdc_version)
                 if bmctl_version:
                     env["TF_VAR_bmctl_version"] = bmctl_version
-                if provisioning_sa:
-                    env["TF_VAR_provisioning_sa_email"] = provisioning_sa
-                    env["GOOGLE_IMPERSONATE_SERVICE_ACCOUNT"] = provisioning_sa
                 if cluster_admin_sa:
                     env["TF_VAR_gcp_cluster_admin_sa"] = cluster_admin_sa
 
                 # Step 1: Terraform Init & Apply
-                init_cmd = [
-                    "terraform",
-                    "init",
-                    "-input=false",
-                    "-reconfigure",
-                    f"-backend-config=bucket={bucket}",
-                    f"-backend-config=prefix=clusters/{request.cluster_name}/state",
-                ]
-                if provisioning_sa:
-                    init_cmd.append(
-                        f"-backend-config=impersonate_service_account={provisioning_sa}"
-                    )
-
+                init_cmd = self._build_tf_init_cmd(
+                    bucket, f"clusters/{request.cluster_name}/state", provisioning_sa
+                )
                 await self._execute_command(
                     operation_id=operation_id,
                     cmd=init_cmd,
@@ -335,13 +401,14 @@ class ProcessRunner:
                 )
 
                 # Step 2: Ansible Cluster Deployment
+                # Note: node_storage_size is intentionally omitted from extra_vars
+                # because ansible/inventory.sh reads it from Terraform state.
                 extra_vars: dict[str, Any] = {
                     "cluster_name": request.cluster_name,
                     "project_id": project_id,
                     "zone": zone,
                     "region": region,
                     "emulate_gdc_version": request.emulate_gdc_version,
-                    "node_storage_size": request.node_storage_size,
                 }
                 if request.pod_cidr_blocks:
                     extra_vars["pod_cidr_blocks"] = request.pod_cidr_blocks
@@ -372,36 +439,16 @@ class ProcessRunner:
                     step_message="Running Ansible cluster deployment playbook...",
                 )
 
-            record = self.op_mgr._operations.get(operation_id)
-            if record and record.status != OperationStatus.CANCELLED:
-                await self.op_mgr.update_operation(
-                    operation_id=operation_id,
-                    status=OperationStatus.SUCCEEDED,
-                    current_step="Completed",
-                    message=f"Cluster '{request.cluster_name}' provisioned and configured successfully.",
-                    completed=True,
-                )
-                self.op_mgr.append_log(
-                    operation_id,
-                    f"[{datetime.now(UTC).strftime('%Y-%m-%dT%H:%M:%SZ')}] "
-                    f"Cluster build completed successfully.",
-                )
+            await self._finalize_pipeline(
+                operation_id,
+                f"Cluster '{request.cluster_name}' provisioned and configured successfully.",
+                log_completion=True,
+            )
 
         # Deliberately broad: any failure must be recorded against the operation,
         # otherwise it stays RUNNING forever and its target resource stays locked.
         except Exception as e:  # noqa: BLE001
-            record = self.op_mgr._operations.get(operation_id)
-            if record and record.status != OperationStatus.CANCELLED:
-                err_msg = str(e)
-                logger.error("Cluster create failed for %s: %s", operation_id, err_msg)
-                await self.op_mgr.update_operation(
-                    operation_id=operation_id,
-                    status=OperationStatus.FAILED,
-                    current_step="Failed",
-                    message=f"Cluster provisioning failed: {err_msg}",
-                    error=err_msg,
-                    completed=True,
-                )
+            await self._fail_pipeline(operation_id, "Cluster provisioning failed", e)
 
     async def run_cluster_delete(
         self, request: ClusterDeleteRequest, operation_id: str
@@ -438,33 +485,15 @@ class ProcessRunner:
                 tf_dir = repo_root / "terraform" / "cluster"
                 ansible_dir = repo_root / "ansible"
 
-                project_id = (
-                    _clean_str(request.project_id) or settings.default_project_id
+                project_id, zone, region, provisioning_sa, bucket, env = (
+                    self._prepare_gcp_context(
+                        request,
+                        operation_id,
+                        cluster_name=request.cluster_name,
+                        tf_state_bucket=request.tf_state_bucket,
+                    )
                 )
-                zone, region = _resolve_zone_and_region(
-                    request.zone,
-                    request.region,
-                    settings.default_zone,
-                    settings.default_region,
-                )
-                provisioning_sa = _clean_str(
-                    request.provisioning_sa_email
-                ) or settings.get_provisioning_sa(project_id)
-                bucket = _clean_str(
-                    request.tf_state_bucket
-                ) or settings.get_tf_state_bucket(project_id)
-
-                env = os.environ.copy()
-                env["CLUSTER_NAME"] = request.cluster_name
-                env["PROJECT_ID"] = project_id
-                env["GEM_GCP_ZONE"] = zone
-                env["TF_VAR_project_id"] = project_id
-                env["TF_VAR_zone"] = zone
-                env["TF_VAR_region"] = region
                 env["TF_VAR_cluster_name"] = request.cluster_name
-                if provisioning_sa:
-                    env["TF_VAR_provisioning_sa_email"] = provisioning_sa
-                    env["GOOGLE_IMPERSONATE_SERVICE_ACCOUNT"] = provisioning_sa
 
                 # Step 1: Ansible Cleanup Playbook
                 extra_vars = {
@@ -490,19 +519,9 @@ class ProcessRunner:
                 )
 
                 # Step 2: Terraform Destroy
-                init_cmd = [
-                    "terraform",
-                    "init",
-                    "-input=false",
-                    "-reconfigure",
-                    f"-backend-config=bucket={bucket}",
-                    f"-backend-config=prefix=clusters/{request.cluster_name}/state",
-                ]
-                if provisioning_sa:
-                    init_cmd.append(
-                        f"-backend-config=impersonate_service_account={provisioning_sa}"
-                    )
-
+                init_cmd = self._build_tf_init_cmd(
+                    bucket, f"clusters/{request.cluster_name}/state", provisioning_sa
+                )
                 await self._execute_command(
                     operation_id=operation_id,
                     cmd=init_cmd,
@@ -534,31 +553,15 @@ class ProcessRunner:
                     step_message="Destroying compute instances and network bindings...",
                 )
 
-            record = self.op_mgr._operations.get(operation_id)
-            if record and record.status != OperationStatus.CANCELLED:
-                await self.op_mgr.update_operation(
-                    operation_id=operation_id,
-                    status=OperationStatus.SUCCEEDED,
-                    current_step="Completed",
-                    message=f"Cluster '{request.cluster_name}' successfully torn down.",
-                    completed=True,
-                )
+            await self._finalize_pipeline(
+                operation_id,
+                f"Cluster '{request.cluster_name}' successfully torn down.",
+            )
 
         # Deliberately broad: any failure must be recorded against the operation,
         # otherwise it stays RUNNING forever and its target resource stays locked.
         except Exception as e:  # noqa: BLE001
-            record = self.op_mgr._operations.get(operation_id)
-            if record and record.status != OperationStatus.CANCELLED:
-                err_msg = str(e)
-                logger.error("Cluster delete failed for %s: %s", operation_id, err_msg)
-                await self.op_mgr.update_operation(
-                    operation_id=operation_id,
-                    status=OperationStatus.FAILED,
-                    current_step="Failed",
-                    message=f"Cluster teardown failed: {err_msg}",
-                    error=err_msg,
-                    completed=True,
-                )
+            await self._fail_pipeline(operation_id, "Cluster teardown failed", e)
 
     # Workstation Create / Delete Pipelines
 
@@ -594,46 +597,15 @@ class ProcessRunner:
                 tf_dir = repo_root / "terraform" / "admin-workstation"
                 ansible_dir = repo_root / "ansible"
 
-                project_id = (
-                    _clean_str(request.project_id) or settings.default_project_id
+                project_id, zone, region, provisioning_sa, bucket, env = (
+                    self._prepare_gcp_context(request, operation_id)
                 )
-                zone, region = _resolve_zone_and_region(
-                    request.zone,
-                    request.region,
-                    settings.default_zone,
-                    settings.default_region,
-                )
-                provisioning_sa = _clean_str(
-                    request.provisioning_sa_email
-                ) or settings.get_provisioning_sa(project_id)
-                bucket = settings.get_tf_state_bucket(project_id)
-
-                env = os.environ.copy()
-                env["CLUSTER_NAME"] = "none"
-                env["PROJECT_ID"] = project_id
-                env["GEM_GCP_ZONE"] = zone
-                env["TF_VAR_project_id"] = project_id
-                env["TF_VAR_zone"] = zone
-                env["TF_VAR_region"] = region
                 env["TF_VAR_gce_network"] = request.gce_network
                 env["TF_VAR_gce_subnetwork"] = request.gce_subnetwork
-                if provisioning_sa:
-                    env["TF_VAR_provisioning_sa_email"] = provisioning_sa
-                    env["GOOGLE_IMPERSONATE_SERVICE_ACCOUNT"] = provisioning_sa
 
-                init_cmd = [
-                    "terraform",
-                    "init",
-                    "-input=false",
-                    "-reconfigure",
-                    f"-backend-config=bucket={bucket}",
-                    "-backend-config=prefix=admin-workstation/state",
-                ]
-                if provisioning_sa:
-                    init_cmd.append(
-                        f"-backend-config=impersonate_service_account={provisioning_sa}"
-                    )
-
+                init_cmd = self._build_tf_init_cmd(
+                    bucket, "admin-workstation/state", provisioning_sa
+                )
                 await self._execute_command(
                     operation_id=operation_id,
                     cmd=init_cmd,
@@ -688,31 +660,15 @@ class ProcessRunner:
                     step_message="Configuring admin workstation tools and binaries...",
                 )
 
-            record = self.op_mgr._operations.get(operation_id)
-            if record and record.status != OperationStatus.CANCELLED:
-                await self.op_mgr.update_operation(
-                    operation_id=operation_id,
-                    status=OperationStatus.SUCCEEDED,
-                    current_step="Completed",
-                    message="Admin workstation provisioned and configured successfully.",
-                    completed=True,
-                )
+            await self._finalize_pipeline(
+                operation_id,
+                "Admin workstation provisioned and configured successfully.",
+            )
 
         # Deliberately broad: any failure must be recorded against the operation,
         # otherwise it stays RUNNING forever and its target resource stays locked.
         except Exception as e:  # noqa: BLE001
-            record = self.op_mgr._operations.get(operation_id)
-            if record and record.status != OperationStatus.CANCELLED:
-                err_msg = str(e)
-                logger.error("Workstation create failed: %s", err_msg)
-                await self.op_mgr.update_operation(
-                    operation_id=operation_id,
-                    status=OperationStatus.FAILED,
-                    current_step="Failed",
-                    message=f"Workstation build failed: {err_msg}",
-                    error=err_msg,
-                    completed=True,
-                )
+            await self._fail_pipeline(operation_id, "Workstation build failed", e)
 
     async def run_workstation_delete(
         self, request: WorkstationDeleteRequest, operation_id: str
@@ -735,46 +691,17 @@ class ProcessRunner:
             else:
                 tf_dir = repo_root / "terraform" / "admin-workstation"
 
-                project_id = (
-                    _clean_str(request.project_id) or settings.default_project_id
-                )
-                zone, region = _resolve_zone_and_region(
-                    request.zone,
-                    request.region,
-                    settings.default_zone,
-                    settings.default_region,
-                )
-                provisioning_sa = _clean_str(
-                    request.provisioning_sa_email
-                ) or settings.get_provisioning_sa(project_id)
-                bucket = _clean_str(
-                    request.tf_state_bucket
-                ) or settings.get_tf_state_bucket(project_id)
-
-                env = os.environ.copy()
-                env["CLUSTER_NAME"] = "none"
-                env["PROJECT_ID"] = project_id
-                env["GEM_GCP_ZONE"] = zone
-                env["TF_VAR_project_id"] = project_id
-                env["TF_VAR_zone"] = zone
-                env["TF_VAR_region"] = region
-                if provisioning_sa:
-                    env["TF_VAR_provisioning_sa_email"] = provisioning_sa
-                    env["GOOGLE_IMPERSONATE_SERVICE_ACCOUNT"] = provisioning_sa
-
-                init_cmd = [
-                    "terraform",
-                    "init",
-                    "-input=false",
-                    "-reconfigure",
-                    f"-backend-config=bucket={bucket}",
-                    "-backend-config=prefix=admin-workstation/state",
-                ]
-                if provisioning_sa:
-                    init_cmd.append(
-                        f"-backend-config=impersonate_service_account={provisioning_sa}"
+                project_id, zone, region, provisioning_sa, bucket, env = (
+                    self._prepare_gcp_context(
+                        request,
+                        operation_id,
+                        tf_state_bucket=request.tf_state_bucket,
                     )
+                )
 
+                init_cmd = self._build_tf_init_cmd(
+                    bucket, "admin-workstation/state", provisioning_sa
+                )
                 await self._execute_command(
                     operation_id=operation_id,
                     cmd=init_cmd,
@@ -805,31 +732,15 @@ class ProcessRunner:
                     step_message="Destroying admin workstation resources...",
                 )
 
-            record = self.op_mgr._operations.get(operation_id)
-            if record and record.status != OperationStatus.CANCELLED:
-                await self.op_mgr.update_operation(
-                    operation_id=operation_id,
-                    status=OperationStatus.SUCCEEDED,
-                    current_step="Completed",
-                    message="Admin workstation destroyed successfully.",
-                    completed=True,
-                )
+            await self._finalize_pipeline(
+                operation_id,
+                "Admin workstation destroyed successfully.",
+            )
 
         # Deliberately broad: any failure must be recorded against the operation,
         # otherwise it stays RUNNING forever and its target resource stays locked.
         except Exception as e:  # noqa: BLE001
-            record = self.op_mgr._operations.get(operation_id)
-            if record and record.status != OperationStatus.CANCELLED:
-                err_msg = str(e)
-                logger.error("Workstation delete failed: %s", err_msg)
-                await self.op_mgr.update_operation(
-                    operation_id=operation_id,
-                    status=OperationStatus.FAILED,
-                    current_step="Failed",
-                    message=f"Workstation teardown failed: {err_msg}",
-                    error=err_msg,
-                    completed=True,
-                )
+            await self._fail_pipeline(operation_id, "Workstation teardown failed", e)
 
     # Edge Router Create / Delete Pipelines
 
@@ -865,48 +776,17 @@ class ProcessRunner:
                 tf_dir = repo_root / "terraform" / "edge-router"
                 ansible_dir = repo_root / "ansible"
 
-                project_id = (
-                    _clean_str(request.project_id) or settings.default_project_id
+                project_id, zone, region, provisioning_sa, bucket, env = (
+                    self._prepare_gcp_context(request, operation_id)
                 )
-                zone, region = _resolve_zone_and_region(
-                    request.zone,
-                    request.region,
-                    settings.default_zone,
-                    settings.default_region,
-                )
-                provisioning_sa = _clean_str(
-                    request.provisioning_sa_email
-                ) or settings.get_provisioning_sa(project_id)
-                bucket = settings.get_tf_state_bucket(project_id)
-
-                env = os.environ.copy()
-                env["CLUSTER_NAME"] = "none"
-                env["PROJECT_ID"] = project_id
-                env["GEM_GCP_ZONE"] = zone
-                env["TF_VAR_project_id"] = project_id
-                env["TF_VAR_zone"] = zone
-                env["TF_VAR_region"] = region
                 env["TF_VAR_edge_router_name"] = request.edge_router_name
                 env["TF_VAR_machine_type"] = request.machine_type
                 env["TF_VAR_gce_network"] = request.gce_network
                 env["TF_VAR_gce_subnetwork"] = request.gce_subnetwork
-                if provisioning_sa:
-                    env["TF_VAR_provisioning_sa_email"] = provisioning_sa
-                    env["GOOGLE_IMPERSONATE_SERVICE_ACCOUNT"] = provisioning_sa
 
-                init_cmd = [
-                    "terraform",
-                    "init",
-                    "-input=false",
-                    "-reconfigure",
-                    f"-backend-config=bucket={bucket}",
-                    "-backend-config=prefix=edge-router/state",
-                ]
-                if provisioning_sa:
-                    init_cmd.append(
-                        f"-backend-config=impersonate_service_account={provisioning_sa}"
-                    )
-
+                init_cmd = self._build_tf_init_cmd(
+                    bucket, "edge-router/state", provisioning_sa
+                )
                 await self._execute_command(
                     operation_id=operation_id,
                     cmd=init_cmd,
@@ -963,31 +843,15 @@ class ProcessRunner:
                     step_message="Configuring Traefik reverse proxy and VIP routing...",
                 )
 
-            record = self.op_mgr._operations.get(operation_id)
-            if record and record.status != OperationStatus.CANCELLED:
-                await self.op_mgr.update_operation(
-                    operation_id=operation_id,
-                    status=OperationStatus.SUCCEEDED,
-                    current_step="Completed",
-                    message="Edge router provisioned and configured successfully.",
-                    completed=True,
-                )
+            await self._finalize_pipeline(
+                operation_id,
+                "Edge router provisioned and configured successfully.",
+            )
 
         # Deliberately broad: any failure must be recorded against the operation,
         # otherwise it stays RUNNING forever and its target resource stays locked.
         except Exception as e:  # noqa: BLE001
-            record = self.op_mgr._operations.get(operation_id)
-            if record and record.status != OperationStatus.CANCELLED:
-                err_msg = str(e)
-                logger.error("Edge router create failed: %s", err_msg)
-                await self.op_mgr.update_operation(
-                    operation_id=operation_id,
-                    status=OperationStatus.FAILED,
-                    current_step="Failed",
-                    message=f"Edge router build failed: {err_msg}",
-                    error=err_msg,
-                    completed=True,
-                )
+            await self._fail_pipeline(operation_id, "Edge router build failed", e)
 
     async def run_edge_router_delete(
         self, request: EdgeRouterDeleteRequest, operation_id: str
@@ -1010,47 +874,18 @@ class ProcessRunner:
             else:
                 tf_dir = repo_root / "terraform" / "edge-router"
 
-                project_id = (
-                    _clean_str(request.project_id) or settings.default_project_id
-                )
-                zone, region = _resolve_zone_and_region(
-                    request.zone,
-                    request.region,
-                    settings.default_zone,
-                    settings.default_region,
-                )
-                provisioning_sa = _clean_str(
-                    request.provisioning_sa_email
-                ) or settings.get_provisioning_sa(project_id)
-                bucket = _clean_str(
-                    request.tf_state_bucket
-                ) or settings.get_tf_state_bucket(project_id)
-
-                env = os.environ.copy()
-                env["CLUSTER_NAME"] = "none"
-                env["PROJECT_ID"] = project_id
-                env["GEM_GCP_ZONE"] = zone
-                env["TF_VAR_project_id"] = project_id
-                env["TF_VAR_zone"] = zone
-                env["TF_VAR_region"] = region
-                env["TF_VAR_edge_router_name"] = request.edge_router_name
-                if provisioning_sa:
-                    env["TF_VAR_provisioning_sa_email"] = provisioning_sa
-                    env["GOOGLE_IMPERSONATE_SERVICE_ACCOUNT"] = provisioning_sa
-
-                init_cmd = [
-                    "terraform",
-                    "init",
-                    "-input=false",
-                    "-reconfigure",
-                    f"-backend-config=bucket={bucket}",
-                    "-backend-config=prefix=edge-router/state",
-                ]
-                if provisioning_sa:
-                    init_cmd.append(
-                        f"-backend-config=impersonate_service_account={provisioning_sa}"
+                project_id, zone, region, provisioning_sa, bucket, env = (
+                    self._prepare_gcp_context(
+                        request,
+                        operation_id,
+                        tf_state_bucket=request.tf_state_bucket,
                     )
+                )
+                env["TF_VAR_edge_router_name"] = request.edge_router_name
 
+                init_cmd = self._build_tf_init_cmd(
+                    bucket, "edge-router/state", provisioning_sa
+                )
                 await self._execute_command(
                     operation_id=operation_id,
                     cmd=init_cmd,
@@ -1082,31 +917,15 @@ class ProcessRunner:
                     step_message="Destroying edge router resources...",
                 )
 
-            record = self.op_mgr._operations.get(operation_id)
-            if record and record.status != OperationStatus.CANCELLED:
-                await self.op_mgr.update_operation(
-                    operation_id=operation_id,
-                    status=OperationStatus.SUCCEEDED,
-                    current_step="Completed",
-                    message="Edge router destroyed successfully.",
-                    completed=True,
-                )
+            await self._finalize_pipeline(
+                operation_id,
+                "Edge router destroyed successfully.",
+            )
 
         # Deliberately broad: any failure must be recorded against the operation,
         # otherwise it stays RUNNING forever and its target resource stays locked.
         except Exception as e:  # noqa: BLE001
-            record = self.op_mgr._operations.get(operation_id)
-            if record and record.status != OperationStatus.CANCELLED:
-                err_msg = str(e)
-                logger.error("Edge router delete failed: %s", err_msg)
-                await self.op_mgr.update_operation(
-                    operation_id=operation_id,
-                    status=OperationStatus.FAILED,
-                    current_step="Failed",
-                    message=f"Edge router teardown failed: {err_msg}",
-                    error=err_msg,
-                    completed=True,
-                )
+            await self._fail_pipeline(operation_id, "Edge router teardown failed", e)
 
 
 _runner_instance = ProcessRunner()

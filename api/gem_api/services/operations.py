@@ -86,10 +86,26 @@ class OperationManager:
         self._lock = asyncio.Lock()
 
     def _get_log_file_path(self, operation_id: str) -> Path:
+        if (
+            not operation_id
+            or "/" in operation_id
+            or "\\" in operation_id
+            or ".." in operation_id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid operation_id '{operation_id}'.",
+            )
         settings = get_settings()
-        log_dir = settings.log_dir
+        log_dir = settings.log_dir.resolve()
         log_dir.mkdir(parents=True, exist_ok=True)
-        return log_dir / f"{operation_id}.log"
+        log_path = (log_dir / f"{operation_id}.log").resolve()
+        if log_path.parent != log_dir:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid operation_id '{operation_id}'.",
+            )
+        return log_path
 
     async def register_operation(
         self,
@@ -334,15 +350,23 @@ class OperationManager:
 
         try:
             # Yield historical lines first
-            for line in list(record.log_buffer):
+            seen = list(record.log_buffer)
+            for line in seen:
                 yield line
 
-            # If already finished, return immediately
+            # If already finished, drain any lines published after snapshot and return
             if record.status in (
                 OperationStatus.SUCCEEDED,
                 OperationStatus.FAILED,
                 OperationStatus.CANCELLED,
             ):
+                seen_set = set(seen)
+                while not queue.empty():
+                    queued_line = queue.get_nowait()
+                    if queued_line is None:
+                        break
+                    if queued_line not in seen_set:
+                        yield queued_line
                 return
 
             # Yield new lines as they arrive
@@ -414,11 +438,11 @@ class OperationManager:
             if record.task and not record.task.done():
                 record.task.cancel()
 
-            # Notify subscribers
-            self._publish(record, None)
-
             cancel_log = f"[{record.completed_at.strftime('%Y-%m-%dT%H:%M:%SZ')}] Operation cancelled by user request."
             self.append_log(operation_id, cancel_log)
+
+            # Notify subscribers after appending final log line
+            self._publish(record, None)
 
             return OperationCancelResponse(
                 success=True,

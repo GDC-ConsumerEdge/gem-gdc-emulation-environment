@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import asyncio
+import ipaddress
 import json
 import logging
 import os
@@ -56,9 +57,6 @@ class K8sService:
     Queries live cluster APIs via kubectl / Connect Gateway, returning empty collections
     when a cluster has no workloads or is unreachable.
     """
-
-    def __init__(self) -> None:
-        self._lock = asyncio.Lock()
 
     def _find_kubeconfig(self, cluster_name: str) -> str | None:
         """Locate kubeconfig file for the specified cluster."""
@@ -260,36 +258,54 @@ class K8sService:
                 data = json.loads(stdout)
                 for item in data.get("items", []):
                     meta = item.get("metadata", {})
-                    annotations = meta.get("annotations", {})
+                    annotations = meta.get("annotations") or {}
+                    spec = item.get("spec") or {}
                     name = meta.get("name", "")
-                    if name:
-                        raw_vlan = annotations.get(
-                            "networking.gke.io/gdce-vlan-id"
-                        ) or item.get("spec", {}).get("vlanId", 0)
-                        try:
-                            vlan_id = int(raw_vlan)
-                        except (ValueError, TypeError):
-                            vlan_id = 0
+                    if not name:
+                        continue
+                    if name in ("pod-network", "default") or spec.get("type") == "L3":
+                        continue
 
-                        vip_pool = annotations.get(
-                            "networking.gke.io/gdce-lb-service-vip-cidrs", ""
+                    raw_vlan = annotations.get(
+                        "networking.gke.io/gdce-vlan-id"
+                    ) or spec.get("vlanId", 0)
+                    try:
+                        vlan_id = int(raw_vlan)
+                    except (ValueError, TypeError):
+                        vlan_id = 0
+
+                    gateway = spec.get("gateway4") or annotations.get(
+                        "networking.gke.io/gdce-gateway", ""
+                    )
+                    subnet = annotations.get("networking.gke.io/gdce-subnet", "")
+                    if not subnet and gateway:
+                        prefix_len = (spec.get("l2NetworkConfig") or {}).get(
+                            "prefixLength4", 24
                         )
-                        networks.append(
-                            SecondaryNetworkItem(
-                                name=name,
-                                vlan_id=vlan_id,
-                                subnet=annotations.get(
-                                    "networking.gke.io/gdce-subnet", ""
-                                ),
-                                gateway=annotations.get(
-                                    "networking.gke.io/gdce-gateway", ""
-                                ),
-                                vip_pool=vip_pool,
-                                purpose="Secondary VLAN Overlay",
-                                interface_name=f"gdcenet0.{vlan_id}",
-                                status="Active",
+                        try:
+                            subnet = str(
+                                ipaddress.ip_interface(
+                                    f"{gateway}/{prefix_len}"
+                                ).network
                             )
+                        except ValueError:
+                            subnet = ""
+
+                    vip_pool = annotations.get(
+                        "networking.gke.io/gdce-lb-service-vip-cidrs", ""
+                    )
+                    networks.append(
+                        SecondaryNetworkItem(
+                            name=name,
+                            vlan_id=vlan_id,
+                            subnet=subnet,
+                            gateway=gateway,
+                            vip_pool=vip_pool,
+                            purpose="Secondary VLAN Overlay",
+                            interface_name=f"gdcenet0.{vlan_id}",
+                            status="Active",
                         )
+                    )
                 if networks:
                     return SecondaryNetworkListResponse(networks=networks)
             except (
@@ -385,33 +401,47 @@ class K8sService:
     ) -> VirtualMachineItem:
         """Deploy a new virtual machine."""
         _ = project_id
-        manifest = f"""
-apiVersion: kubevirt.io/v1
-kind: VirtualMachine
-metadata:
-  name: {request.name}
-  namespace: {request.namespace}
-spec:
-  running: true
-  template:
-    spec:
-      domain:
-        devices:
-          disks:
-            - disk:
-                bus: virtio
-              name: containerdisk
-        resources:
-          requests:
-            memory: {request.memory}
-            cpu: {request.cpus}
-      volumes:
-        - name: containerdisk
-          containerDisk:
-            image: {request.image}
-"""
+        manifest = json.dumps(
+            {
+                "apiVersion": "kubevirt.io/v1",
+                "kind": "VirtualMachine",
+                "metadata": {
+                    "name": request.name,
+                    "namespace": request.namespace,
+                },
+                "spec": {
+                    "running": True,
+                    "template": {
+                        "spec": {
+                            "domain": {
+                                "devices": {
+                                    "disks": [
+                                        {
+                                            "disk": {"bus": "virtio"},
+                                            "name": "containerdisk",
+                                        }
+                                    ]
+                                },
+                                "resources": {
+                                    "requests": {
+                                        "memory": request.memory,
+                                        "cpu": request.cpus,
+                                    }
+                                },
+                            },
+                            "volumes": [
+                                {
+                                    "name": "containerdisk",
+                                    "containerDisk": {"image": request.image},
+                                }
+                            ],
+                        }
+                    },
+                },
+            }
+        )
         rc, _, stderr = await self._exec_kubectl(
-            cluster_name, ["apply", "-f", "-"], input_data=manifest
+            cluster_name, ["create", "-f", "-"], input_data=manifest
         )
         self._raise_for_kubectl(
             rc,
@@ -492,7 +522,6 @@ spec:
 
         return GenericActionResponse(
             success=True,
-            vm_name=vm_name,
             message=f"VirtualMachine '{vm_name}' deleted successfully.",
         )
 
@@ -571,9 +600,13 @@ spec:
                     pod_status = item.get("status", {})
                     containers: list[ContainerStatusItem] = []
                     for c in pod_status.get("containerStatuses", []):
-                        state = (
-                            "running" if "running" in c.get("state", {}) else "waiting"
-                        )
+                        c_state = c.get("state", {})
+                        if "running" in c_state:
+                            state = "running"
+                        elif "terminated" in c_state:
+                            state = "terminated"
+                        else:
+                            state = "waiting"
                         containers.append(
                             ContainerStatusItem(
                                 name=c.get("name", ""),

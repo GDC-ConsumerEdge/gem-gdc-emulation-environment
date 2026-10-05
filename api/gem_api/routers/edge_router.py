@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import asyncio
-import logging
 
 from fastapi import APIRouter, Depends, status
 
@@ -27,8 +26,6 @@ from gem_api.models.operations import (
 )
 from gem_api.services.operations import OperationManager, get_operation_manager
 from gem_api.services.runner import ProcessRunner, get_process_runner
-
-logger = logging.getLogger("gem_api.routers.edge_router")
 
 router = APIRouter(prefix="/edge-router", tags=["Edge Router"])
 

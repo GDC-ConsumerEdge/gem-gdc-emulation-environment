@@ -53,3 +53,37 @@ def test_openapi_version_matches_package_version(client: TestClient):
     response = client.get("/openapi.json")
     assert response.status_code == 200
     assert response.json()["info"]["version"] == __version__
+
+
+def test_run_cli_forwards_uvicorn_args_and_settings(monkeypatch):
+    """run_cli seeds UVICORN_HOST/PORT from Settings and forwards CLI flags."""
+    import os
+    from unittest.mock import MagicMock
+
+    import uvicorn.main
+
+    from gem_api.config import get_settings
+    from gem_api.main import run_cli
+
+    monkeypatch.delenv("UVICORN_HOST", raising=False)
+    monkeypatch.delenv("UVICORN_PORT", raising=False)
+    monkeypatch.delenv("UVICORN_RELOAD", raising=False)
+    monkeypatch.setenv("HOST", "127.0.0.1")
+    monkeypatch.setenv("PORT", "9090")
+    monkeypatch.setenv("DEBUG", "true")
+    get_settings.cache_clear()
+
+    mock_uvicorn_main = MagicMock()
+    monkeypatch.setattr(uvicorn.main, "main", mock_uvicorn_main)
+
+    try:
+        run_cli(["--workers", "2", "--log-level", "debug"])
+        assert os.environ["UVICORN_HOST"] == "127.0.0.1"
+        assert os.environ["UVICORN_PORT"] == "9090"
+        assert os.environ["UVICORN_RELOAD"] == "true"
+        mock_uvicorn_main.assert_called_once_with(
+            args=["gem_api.main:app", "--workers", "2", "--log-level", "debug"],
+            auto_envvar_prefix="UVICORN",
+        )
+    finally:
+        get_settings.cache_clear()

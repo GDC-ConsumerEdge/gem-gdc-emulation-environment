@@ -14,35 +14,18 @@
 
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import Field, field_validator
 
 from gem_api.models.validators import (
+    GcpTargetRequest,
     sanitize_optional_str,
-    validate_email_or_sa,
-    validate_project_id,
-    validate_zone_and_region,
+    validate_gce_resource_name,
 )
 
 
-class EdgeRouterCreateRequest(BaseModel):
+class EdgeRouterCreateRequest(GcpTargetRequest):
     """Request payload for building a GEM Edge Router."""
 
-    project_id: str | None = Field(
-        default=None,
-        description="Target GCP Project ID. Defaults to environment project.",
-    )
-    zone: str | None = Field(
-        default=None,
-        description="Target GCP Zone. Defaults to environment zone.",
-    )
-    region: str | None = Field(
-        default=None,
-        description="Target GCP Region. Defaults to derived zone region.",
-    )
-    provisioning_sa_email: str | None = Field(
-        default=None,
-        description="Service account email to impersonate for Terraform provisioning.",
-    )
     edge_router_name: str = Field(
         default="gem-edge-router",
         description="GCE instance name for the edge router.",
@@ -60,52 +43,15 @@ class EdgeRouterCreateRequest(BaseModel):
         description="Subnetwork name.",
     )
 
-    @field_validator(
-        "project_id",
-        "zone",
-        "region",
-        "provisioning_sa_email",
-        mode="before",
-    )
+    @field_validator("edge_router_name")
     @classmethod
-    def sanitize_optional_fields(cls, v: Any) -> Any:
-        return sanitize_optional_str(v)
-
-    @field_validator("provisioning_sa_email")
-    @classmethod
-    def validate_provisioning_sa(cls, v: str | None) -> str | None:
-        return validate_email_or_sa(v, "provisioning_sa_email")
-
-    @field_validator("project_id")
-    @classmethod
-    def validate_project(cls, v: str | None) -> str | None:
-        return validate_project_id(v)
-
-    @model_validator(mode="after")
-    def validate_edge_router_parameters(self) -> "EdgeRouterCreateRequest":
-        self.zone, self.region = validate_zone_and_region(self.zone, self.region)
-        return self
+    def validate_edge_router_name(cls, v: str) -> str:
+        return validate_gce_resource_name(v, "edge_router_name", max_len=63)
 
 
-class EdgeRouterDeleteRequest(BaseModel):
+class EdgeRouterDeleteRequest(GcpTargetRequest):
     """Request payload for tearing down a GEM Edge Router."""
 
-    project_id: str | None = Field(
-        default=None,
-        description="Target GCP Project ID. Defaults to environment project.",
-    )
-    zone: str | None = Field(
-        default=None,
-        description="Target GCP Zone. Defaults to environment zone.",
-    )
-    region: str | None = Field(
-        default=None,
-        description="Target GCP Region. Defaults to derived zone region.",
-    )
-    provisioning_sa_email: str | None = Field(
-        default=None,
-        description="Email of the Terraform provisioning SA to impersonate.",
-    )
     edge_router_name: str = Field(
         default="gem-edge-router",
         description="GCE instance name for the edge router.",
@@ -115,29 +61,12 @@ class EdgeRouterDeleteRequest(BaseModel):
         description="GCS bucket holding remote state.",
     )
 
-    @field_validator(
-        "project_id",
-        "zone",
-        "region",
-        "provisioning_sa_email",
-        "tf_state_bucket",
-        mode="before",
-    )
+    @field_validator("edge_router_name")
     @classmethod
-    def sanitize_optional_fields(cls, v: Any) -> Any:
+    def validate_edge_router_name(cls, v: str) -> str:
+        return validate_gce_resource_name(v, "edge_router_name", max_len=63)
+
+    @field_validator("tf_state_bucket", mode="before")
+    @classmethod
+    def sanitize_tf_state_bucket(cls, v: Any) -> Any:
         return sanitize_optional_str(v)
-
-    @field_validator("provisioning_sa_email")
-    @classmethod
-    def validate_provisioning_sa(cls, v: str | None) -> str | None:
-        return validate_email_or_sa(v, "provisioning_sa_email")
-
-    @field_validator("project_id")
-    @classmethod
-    def validate_project(cls, v: str | None) -> str | None:
-        return validate_project_id(v)
-
-    @model_validator(mode="after")
-    def validate_edge_router_parameters(self) -> "EdgeRouterDeleteRequest":
-        self.zone, self.region = validate_zone_and_region(self.zone, self.region)
-        return self

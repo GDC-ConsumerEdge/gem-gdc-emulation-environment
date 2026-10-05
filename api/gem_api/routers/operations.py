@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import logging
-
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sse_starlette.sse import EventSourceResponse
 
@@ -23,8 +21,6 @@ from gem_api.models.operations import (
     OperationResponse,
 )
 from gem_api.services.operations import OperationManager, get_operation_manager
-
-logger = logging.getLogger("gem_api.routers.operations")
 
 router = APIRouter(prefix="/operations", tags=["Operations"])
 
@@ -69,7 +65,13 @@ async def get_operation_logs(
     op_mgr: OperationManager = Depends(get_operation_manager),
 ):
     """Retrieve or stream logs for an operation."""
+    op = op_mgr.get_operation(operation_id)
     if stream:
+        if not op:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Operation '{operation_id}' not found.",
+            )
 
         async def event_generator():
             async for line in op_mgr.stream_logs(operation_id):
@@ -77,7 +79,6 @@ async def get_operation_logs(
 
         return EventSourceResponse(event_generator())
 
-    op = op_mgr.get_operation(operation_id)
     log_lines = op_mgr.get_logs(operation_id, tail=tail)
 
     return OperationLogsResponse(

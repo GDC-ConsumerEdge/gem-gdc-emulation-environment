@@ -26,6 +26,27 @@ from gem_api.services.process import communicate_or_kill
 logger = logging.getLogger("gem_api.gcp")
 
 
+_FLEET_STATUS_MAP: dict[str, str] = {
+    "READY": "RUNNING",
+    "OK": "RUNNING",
+    "RUNNING": "RUNNING",
+    "CREATING": "PROVISIONING",
+    "UPDATING": "PROVISIONING",
+    "RECONCILING": "PROVISIONING",
+    "PROVISIONING": "PROVISIONING",
+    "DEGRADED": "DEGRADED",
+    "SERVICE_DEGRADED": "DEGRADED",
+    "DELETING": "STOPPED",
+    "STOPPING": "STOPPED",
+    "STOPPED": "STOPPED",
+}
+
+
+def _map_fleet_status(state_code: str) -> str:
+    """Translate a GKE Hub membership state code into a ClusterInfo status literal."""
+    return _FLEET_STATUS_MAP.get(state_code.upper(), "ERROR")
+
+
 class GcpService:
     """Service for interacting with GCP resources, project listings, and fleet cluster discovery."""
 
@@ -102,10 +123,8 @@ class GcpService:
                             "kubernetesApiServerVersion", "1.34.100-gke.97"
                         )
                         node_count = k8s_meta.get("nodeCount", 3)
-                        state_code = m.get("state", {}).get("code", "READY")
-                        status = (
-                            "RUNNING" if state_code in ("READY", "OK") else state_code
-                        )
+                        state_code = str(m.get("state", {}).get("code", "READY"))
+                        status = _map_fleet_status(state_code)
 
                         clusters_map[raw_name] = ClusterInfo(
                             name=raw_name,
@@ -130,12 +149,12 @@ class GcpService:
 
             # Discover via GCS Terraform State bucket (gs://gem-${pid}-tfstate/clusters/*)
             try:
-                state_bucket = settings.get_tf_state_bucket(pid)
+                state_bucket = settings.get_tf_state_bucket(pid).removeprefix("gs://")
                 proc = await asyncio.create_subprocess_exec(
                     "gcloud",
                     "storage",
                     "ls",
-                    f"{state_bucket}/clusters/",
+                    f"gs://{state_bucket}/clusters/",
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
