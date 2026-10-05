@@ -50,7 +50,16 @@ spec:
                   - condition: "False"
                     reason: ReconcileFinished
                     type: reconciling
-      cleanup: []
+      cleanup:
+        - patch:
+            resource:
+              apiVersion: networking.gke.io/v1alpha1
+              kind: ClusterDNS
+              metadata:
+                name: default
+              spec:
+                domains: null
+                upstreamNameservers: null
 
     # Verify CoreDNS ConfigMap in kube-system reflects Corefile configuration.
     - name: 2. Verify CoreDNS ConfigMap In Kube-System

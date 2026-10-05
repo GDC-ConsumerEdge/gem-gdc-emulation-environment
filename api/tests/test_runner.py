@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from pathlib import Path
+
 import pytest
 
 from gem_api.config import get_settings
@@ -26,7 +28,6 @@ from gem_api.services.operations import get_operation_manager
 from gem_api.services.runner import get_process_runner
 
 
-@pytest.mark.asyncio
 async def test_runner_cluster_create_mock():
     op_mgr = get_operation_manager()
     runner = get_process_runner()
@@ -50,7 +51,6 @@ async def test_runner_cluster_create_mock():
     assert any("Apply complete" in line for line in logs)
 
 
-@pytest.mark.asyncio
 async def test_runner_cluster_delete_mock():
     op_mgr = get_operation_manager()
     runner = get_process_runner()
@@ -70,7 +70,6 @@ async def test_runner_cluster_delete_mock():
     assert op.status == OperationStatus.SUCCEEDED
 
 
-@pytest.mark.asyncio
 async def test_runner_workstation_pipeline():
     op_mgr = get_operation_manager()
     runner = get_process_runner()
@@ -98,7 +97,6 @@ async def test_runner_workstation_pipeline():
     assert op_mgr.get_operation("ws-del-op").status == OperationStatus.SUCCEEDED
 
 
-@pytest.mark.asyncio
 async def test_runner_edge_router_pipeline():
     op_mgr = get_operation_manager()
     runner = get_process_runner()
@@ -126,7 +124,6 @@ async def test_runner_edge_router_pipeline():
     assert op_mgr.get_operation("er-del-op").status == OperationStatus.SUCCEEDED
 
 
-@pytest.mark.asyncio
 async def test_runner_cluster_delete_command_generation(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -142,7 +139,7 @@ async def test_runner_cluster_delete_command_generation(
     async def mock_execute(
         operation_id: str,
         cmd: list[str],
-        cwd: any,
+        cwd: Path,
         env: dict[str, str],
         step_name: str,
         step_message: str,
@@ -184,6 +181,7 @@ async def test_runner_cluster_delete_command_generation(
     assert ansible_step["env"]["CLUSTER_NAME"] == "pr33"
     assert ansible_step["env"]["PROJECT_ID"] == settings.default_project_id
     assert ansible_step["env"]["GEM_GCP_ZONE"] == settings.default_zone
+    assert ansible_step["env"]["TF_DATA_DIR"].endswith(".terraform-pr33")
 
     # Step 2: Terraform init
     tf_init_step = executed_commands[1]
@@ -203,7 +201,6 @@ async def test_runner_cluster_delete_command_generation(
     assert f"-var=region={settings.default_region}" in tf_destroy_step["cmd"]
 
 
-@pytest.mark.asyncio
 async def test_runner_cluster_create_command_generation(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -219,7 +216,7 @@ async def test_runner_cluster_create_command_generation(
     async def mock_execute(
         operation_id: str,
         cmd: list[str],
-        cwd: any,
+        cwd: Path,
         env: dict[str, str],
         step_name: str,
         step_message: str,
@@ -252,6 +249,7 @@ async def test_runner_cluster_create_command_generation(
         "-backend-config=impersonate_service_account=sa@my-custom-proj.iam.gserviceaccount.com"
         in init_cmd
     )
+    assert executed_commands[0]["env"]["TF_DATA_DIR"].endswith(".terraform-gem-c1")
 
     # Terraform apply
     apply_cmd = executed_commands[1]["cmd"]
@@ -264,10 +262,11 @@ async def test_runner_cluster_create_command_generation(
         in apply_cmd
     )
 
-    # Ansible create-cluster
+    # Ansible create-cluster (must NOT override node_storage_size via -e)
     ansible_cmd = executed_commands[2]["cmd"]
     assert ansible_cmd[0] == "ansible-playbook"
     assert "create-cluster.yaml" in ansible_cmd
+    assert not any("node_storage_size" in arg for arg in ansible_cmd)
     assert executed_commands[2]["env"]["CLUSTER_NAME"] == "gem-c1"
     assert (
         executed_commands[2]["env"]["GOOGLE_IMPERSONATE_SERVICE_ACCOUNT"]
@@ -275,7 +274,6 @@ async def test_runner_cluster_create_command_generation(
     )
 
 
-@pytest.mark.asyncio
 async def test_runner_workstation_and_edge_router_prefixes(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -288,7 +286,7 @@ async def test_runner_workstation_and_edge_router_prefixes(
     async def mock_execute(
         operation_id: str,
         cmd: list[str],
-        cwd: any,
+        cwd: Path,
         env: dict[str, str],
         step_name: str,
         step_message: str,
@@ -317,7 +315,6 @@ async def test_runner_workstation_and_edge_router_prefixes(
     assert "-var=edge_router_name=gem-er" in executed_commands[1]["cmd"]
 
 
-@pytest.mark.asyncio
 async def test_runner_cluster_create_maps_gdc_version_to_bmctl(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -339,7 +336,7 @@ async def test_runner_cluster_create_maps_gdc_version_to_bmctl(
     async def mock_execute(
         operation_id: str,
         cmd: list[str],
-        cwd: any,
+        cwd: Path,
         env: dict[str, str],
         step_name: str,
         step_message: str,

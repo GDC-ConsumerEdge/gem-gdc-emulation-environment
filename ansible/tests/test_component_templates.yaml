@@ -1,0 +1,197 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+- name: Test Component Templates and Helper Scripts
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    cluster_name: "gem-test-1"
+    gem_user: "gem"
+    gem_home: "/home/gem"
+    gcp_project_id: "test-project"
+    gcp_project_number: "123456789012"
+    secondary_networks:
+      - name: "vlan-123"
+        vlan_id: 123
+        subnet: "172.16.12.0/24"
+        gateway: "172.16.12.1"
+        vip_pool: "172.16.12.200-172.16.12.250"
+        pod_cidr: "10.12.0.0/22"
+        per_node_ipam_size: 24
+  tasks:
+    - name: Ensure component template test directory exists
+      ansible.builtin.file:
+        path: "/tmp/gem_component_tpl_test"
+        state: directory
+        mode: "0755"
+
+    - name: Render gem-network-operator systemd service template
+      ansible.builtin.template:
+        src: "../roles/secondary_networks/templates/gem-network-operator.service.j2"
+        dest: "/tmp/gem_component_tpl_test/gem-network-operator.service"
+        mode: "0644"
+
+    - name: Render secondary Network CR manifest template
+      ansible.builtin.template:
+        src: "../roles/secondary_networks/templates/network.yaml.j2"
+        dest: "/tmp/gem_component_tpl_test/network.yaml"
+        mode: "0644"
+      vars:
+        item: "{{ secondary_networks[0] }}"
+
+    - name: Render gem-provisioned-networks ConfigMap template
+      ansible.builtin.template:
+        src: "../roles/secondary_networks/templates/provisioned-networks-configmap.yaml.j2"
+        dest: "/tmp/gem_component_tpl_test/provisioned-networks-configmap.yaml"
+        mode: "0644"
+
+    - name: Render TopoLVM Helm values template
+      ansible.builtin.template:
+        src: "../roles/topolvm/templates/topolvm-values.yaml.j2"
+        dest: "/tmp/gem_component_tpl_test/topolvm-values.yaml"
+        mode: "0644"
+
+    - name: Render gVisor RuntimeClass template
+      ansible.builtin.template:
+        src: "../roles/gvisor/templates/runtimeclass.yaml.j2"
+        dest: "/tmp/gem_component_tpl_test/runtimeclass.yaml"
+        mode: "0644"
+
+    - name: Render gVisor runsc.toml template
+      ansible.builtin.template:
+        src: "../roles/gvisor_node/templates/runsc.toml.j2"
+        dest: "/tmp/gem_component_tpl_test/runsc.toml"
+        mode: "0644"
+
+    - name: Render Gatekeeper GDC workload limitations policy template
+      ansible.builtin.template:
+        src: "../../policies/workload-limitations/gdc-limitations.yaml.j2"
+        dest: "/tmp/gem_component_tpl_test/gdc-limitations.yaml"
+        mode: "0644"
+
+    - name: Render vxlan-tcpmss systemd service template
+      ansible.builtin.template:
+        src: "../roles/vxlan/templates/vxlan-tcpmss.service.j2"
+        dest: "/tmp/gem_component_tpl_test/vxlan-tcpmss.service"
+        mode: "0644"
+      vars:
+        vxlan_interfaces:
+          - iface: "vxlan0"
+          - iface: "gdcenet0.123"
+
+    - name: Slurp rendered component templates
+      ansible.builtin.slurp:
+        src: "{{ item }}"
+      register: component_tpls
+      loop:
+        - "/tmp/gem_component_tpl_test/gem-network-operator.service"
+        - "/tmp/gem_component_tpl_test/network.yaml"
+        - "/tmp/gem_component_tpl_test/provisioned-networks-configmap.yaml"
+        - "/tmp/gem_component_tpl_test/topolvm-values.yaml"
+        - "/tmp/gem_component_tpl_test/runtimeclass.yaml"
+        - "/tmp/gem_component_tpl_test/runsc.toml"
+        - "/tmp/gem_component_tpl_test/gdc-limitations.yaml"
+        - "/tmp/gem_component_tpl_test/vxlan-tcpmss.service"
+
+    - name: Verify gem-network-operator.service template contents
+      ansible.builtin.assert:
+        that:
+          - "'KUBECONFIG=/home/gem/bmctl-workspace/gem-test-1/gem-test-1-kubeconfig' in (component_tpls.results[0].content | b64decode)"
+          - "'--metrics-bind-address=0 --health-probe-bind-address=0' in (component_tpls.results[0].content | b64decode)"
+          - "'--webhook-host=10.10.0.2' in (component_tpls.results[0].content | b64decode)"
+        fail_msg: "gem-network-operator.service rendering failed assertions!"
+
+    - name: Verify secondary Network CR manifest template contents
+      ansible.builtin.assert:
+        that:
+          - "'name: vlan-123' in (component_tpls.results[1].content | b64decode)"
+          - "'networking.gke.io/gdce-vlan-id: \"123\"' in (component_tpls.results[1].content | b64decode)"
+          - "'networking.gke.io/gdce-vlan-mtu: \"1410\"' in (component_tpls.results[1].content | b64decode)"
+          - "'interfaceName: gdcenet0.123' in (component_tpls.results[1].content | b64decode)"
+          - "'gateway4: \"172.16.12.1\"' in (component_tpls.results[1].content | b64decode)"
+          - "'prefixLength4: 24' in (component_tpls.results[1].content | b64decode)"
+        fail_msg: "secondary Network CR template rendering failed assertions!"
+
+    - name: Verify gem-provisioned-networks ConfigMap template contents
+      ansible.builtin.assert:
+        that:
+          - "'name: gem-provisioned-networks' in (component_tpls.results[2].content | b64decode)"
+          - "'\"123\": \"gdcenet0.123\"' in (component_tpls.results[2].content | b64decode)"
+        fail_msg: "provisioned-networks-configmap.yaml rendering failed assertions!"
+
+    - name: Verify TopoLVM Helm values template contents
+      ansible.builtin.assert:
+        that:
+          - "'volume-group: topolvm-vg' in (component_tpls.results[3].content | b64decode)"
+          - "'spare-gb: 10' in (component_tpls.results[3].content | b64decode)"
+          - "'storageClasses: []' in (component_tpls.results[3].content | b64decode)"
+          - "'enabled: false' in (component_tpls.results[3].content | b64decode)"
+        fail_msg: "topolvm-values.yaml rendering failed assertions!"
+
+    - name: Verify gVisor RuntimeClass and runsc.toml template contents
+      ansible.builtin.assert:
+        that:
+          - "'kind: RuntimeClass' in (component_tpls.results[4].content | b64decode)"
+          - "'handler: gvisor' in (component_tpls.results[4].content | b64decode)"
+          - "'[runsc_config]' in (component_tpls.results[5].content | b64decode)"
+          - "'net-raw = \"true\"' in (component_tpls.results[5].content | b64decode)"
+        fail_msg: "gVisor templates failed assertions!"
+
+    - name: Verify Gatekeeper GDC workload limitations policy template contents
+      ansible.builtin.assert:
+        that:
+          - "'kind: GDCWorkloadLimitations' in (component_tpls.results[6].content | b64decode)"
+          - "'kind: GDCRestrictedNamespaces' in (component_tpls.results[6].content | b64decode)"
+          - "'service-123456789012@gcp-sa-edgecontainer.iam.gserviceaccount.com' in (component_tpls.results[6].content | b64decode)"
+          - "'has_volume_mounts' not in (component_tpls.results[6].content | b64decode)"
+        fail_msg: "gdc-limitations.yaml.j2 rendering failed assertions!"
+
+    - name: Verify vxlan-tcpmss.service template contents
+      ansible.builtin.assert:
+        that:
+          - "'/sbin/iptables -t mangle -C POSTROUTING' in (component_tpls.results[7].content | b64decode)"
+          - "'-o vxlan0 -j TCPMSS --clamp-mss-to-pmtu' in (component_tpls.results[7].content | b64decode)"
+          - "'-o gdcenet0.123 -j TCPMSS --clamp-mss-to-pmtu' in (component_tpls.results[7].content | b64decode)"
+        fail_msg: "vxlan-tcpmss.service.j2 rendering failed assertions!"
+
+    - name: Test gem-tunnel.sh --print flag with multi-protocol port forwards
+      ansible.builtin.command: >
+        {{ playbook_dir }}/../../scripts/gem-tunnel.sh --print
+        --project-id test-project
+        --zone us-central1-a
+        --http 172.16.12.200:8080=18080
+        --ssh 172.16.12.10
+        --rdp 172.16.12.11
+        --vnc 172.16.12.12
+        --tunnel 172.16.12.13:9090=19090
+      register: tunnel_print
+      changed_when: false
+
+    - name: Verify gem-tunnel.sh --print output
+      ansible.builtin.assert:
+        that:
+          - "'gcloud compute ssh gem@gem-edge-router' in tunnel_print.stdout"
+          - "'--tunnel-through-iap' in tunnel_print.stdout"
+          - "'127.0.0.1:18080:172.16.12.200:8080' in tunnel_print.stdout"
+          - "'127.0.0.1:2222:172.16.12.10:22' in tunnel_print.stdout"
+          - "'127.0.0.1:13389:172.16.12.11:3389' in tunnel_print.stdout"
+          - "'127.0.0.1:15900:172.16.12.12:5900' in tunnel_print.stdout"
+          - "'127.0.0.1:19090:172.16.12.13:9090' in tunnel_print.stdout"
+        fail_msg: "gem-tunnel.sh --print output did not match expected SSH forwarding arguments!"
+
+    - name: Clean up component template test directory
+      ansible.builtin.file:
+        path: "/tmp/gem_component_tpl_test"
+        state: absent

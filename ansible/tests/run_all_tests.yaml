@@ -15,3 +15,4 @@
 - ansible.builtin.import_playbook: test_gdc_template.yaml
 - ansible.builtin.import_playbook: test_validations.yaml
 - ansible.builtin.import_playbook: test_vxlan_rendering.yaml
+- ansible.builtin.import_playbook: test_component_templates.yaml

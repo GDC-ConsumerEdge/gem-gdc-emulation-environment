@@ -14,6 +14,7 @@
 
 - name: Test Playbook Parameter Validations
   hosts: localhost
+  connection: local
   gather_facts: false
   tasks:
     - name: Test Compliant Cluster Name Validation (Success Case)
@@ -45,3 +46,49 @@
         - name: Log Expected Failure Success
           ansible.builtin.debug:
             msg: "🟢 Over-length check successfully blocked execution as expected."
+
+    - name: Test Kubernetes 63-Character FQDN Limit Validation (Success Case)
+      vars:
+        test_cluster: "gem-cluster-1"
+        test_zone: "us-central1-a"
+        test_project: "my-gcp-project-123"
+      ansible.builtin.assert:
+        that:
+          - "(test_cluster | length) + (test_zone | length) + (test_project | length) + 15 <= 63"
+        fail_msg: "🚫 ERROR: Compliant FQDN unexpectedly failed 63-char validation!"
+
+    - name: Test Kubernetes 63-Character FQDN Limit Validation (Expected Failure Case)
+      vars:
+        test_cluster: "gem-cluster-long-name-24"
+        test_zone: "australia-southeast1-a"
+        test_project: "very-long-enterprise-project-id-12345"
+      block:
+        - name: Assert Over-Length FQDN
+          ansible.builtin.assert:
+            that:
+              - "(test_cluster | length) + (test_zone | length) + (test_project | length) + 15 <= 63"
+            fail_msg: "🚨 Expected Failure: Combined node FQDN exceeds 63 characters."
+        - name: Fail Test on unexpected FQDN validation bypass
+          ansible.builtin.fail:
+            msg: "❌ TEST FAILED: Over-length FQDN bypassed 63-character validation!"
+      rescue:
+        - name: Log Expected FQDN Failure Success
+          ansible.builtin.debug:
+            msg: "🟢 Over-length FQDN check successfully blocked execution as expected."
+
+    - name: Test VXLAN host_octet Range Validation
+      vars:
+        valid_octet: 100
+        invalid_octet: 300
+      block:
+        - name: Assert valid host_octet passes
+          ansible.builtin.assert:
+            that:
+              - "valid_octet | int >= 1"
+              - "valid_octet | int <= 254"
+            fail_msg: "Valid host_octet failed range check."
+        - name: Assert invalid host_octet fails
+          ansible.builtin.assert:
+            that:
+              - "not (invalid_octet | int >= 1 and invalid_octet | int <= 254)"
+            fail_msg: "Invalid host_octet should be outside 1..254."
