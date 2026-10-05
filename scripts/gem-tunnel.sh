@@ -43,7 +43,7 @@ Forwarding flags:
 Connection overrides:
   --project-id <id>      GCP project ID (default: $PROJECT_ID or gcloud config get-value project)
   --edge-router <name>   GEM Edge Router VM name (default: gem-edge-router)
-  --zone <zone>          GCP Zone where VMs reside (default: $CLOUDSDK_COMPUTE_ZONE or gcloud config get-value compute/zone)
+  --zone <zone>          GCP Zone where VMs reside (default: $GEM_GCP_ZONE, $CLOUDSDK_COMPUTE_ZONE, or gcloud config get-value compute/zone)
   --user <name>          SSH user (default: gem)
   --print                Print the ssh command instead of running it
   -h, --help             Show this help
@@ -71,14 +71,14 @@ VNC_SPECS=()
 TUNNEL_SPECS=()
 PROJECT_ID="${PROJECT_ID:-}"
 EDGE_NAME="${GEM_EDGE_ROUTER_NAME:-gem-edge-router}"
-ZONE="${CLOUDSDK_COMPUTE_ZONE:-}"
+ZONE="${GEM_GCP_ZONE:-${CLOUDSDK_COMPUTE_ZONE:-}}"
 SSH_USER="gem"
 PRINT_ONLY=0
 
 # Validate that we have the required options for a given argument
 check_arg() {
-  arg="$1" options="$2"
-  if [[ "$options" -lt 2 ]]; then
+  arg="$1" options="$2" val="${3:-}"
+  if [[ "$options" -lt 2 || -z "$val" || "$val" == --* ]]; then
     echo -e "\n🚫 ERROR: $arg is missing a valid non-empty value.\n" >&2
     usage >&2
     exit 2
@@ -88,47 +88,47 @@ check_arg() {
 while [[ $# -gt 0 ]]; do
   case "$1" in
   --http)
-    check_arg "$1" "$#"
+    check_arg "$1" "$#" "${2:-}"
     HTTP_SPECS+=("$2")
     shift 2
     ;;
   --rdp)
-    check_arg "$1" "$#"
+    check_arg "$1" "$#" "${2:-}"
     RDP_SPECS+=("$2")
     shift 2
     ;;
   --ssh)
-    check_arg "$1" "$#"
+    check_arg "$1" "$#" "${2:-}"
     SSH_SPECS+=("$2")
     shift 2
     ;;
   --vnc)
-    check_arg "$1" "$#"
+    check_arg "$1" "$#" "${2:-}"
     VNC_SPECS+=("$2")
     shift 2
     ;;
   --tunnel)
-    check_arg "$1" "$#"
+    check_arg "$1" "$#" "${2:-}"
     TUNNEL_SPECS+=("$2")
     shift 2
     ;;
   --project-id)
-    check_arg "$1" "$#"
+    check_arg "$1" "$#" "${2:-}"
     PROJECT_ID="$2"
     shift 2
     ;;
   --edge-router)
-    check_arg "$1" "$#"
+    check_arg "$1" "$#" "${2:-}"
     EDGE_NAME="$2"
     shift 2
     ;;
   --zone)
-    check_arg "$1" "$#"
+    check_arg "$1" "$#" "${2:-}"
     ZONE="$2"
     shift 2
     ;;
   --user)
-    check_arg "$1" "$#"
+    check_arg "$1" "$#" "${2:-}"
     SSH_USER="$2"
     shift 2
     ;;
@@ -181,7 +181,7 @@ if [[ -z "$ZONE" ]]; then
   ZONE="$(gcloud config get-value compute/zone 2>/dev/null || true)"
   if [[ -z "$ZONE"  ]]; then
     echo "🚫 ERROR: GCP zone not found.
-   Define via --zone, CLOUDSDK_COMPUTE_ZONE or gcloud config set compute/zone <GCP zone>" >&2
+   Define via --zone, GEM_GCP_ZONE, CLOUDSDK_COMPUTE_ZONE, or gcloud config set compute/zone <GCP zone>" >&2
     exit 1
   fi
 fi
@@ -239,101 +239,47 @@ resolve_remote() {
   svc_name="${target##*/}"
 
   ip="$(kubectl get svc "$svc_name" -n "$ns" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)"
-  if [[ -z "$ip" ]]; then
-    ip="$(kubectl get svc "$svc_name" -n "$ns" -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)"
-  fi
-
   if [[ -z "$ip" || "$ip" == "null" ]]; then
-    echo -e "\n🚫 ERROR: Could not resolve K8s service '$target' to an IP address via kubectl.\n" >&2
+    echo -e "\n🚫 ERROR: Could not resolve LoadBalancer VIP for K8s service '$target' via kubectl.\n" >&2
     exit 2
   fi
 
   echo "$ip"
 }
 
-http_next=8080
-if [[ ${#HTTP_SPECS[@]} -gt 0 ]]; then
-  for spec in "${HTTP_SPECS[@]}"; do
+process_specs() {
+  local label="$1" default_remote_port="$2" next_local_port="$3"
+  shift 3
+  local spec raw_ip remote_port remote_ip local_port
+  for spec in "$@"; do
     parse_spec "$spec"
     if [[ "$REMOTE" == *:* ]]; then
+      # Parameter expansion: "${REMOTE%:*}" strips the trailing ":<port>" to
+      # extract the host/service; "${REMOTE##*:}" strips through the last ":"
+      # to extract the port number.
       raw_ip="${REMOTE%:*}"
       remote_port="${REMOTE##*:}"
-    else
+    elif [[ -n "$default_remote_port" ]]; then
       raw_ip="$REMOTE"
-      remote_port=80
-    fi
-    remote_ip="$(resolve_remote "$raw_ip")"
-    local_port="${LOCAL_PORT_OR_EMPTY:-$((http_next++))}"
-    add_forward "$local_port" "$remote_ip" "$remote_port" "HTTP"
-  done
-fi
-
-rdp_next=13389
-if [[ ${#RDP_SPECS[@]} -gt 0 ]]; then
-  for spec in "${RDP_SPECS[@]}"; do
-    parse_spec "$spec"
-    if [[ "$REMOTE" == *:* ]]; then
-      raw_ip="${REMOTE%:*}"
-      remote_port="${REMOTE##*:}"
+      remote_port="$default_remote_port"
     else
-      raw_ip="$REMOTE"
-      remote_port=3389
-    fi
-    remote_ip="$(resolve_remote "$raw_ip")"
-    local_port="${LOCAL_PORT_OR_EMPTY:-$((rdp_next++))}"
-    add_forward "$local_port" "$remote_ip" "$remote_port" "RDP"
-  done
-fi
-
-ssh_next=2222
-if [[ ${#SSH_SPECS[@]} -gt 0 ]]; then
-  for spec in "${SSH_SPECS[@]}"; do
-    parse_spec "$spec"
-    if [[ "$REMOTE" == *:* ]]; then
-      raw_ip="${REMOTE%:*}"
-      remote_port="${REMOTE##*:}"
-    else
-      raw_ip="$REMOTE"
-      remote_port=22
-    fi
-    remote_ip="$(resolve_remote "$raw_ip")"
-    local_port="${LOCAL_PORT_OR_EMPTY:-$((ssh_next++))}"
-    add_forward "$local_port" "$remote_ip" "$remote_port" "SSH"
-  done
-fi
-
-vnc_next=15900
-if [[ ${#VNC_SPECS[@]} -gt 0 ]]; then
-  for spec in "${VNC_SPECS[@]}"; do
-    parse_spec "$spec"
-    if [[ "$REMOTE" == *:* ]]; then
-      raw_ip="${REMOTE%:*}"
-      remote_port="${REMOTE##*:}"
-    else
-      raw_ip="$REMOTE"
-      remote_port=5900
-    fi
-    remote_ip="$(resolve_remote "$raw_ip")"
-    local_port="${LOCAL_PORT_OR_EMPTY:-$((vnc_next++))}"
-    add_forward "$local_port" "$remote_ip" "$remote_port" "VNC"
-  done
-fi
-
-generic_next=9000
-if [[ ${#TUNNEL_SPECS[@]} -gt 0 ]]; then
-  for spec in "${TUNNEL_SPECS[@]}"; do
-    parse_spec "$spec"
-    if [[ "$REMOTE" != *:* ]]; then
       echo "🚫 ERROR: --tunnel expects <ip|ns/service>:<port>[=<localport>], got '$spec'" >&2
       exit 2
     fi
-    raw_ip="${REMOTE%:*}"
-    remote_port="${REMOTE##*:}"
     remote_ip="$(resolve_remote "$raw_ip")"
-    local_port="${LOCAL_PORT_OR_EMPTY:-$((generic_next++))}"
-    add_forward "$local_port" "$remote_ip" "$remote_port" "TUNNEL"
+    # Use the explicit "=<localport>" if provided; otherwise assign the next
+    # available default local port for this protocol and increment the counter.
+    local_port="${LOCAL_PORT_OR_EMPTY:-$((next_local_port++))}"
+    add_forward "$local_port" "$remote_ip" "$remote_port" "$label"
   done
-fi
+}
+
+# Translate any CLI specs collected for each protocol into SSH "-L" forwards.
+[[ ${#HTTP_SPECS[@]} -gt 0 ]] && process_specs "HTTP" 80 8080 "${HTTP_SPECS[@]}"
+[[ ${#RDP_SPECS[@]} -gt 0 ]] && process_specs "RDP" 3389 13389 "${RDP_SPECS[@]}"
+[[ ${#SSH_SPECS[@]} -gt 0 ]] && process_specs "SSH" 22 2222 "${SSH_SPECS[@]}"
+[[ ${#VNC_SPECS[@]} -gt 0 ]] && process_specs "VNC" 5900 15900 "${VNC_SPECS[@]}"
+[[ ${#TUNNEL_SPECS[@]} -gt 0 ]] && process_specs "TUNNEL" "" 9000 "${TUNNEL_SPECS[@]}"
 
 if [[ "$PRINT_ONLY" -eq 1 ]]; then
   # Just print the gcloud command needed to tunnel to a GEM Service

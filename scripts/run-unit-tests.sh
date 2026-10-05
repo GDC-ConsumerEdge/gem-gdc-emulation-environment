@@ -103,25 +103,37 @@ fi
 # Terraform Unit Tests
 if [ "$RUN_TERRAFORM" = true ]; then
     echo "Running Terraform Unit Tests..."
-    TEMP_TF_DIR=$(mktemp -d)
+    TEMP_TF_ROOT=$(mktemp -d)
     (
-        trap 'rm -rf "${TEMP_TF_DIR:-}"' EXIT INT TERM
-        echo "Creating temp directory for Terraform tests: $TEMP_TF_DIR"
-        cp -r "$GEM_ROOT/terraform/cluster"/* "$TEMP_TF_DIR"/
-        rm -f "$TEMP_TF_DIR/backend.tf"
+        trap 'rm -rf "${TEMP_TF_ROOT:-}"' EXIT INT TERM
+        export TF_PLUGIN_CACHE_DIR="$TEMP_TF_ROOT/plugin-cache"
+        mkdir -p "$TF_PLUGIN_CACHE_DIR"
 
-        cd "$TEMP_TF_DIR"
-        echo "Initializing Terraform (local backend)..."
-        terraform init
+        declare -A TF_MODULE_TESTS=(
+            ["foundation"]="foundation.tftest.hcl"
+            ["admin-workstation"]="admin_workstation.tftest.hcl"
+            ["cluster"]="unit.tftest.hcl"
+            ["edge-router"]="edge_router.tftest.hcl"
+            ["cloudbuild"]="cloudbuild.tftest.hcl"
+        )
 
-        echo "Copying test file..."
-        mkdir -p tests
-        cp "$GEM_ROOT/terraform/tests/unit.tftest.hcl" tests/
+        for module in foundation admin-workstation cluster edge-router cloudbuild; do
+            test_file="${TF_MODULE_TESTS[$module]}"
+            mod_dir="$TEMP_TF_ROOT/$module"
+            mkdir -p "$mod_dir/tests"
+            cp -r "$GEM_ROOT/terraform/$module"/* "$mod_dir"/
+            rm -f "$mod_dir/backend.tf"
+            cp "$GEM_ROOT/terraform/tests/$test_file" "$mod_dir/tests/"
 
-        echo "Running terraform test..."
-        terraform test
+            echo "Testing Terraform module: $module ($test_file)..."
+            (
+                cd "$mod_dir"
+                terraform init -backend=false >/dev/null
+                terraform test
+            )
+        done
     )
-    rm -rf "$TEMP_TF_DIR"
+    rm -rf "$TEMP_TF_ROOT"
 fi
 
 # Ansible Unit Tests
@@ -130,11 +142,13 @@ if [ "$RUN_ANSIBLE" = true ]; then
     (
         cd "$GEM_ROOT/ansible"
         echo "Running template rendering test..."
-        ansible-playbook tests/test_gdc_template.yaml
+        ansible-playbook -i localhost, -c local tests/test_gdc_template.yaml
         echo "Running parameter validation check test..."
-        ansible-playbook tests/test_validations.yaml
+        ansible-playbook -i localhost, -c local tests/test_validations.yaml
         echo "Running dynamic VXLAN & VLAN interface rendering test..."
-        ansible-playbook tests/test_vxlan_rendering.yaml
+        ansible-playbook -i localhost, -c local tests/test_vxlan_rendering.yaml
+        echo "Running component templates and script rendering test..."
+        ansible-playbook -i localhost, -c local tests/test_component_templates.yaml
     )
 fi
 
