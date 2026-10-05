@@ -59,17 +59,20 @@ Linux and macOS are both supported as development machines.
 
 ### Required tooling
 
-| Tool         | Version                                                      | Used for                                                                                                                               |
-| :----------- | :----------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------- |
-| `python3`    | 3.13 or higher                                               | `pre-commit`, Ansible, and the `api/` service (`api/pyproject.toml` sets `requires-python = ">=3.13"`)                                 |
-| `pre-commit` | 4.0 or higher                                                | All pre-commit checks                                                                                                                  |
-| `terraform`  | 1.14.0 or higher                                             | `terraform/` modules, the `terraform_fmt`, `terraform_tflint`, and `terraform_validate` pre-commit hooks, and the Terraform unit tests |
-| `tflint`     | 0.50.0 or higher                                             | The `terraform_tflint` hook                                                                                                            |
-| `ansible`    | Current release of the `ansible` package, not `ansible-core` | `ansible/` playbooks and roles, the `ansible-lint` pre-commit hook, and the Ansible unit tests                                         |
-| `go`         | 1.26.6 or higher                                             | `operators/gem-network-operator`, and the Go-based pre-commit hooks                                                                    |
-| `uv`         | Current release                                              | GEM REST API, `ruff`, and `pytest`                                                                                                     |
-| `shellcheck` | Any recent release                                           | The `shellcheck` pre-commit hook                                                                                                       |
-| `jq`         | Any recent release                                           | `ansible/inventory.sh`, the dynamic inventory                                                                                          |
+Minimum versions are declared in each component's configuration file rather than
+duplicated here:
+
+| Tool         | Version source                                                                                     | Used for                                                                                                                               |
+| :----------- | :------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------- |
+| `python3`    | `requires-python` in [`api/pyproject.toml`](api/pyproject.toml)                                    | `pre-commit`, Ansible, and the `api/` service                                                                                          |
+| `pre-commit` | Current release                                                                                    | All pre-commit checks in [`.pre-commit-config.yaml`](.pre-commit-config.yaml)                                                          |
+| `terraform`  | `required_version` in [`terraform/cluster/main.tf`](terraform/cluster/main.tf)                     | `terraform/` modules, the `terraform_fmt`, `terraform_tflint`, and `terraform_validate` pre-commit hooks, and the Terraform unit tests |
+| `tflint`     | Current release                                                                                    | The `terraform_tflint` hook                                                                                                            |
+| `ansible`    | Current release of the `ansible` package, not `ansible-core`                                       | `ansible/` playbooks and roles, the `ansible-lint` pre-commit hook, and the Ansible unit tests                                         |
+| `go`         | `go` directive in [`operators/gem-network-operator/go.mod`](operators/gem-network-operator/go.mod) | `operators/gem-network-operator`, and the Go-based pre-commit hooks                                                                    |
+| `uv`         | Current release                                                                                    | GEM REST API, `ruff`, and `pytest`                                                                                                     |
+| `shellcheck` | Any recent release                                                                                 | The `shellcheck` pre-commit hook                                                                                                       |
+| `jq`         | Any recent release                                                                                 | `ansible/inventory.sh`, the dynamic inventory                                                                                          |
 
 > [!IMPORTANT]
 > You need Go installed on your development machine even if you never touch Go
@@ -80,7 +83,9 @@ Linux and macOS are both supported as development machines.
 
 ### Install the tooling
 
-#### On Debian or Ubuntu:
+#### On Debian or Ubuntu
+
+Install the system packages with `apt-get`:
 
 ```bash
 sudo apt-get update
@@ -94,13 +99,15 @@ Install `uv` using the
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-#### On macOS with Homebrew:
+#### On macOS with Homebrew
+
+Install the core packages with Homebrew:
 
 ```bash
 brew install python@3.13 go shellcheck jq uv
 ```
 
-Install `terraform` and `tflint` from their upstream releases::
+Install `terraform` and `tflint` from their upstream releases:
 
 - [Terraform](https://developer.hashicorp.com/terraform/install)
 - [TFLint](https://github.com/terraform-linters/tflint#installation)
@@ -121,7 +128,9 @@ uv tool install mdformat \
 ```
 
 Confirm that your distribution's Go build satisfies the minimum Golang version
-`go 1.26.6`. An older version will fail to build the operator:
+in
+[`operators/gem-network-operator/go.mod`](operators/gem-network-operator/go.mod).
+An older version will fail to build the operator:
 
 ```bash
 go version
@@ -130,7 +139,7 @@ go version
 go version go1.27.1 darwin/arm64
 
 # Linux
-go version go1.26.6 linux/amd64
+go version go1.26.2 linux/amd64
 ```
 
 Distribution packages often lag. If your Go version is older, install a current
@@ -186,13 +195,13 @@ pre-commit run --all-files
 and exits with detail on the missing tool if one is absent. This makes it a
 usable installation check on its own. It runs four test suites:
 
-| Flag          | Suite                                                                                                                   |
-| :------------ | :---------------------------------------------------------------------------------------------------------------------- |
-| `--terraform` | `terraform test` against a temporary copy of `terraform/cluster`, using `mock_provider "google"`                        |
-| `--ansible`   | Three check-mode playbooks in `ansible/tests/`: template rendering, parameter validation, and VXLAN interface rendering |
-| `--go`        | `go test -v -cover ./...` in `operators/gem-network-operator`                                                           |
-| `--python`    | `uv run pytest -v --cov=gem_api` in `api/`                                                                              |
-| `--all`       | All four, which is also the default when you pass no flags                                                              |
+| Flag          | Suite                                                                                                                                                    |
+| :------------ | :------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--terraform` | `terraform test` against temporary copies of the five `terraform/` modules, using `mock_provider "google"`                                               |
+| `--ansible`   | Four check-mode playbooks in `ansible/tests/`: template rendering, parameter validation, VXLAN interface rendering, and component template/script checks |
+| `--go`        | `go test -v -cover ./...` in `operators/gem-network-operator`                                                                                            |
+| `--python`    | `uv run --frozen pytest -v --cov=gem_api` in `api/`                                                                                                      |
+| `--all`       | All four suites, which is also the default when you pass no flags                                                                                        |
 
 While iterating on one area, run just that suite:
 
@@ -240,7 +249,7 @@ configuration.
 | Symptom                                                             | Cause                                                                                      | Fix                                                                                                       |
 | :------------------------------------------------------------------ | :----------------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------- |
 | `Missing required tool: <name>` from `run-unit-tests.sh`            | The suite you selected needs a tool that is not on your `PATH`                             | Install it from the table above, or run only the suites you have tooling for                              |
-| A pre-commit hook fails with `go: command not found` during install | No Go toolchain on `PATH`                                                                  | Install Go 1.26.6 or higher, then `pre-commit install --install-hooks` again                              |
+| A pre-commit hook fails with `go: command not found` during install | No Go toolchain on `PATH`                                                                  | Install Go (`go.mod` version or higher), then `pre-commit install --install-hooks` again                  |
 | `couldn't resolve module/action 'ansible.posix.sysctl'`             | You installed `ansible-core` instead of `ansible`                                          | `pip uninstall ansible-core && uv tool install ansible`                                                   |
 | `terraform_validate` fails on a fresh clone                         | The module has no `.terraform` directory yet                                               | Run the initialization loop in [Initialize the Terraform modules](#initialize-the-terraform-modules)      |
 | Your commit is rejected before the editor opens                     | The message is not a [Conventional Commit](https://www.conventionalcommits.org/en/v1.0.0/) | Prefix the subject with a type, for example `docs(contributing): add detail on conventional commits`      |
@@ -279,8 +288,8 @@ chainsaw test --config chainsaw-configuration.yaml
 chainsaw test --config chainsaw-configuration.yaml storage
 ```
 
-`tests/e2e/chainsaw-configuration.yaml` applies to every test suite. Two of its
-settings are worth knowing before you debug a failure:
+`tests/e2e/chainsaw-configuration.yaml` applies to every test suite. Three of
+its settings are worth knowing before you debug a failure:
 
 - `skipDelete: false` instructs Chainsaw to delete all resources it created
   during a test run, including after a failed assertion. Pass `--skip-delete` to
@@ -291,9 +300,8 @@ settings are worth knowing before you debug a failure:
   MetalLB-backed Service can take minutes to become ready. If you add a test
   that waits on something slower still, set a timeout on that operation rather
   than raising the global value.
-  - `parallel: 2` limits how many tests run in parallel. This is set to a lower
-    value, which is needed to keep from hitting rate limits on the
-    `kube-apiserver`
+- `parallel: 2` limits how many tests run in parallel. This is set to a lower
+  value to avoid hitting rate limits on the `kube-apiserver`.
 
 Some e2e test suites need more than a default cluster.
 [docs/secondary-networks.md](docs/secondary-networks.md) covers the ones under
@@ -302,17 +310,19 @@ configured first.
 
 ### Terraform
 
-`terraform test` runs against a temporary copy of `terraform/cluster` with
-`mock_provider "google"`, so it plans against fake resources. It needs no
-credentials and no state bucket, and it creates nothing in GCP. The tests live
-in `terraform/tests/` and assert that each hardware variant maps to the intended
-machine type, disk size and instance features.
+`terraform test` runs against temporary copies of the five modules under
+`terraform/` (`cluster`, `foundation`, `admin-workstation`, `edge-router`, and
+`cloudbuild`) with `mock_provider "google"`, so it plans against fake resources.
+It needs no credentials and no state bucket, and it creates nothing in GCP. The
+tests live in `terraform/tests/` and assert resource configurations, variable
+validations, and outputs across all modules.
 
 ### Ansible
 
 The suites in `ansible/tests/` are playbooks run in check mode. They assert
-template rendering and parameter validation without connecting to a host, which
-is what makes them safe on a machine that has no GEM environment.
+template rendering, parameter validation, VXLAN configuration, and role task
+execution without connecting to a remote host, which is what makes them safe on
+a machine that has no GEM environment.
 
 ### Python
 

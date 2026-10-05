@@ -1,9 +1,9 @@
 # GEM REST API Service
 
 The GEM REST API provides programmatic endpoints to orchestrate the lifecycle of
-GEM infrastructure (Foundations, Admin Workstations, Edge Routers, and Clusters)
-and manage day-2 GDC emulation workloads (VirtualMachines, Secondary Networks,
-ConfigSync, and Pods).
+GEM infrastructure (Admin Workstations, Edge Routers, and Clusters) and manage
+day-2 GDC emulation workloads (VirtualMachines, Secondary Networks, ConfigSync,
+and Pods).
 
 ## Features
 
@@ -19,6 +19,9 @@ ConfigSync, and Pods).
   standard container lifecycles.
 
 ## Development with `uv`
+
+Use `uv` to install dependencies, run the test and lint suites, and start the
+local development server:
 
 ```bash
 cd api
