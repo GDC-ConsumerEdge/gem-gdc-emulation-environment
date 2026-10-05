@@ -92,9 +92,21 @@ spec:
         violation[{"msg": msg}] {
           not is_exempt
           input.review.object.kind == "Pod"
-          container := input.review.object.spec.containers[_]
+          container := pod_containers(input.review.object)[_]
           container.securityContext.privileged == true
           msg := "Privileged containers are not allowed"
+        }
+
+        pod_containers(pod) = c {
+          c := pod.spec.containers
+        }
+
+        pod_containers(pod) = c {
+          c := pod.spec.initContainers
+        }
+
+        pod_containers(pod) = c {
+          c := pod.spec.ephemeralContainers
         }
 
         # Pod Priority Check
@@ -138,7 +150,6 @@ spec:
       - "system:admin"
       - "system:masters"
       - "system:nodes"
-      - "gem-cluster-admin"
       - "{{ gcp_edge_container_sa | default('service-' ~ (gcp_project_number | default('0')) ~ '@gcp-sa-edgecontainer.iam.gserviceaccount.com') }}"
     excludedUserPrefixes:
       - "system:serviceaccount:kube-system:"
@@ -241,7 +252,6 @@ spec:
       - "system:admin"
       - "system:masters"
       - "system:nodes"
-      - "gem-cluster-admin"
       - "{{ gcp_edge_container_sa | default('service-' ~ (gcp_project_number | default('0')) ~ '@gcp-sa-edgecontainer.iam.gserviceaccount.com') }}"
     excludedUserPrefixes:
       - "system:serviceaccount:kube-system:"
