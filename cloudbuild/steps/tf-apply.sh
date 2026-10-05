@@ -39,7 +39,7 @@ if [[ -n "${PROVISIONING_SA_EMAIL}" ]]; then
 fi
 
 echo "tf-init" >/workspace/state/failed-stage
-terraform -chdir=terraform/cluster init "${backend_args[@]}"
+terraform -chdir=terraform/cluster init -upgrade "${backend_args[@]}"
 
 echo "tf-apply" >/workspace/state/failed-stage
 terraform -chdir=terraform/cluster apply "${apply_args[@]}"

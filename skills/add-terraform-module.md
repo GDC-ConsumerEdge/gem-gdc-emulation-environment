@@ -22,11 +22,11 @@ terraform/<name>/
 
 ```hcl
 terraform {
-  required_version = ">= 1.14.0"
+  required_version = ">= 1.16.0"
   required_providers {
     google = {
       source  = "hashicorp/google"
-      version = "~> 7.30.0"
+      version = "~> 8.5.0"
     }
   }
 }
@@ -58,7 +58,7 @@ The module is initialized against the shared Terraform state bucket with an
 impersonated provisioning service account and a module-specific state prefix:
 
 ```bash
-terraform -chdir=terraform/<name> init \
+terraform -chdir=terraform/<name> init -upgrade \
   -backend-config="bucket=${TF_STATE_BUCKET}" \
   -backend-config="prefix=<name>/state" \
   -backend-config="impersonate_service_account=${PROVISIONING_SA_EMAIL}"
@@ -78,7 +78,7 @@ Follow [validate.md](validate.md). License headers are inserted automatically by
 the `addlicense` pre-commit hook. To check locally without a backend:
 
 ```bash
-terraform -chdir=terraform/<name> init -backend=false
+terraform -chdir=terraform/<name> init -upgrade -backend=false
 terraform -chdir=terraform/<name> validate
 ```
 

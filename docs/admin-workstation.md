@@ -113,7 +113,7 @@ workstation:
 ```bash
 cd terraform/admin-workstation
 
-terraform init \
+terraform init -upgrade \
   -backend-config="bucket=${TF_STATE_BUCKET}" \
   -backend-config="prefix=admin-workstation/state" \
   -backend-config="impersonate_service_account=${PROVISIONING_SA_EMAIL}"

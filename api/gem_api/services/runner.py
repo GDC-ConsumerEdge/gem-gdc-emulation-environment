@@ -242,6 +242,7 @@ class ProcessRunner:
         cmd = [
             "terraform",
             "init",
+            "-upgrade",
             "-input=false",
             "-reconfigure",
             f"-backend-config=bucket={bucket}",

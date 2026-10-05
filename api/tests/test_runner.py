@@ -185,7 +185,7 @@ async def test_runner_cluster_delete_command_generation(
 
     # Step 2: Terraform init
     tf_init_step = executed_commands[1]
-    assert tf_init_step["cmd"][0:2] == ["terraform", "init"]
+    assert tf_init_step["cmd"][0:3] == ["terraform", "init", "-upgrade"]
     assert (
         f"-backend-config=bucket={settings.get_tf_state_bucket()}"
         in tf_init_step["cmd"]

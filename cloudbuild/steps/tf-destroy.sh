@@ -36,7 +36,7 @@ if [[ -n "${PROVISIONING_SA_EMAIL}" ]]; then
 fi
 
 echo "🔄 Initializing terraform/cluster for teardown..."
-terraform -chdir=terraform/cluster init "${backend_args[@]}"
+terraform -chdir=terraform/cluster init -upgrade "${backend_args[@]}"
 
 echo "🗑️  Destroying GCP infrastructure for cluster ${CLUSTER_NAME}..."
 terraform -chdir=terraform/cluster destroy "${destroy_args[@]}"

@@ -55,7 +55,7 @@ Validate only Terraform without a backend (mirrors the CI "Terraform Init Mocks"
 step), per module:
 
 ```bash
-terraform -chdir=terraform/<module> init -backend=false
+terraform -chdir=terraform/<module> init -upgrade -backend=false
 terraform -chdir=terraform/<module> validate
 ```
 
