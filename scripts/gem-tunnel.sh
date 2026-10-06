@@ -250,7 +250,8 @@ resolve_remote() {
 
   ready_endpoints="$(kubectl get endpointslices -n "$ns" -l "kubernetes.io/service-name=${svc_name}" -o jsonpath='{.items[*].endpoints[?(@.conditions.ready==true)].addresses[*]}' 2>/dev/null || true)"
   if [[ -z "$ready_endpoints" ]]; then
-    echo -e "\n⚠️  WARNING: K8s service '$target' ($ip) has no ready endpoints; target pod/VM may not be running." >&2
+    echo ""
+    echo "⚠️  WARNING: K8s service '$target' ($ip) has no ready endpoints; target pod/VM may not be running." >&2
   fi
 
   echo "$ip"
