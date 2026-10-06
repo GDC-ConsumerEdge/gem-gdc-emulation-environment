@@ -195,19 +195,23 @@ GCLOUD_ARGS=(
   --project="${PROJECT_ID}"
   --tunnel-through-iap
 )
-SSH_ARGS=("-N" "-o" "ControlMaster=no" "-o" "ControlPath=none")
+SSH_ARGS=("-N" "-o" "ControlMaster=no" "-o" "ControlPath=none" "-o" "ExitOnForwardFailure=yes")
 SUMMARY=()
 
 add_forward() {
-  local_port="$1" remote_ip="$2" remote_port="$3" label="$4"
+  local_port="$1" remote_ip="$2" remote_port="$3" label="$4" raw_target="${5:-}"
   SSH_ARGS+=("-L" "127.0.0.1:${local_port}:${remote_ip}:${remote_port}")
 
   # Define the url scheme (http, rdp, vnc, etc)
   scheme="$(echo "${label}" | tr '[:upper:]' '[:lower:]')"
   if [[ "$label" == "TUNNEL" ]]; then scheme="tcp"; fi
 
-  # This outputs  HTTP:    http://localhost:8080 → 10.200.145.52:80
-  printf -v formatted_line "%-8s %s://localhost:%s → %s:%s" "${label}:" "$scheme" "$local_port" "$remote_ip" "$remote_port"
+  # Include the <namespace>/<service> name when resolved from a K8s Service
+  if [[ -n "$raw_target" && "$raw_target" != "$remote_ip" ]]; then
+    printf -v formatted_line "%-8s %s://localhost:%s → %s:%s (%s)" "${label}:" "$scheme" "$local_port" "$remote_ip" "$remote_port" "$raw_target"
+  else
+    printf -v formatted_line "%-8s %s://localhost:%s → %s:%s" "${label}:" "$scheme" "$local_port" "$remote_ip" "$remote_port"
+  fi
   SUMMARY+=("$formatted_line")
 }
 
@@ -244,6 +248,11 @@ resolve_remote() {
     exit 2
   fi
 
+  ready_endpoints="$(kubectl get endpointslices -n "$ns" -l "kubernetes.io/service-name=${svc_name}" -o jsonpath='{.items[*].endpoints[?(@.conditions.ready==true)].addresses[*]}' 2>/dev/null || true)"
+  if [[ -z "$ready_endpoints" ]]; then
+    echo -e "\n⚠️  WARNING: K8s service '$target' ($ip) has no ready endpoints; target pod/VM may not be running." >&2
+  fi
+
   echo "$ip"
 }
 
@@ -270,7 +279,7 @@ process_specs() {
     # Use the explicit "=<localport>" if provided; otherwise assign the next
     # available default local port for this protocol and increment the counter.
     local_port="${LOCAL_PORT_OR_EMPTY:-$((next_local_port++))}"
-    add_forward "$local_port" "$remote_ip" "$remote_port" "$label"
+    add_forward "$local_port" "$remote_ip" "$remote_port" "$label" "$raw_ip"
   done
 }
 
