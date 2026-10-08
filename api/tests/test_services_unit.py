@@ -215,7 +215,7 @@ async def test_gcp_service_list_projects_and_clusters() -> None:
         res_err = await svc.list_projects()
         assert res_err.projects == []
 
-        # 3. list_clusters combining fleet memberships (with transitional states) and GCS state bucket discovery
+        # 3. list_clusters returns only RUNNING fleet memberships
     fleet_json = json.dumps(
         [
             {
@@ -227,14 +227,16 @@ async def test_gcp_service_list_projects_and_clusters() -> None:
                         "nodeCount": 3,
                     }
                 },
-                "state": {"code": "CREATING"},
+                "state": {"code": "READY"},
                 "createTime": "2026-01-01T00:00:00Z",
-            }
+            },
+            {
+                "name": "projects/p1/locations/global/memberships/c2",
+                "monitoringConfig": {"location": "us-central1-a"},
+                "state": {"code": "CREATING"},
+            },
         ]
     ).encode()
-    storage_out = (
-        b"gs://gem-p1-tfstate/clusters/c1/\ngs://gem-p1-tfstate/clusters/c2/\n"
-    )
 
     with (
         patch(
@@ -246,15 +248,14 @@ async def test_gcp_service_list_projects_and_clusters() -> None:
         ) as mock_exec_gcloud,
         patch(
             "gem_api.services.gcp_client.communicate_or_kill",
-            AsyncMock(side_effect=[(fleet_json, b""), (storage_out, b"")]),
+            AsyncMock(return_value=(fleet_json, b"")),
         ),
     ):
         clusters_res = await svc.list_clusters(project_id="p1")
         by_name = {c.name: c for c in clusters_res.clusters}
-        assert set(by_name) == {"c1", "c2"}
-        assert by_name["c1"].status == "PROVISIONING"
-        storage_call_args = mock_exec_gcloud.await_args_list[1].args
-        assert "gs://gem-p1-tfstate/clusters/" in storage_call_args
+        assert set(by_name) == {"c1"}
+        assert by_name["c1"].status == "RUNNING"
+        mock_exec_gcloud.assert_awaited_once()
 
 
 async def test_k8s_service_exec_and_parsers(
