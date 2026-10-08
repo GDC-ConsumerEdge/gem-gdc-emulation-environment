@@ -1,11 +1,9 @@
 # Manually Configuring your GCP Project for GEM
 
-This document provides explicit, step-by-step instructions to manually configure
-a Google Cloud Platform (GCP) project to run the GEM Emulation Environment,
-serving as a manual fallback and reference for the automated
-[`project-setup.sh`](../project-setup.sh) script and the
-[`terraform/foundation`](../terraform/foundation) module. The steps within this
-document assume that you are configuring a new GCP project exclusively for GEM.
+[`project-setup.sh`](../project-setup.sh) and the
+[`terraform/foundation`](../terraform/foundation) module automate initial GCP
+project setup. Follow the steps below if you need to configure a dedicated GCP
+project for GEM by hand instead.
 
 Before running the commands below, make sure the environment variables from
 [Environment Setup](../README.md#environment-setup) are exported, along with the
@@ -19,30 +17,28 @@ export GEM_AR_LOCATION="${GEM_GCP_REGION}"
 
 ## Enabling Required GCP Service APIs
 
-Before provisioning any cloud resource, GCP requires its corresponding Service
-API to be activated within your project. Enabling these APIs establishes the API
-endpoints and binds the default resource quotas.
+GCP requires each Service API to be enabled in the project before you can create
+resources that depend on it. [`project-setup.sh`](../project-setup.sh) enables
+the bootstrap APIs, and
+[`terraform/foundation/main.tf`](../terraform/foundation/main.tf) enables the
+remaining Anthos, GKE Hub, and observability APIs:
 
-### Required APIs
-
-- `cloudresourcemanager.googleapis.com`: Required to query, validate, and update
-  GCP Project IAM policy bindings dynamically.
-- `serviceusage.googleapis.com`: Allows Terraform and gcloud to query active
-  service endpoints and resolve project quotas.
-- `iamcredentials.googleapis.com`: Crucial for generating short-lived
-  credentials and enabling Service Account token impersonation.
-- `compute.googleapis.com`: Enables Compute Engine resources, including VPCs,
-  subnets, firewalls, and cluster nodes.
-- `gkeconnect.googleapis.com` and `gkehub.googleapis.com`: Essential for
-  registering cluster fleet memberships and managing hybrid environments.
-- `connectgateway.googleapis.com`: Dynamically routes external `kubectl`
-  commands to your isolated private clusters over secure Google-managed gateway
-  endpoints.
+- `cloudresourcemanager.googleapis.com` queries and updates project IAM policy
+  bindings.
+- `serviceusage.googleapis.com` lets Terraform and `gcloud` inspect active
+  service endpoints and project quotas.
+- `iamcredentials.googleapis.com` issues short-lived credentials for service
+  account impersonation.
+- `compute.googleapis.com` provisions Compute Engine VMs, disks, VPC networks,
+  subnets, and firewall rules.
+- `gkeconnect.googleapis.com` and `gkehub.googleapis.com` register cluster fleet
+  memberships.
+- `connectgateway.googleapis.com` proxies `kubectl` traffic to private clusters
+  through Connect Gateway.
 
 ### Manual Execution
 
-Run this command from your local terminal to activate the initial APIs enabled
-by `project-setup.sh` and the cluster APIs enabled by `terraform/foundation`:
+Enable the bootstrap and foundation APIs from your terminal:
 
 ```bash
 gcloud services enable \
@@ -76,26 +72,23 @@ gcloud services enable \
 
 ### Verification
 
-- **GCP Console**: Go to **APIs and Services $\\rightarrow$ Enabled APIs &
-  services**.
-- Verify that all listed APIs appear with a green checkmark indicating
-  `Enabled`.
+Confirm in the GCP Console under **APIs & Services > Enabled APIs & services**
+that each service above shows `Enabled`.
 
 ## Creating a Terraform Remote State Storage Bucket
 
-Terraform uses a state file (`.tfstate`) to map real-world GCP resources to your
-configuration. Storing this state file in a Google Cloud Storage (GCS) bucket
-ensures team consistency and prevents resource drift.
+Terraform stores its `.tfstate` files in a Google Cloud Storage (GCS) bucket so
+that local CLI runs, [`ansible/inventory.sh`](../ansible/inventory.sh), Cloud
+Build pipelines, and the GEM API share a single source of state:
 
-Managing state inside a GCS bucket with Object Versioning enabled guarantees:
-
-- Consistent State: State is centralized and locked during runs.
-- Point-in-time recovery: Every state update creates an incremental historical
-  version, allowing you to recover state in the event of corruption.
+- **State locking**: GCS serializes concurrent Terraform operations against the
+  same prefix.
+- **Point-in-time recovery**: Object versioning retains prior state snapshots so
+  you can roll back if a state file is corrupted.
 
 ### Manual Execution
 
-Create the GCS bucket in `${GEM_GCP_REGION}` and activate versioning:
+Create the GCS bucket in `${GEM_GCP_REGION}` and enable object versioning:
 
 ```bash
 # Create the storage bucket in your configured region
@@ -110,67 +103,63 @@ gcloud storage buckets update "gs://${TF_STATE_BUCKET}" \
 
 ### Verification
 
-- **GCP Console**: Go to **Cloud Storage $\\rightarrow$ Buckets**.
-- Verify `gs://${TF_STATE_BUCKET}` is created, resides in `${GEM_GCP_REGION}`,
-  and shows `Object Versioning: Enabled`.
+Confirm in the GCP Console under **Cloud Storage > Buckets** that
+`gs://${TF_STATE_BUCKET}` exists in `${GEM_GCP_REGION}` with **Object
+Versioning** enabled.
 
 ## Establishing the Provisioner Service Account
 
-Provisioning GCE compute nodes and managing VPC networks requires privileged
-access. Rather than executing these builds directly under your personal account,
-we create a dedicated least-privilege provisioning Service Account
-(`tf-provisioner`).
+Rather than running Terraform under your personal user credentials,
+`project-setup.sh` creates a dedicated provisioning service account
+(`tf-provisioner`) and grants it the project roles required to manage GEM
+infrastructure:
 
-### Required Roles
+- `roles/editor` grants baseline read/write access across project resources.
+- `roles/iam.serviceAccountAdmin` lets Terraform create and manage the
+  cluster-level service accounts (`baremetal-gcr` and `gem-cluster-admin`).
+- `roles/compute.admin` lets Terraform create disks, firewall rules, VPC
+  networks, and GCE VMs with nested virtualization.
+- `roles/resourcemanager.projectIamAdmin` lets Terraform bind project IAM roles
+  to the cluster service accounts.
+- `roles/serviceusage.serviceUsageAdmin` lets Terraform enable project-level
+  Service APIs.
+- `roles/secretmanager.admin` lets Terraform create and manage the Cloud Build
+  SSH key secret.
 
-- `roles/editor`: Grants standard creation permissions across Compute, Storage,
-  and Network resources.
-- `roles/iam.serviceAccountAdmin`: Allows Terraform to create, manage, and
-  assign roles to the cluster-level service accounts (`baremetal-gcr`).
-- `roles/compute.admin`: Required to manage disks, firewalls, VPC networks, and
-  boot GCE VMs with nested virtualization.
-- `roles/resourcemanager.projectIamAdmin`: Allows the provisioner to bind IAM
-  roles to service accounts.
-- `roles/serviceusage.serviceUsageAdmin`: Allows Terraform to audit and toggle
-  project-level Service APIs.
-- `roles/secretmanager.admin`: Allows Terraform to create and manage the Cloud
-  Build SSH key secret.
+### Service Account Impersonation
 
-### Secure Token Impersonation vs. JSON Keys
+GEM uses service account impersonation instead of exported JSON service account
+keys. Granting your GCP user account `roles/iam.serviceAccountTokenCreator` on
+`tf-provisioner` lets GCP mint short-lived (1-hour) OAuth2 access tokens on
+demand.
 
-As designed, GEM restricts the generation and export of unmanaged, long-lived
-JSON Service Account Keys. JSON keys are a massive security risk; if leaked to a
-public repository they grant attackers full access to your project.
-
-Instead, we use Service Account Impersonation via Token Creator bindings. By
-granting your GCP user account the `roles/iam.serviceAccountTokenCreator` role
-on `tf-provisioner`, GCP can generate short-lived (1-hour), auto-rotating OAuth2
-tokens for the provisioning SA.
-
-The Token Creator binding only *permits* impersonation; it does not enable it.
-Terraform's `google` provider impersonates `tf-provisioner` only when the
-`GOOGLE_IMPERSONATE_SERVICE_ACCOUNT` environment variable is set, or when
+The Token Creator binding only permits impersonation; it does not activate it
+automatically. Terraform's `google` provider impersonates `tf-provisioner` when
+`GOOGLE_IMPERSONATE_SERVICE_ACCOUNT` is set in the environment or when
 `impersonate_service_account` is configured on the provider via
-`provisioning_sa_email`. Export the variable before running any `terraform`
-command:
+`provisioning_sa_email`. Export the variable before running `terraform`
+commands:
 
 ```bash
 export GOOGLE_IMPERSONATE_SERVICE_ACCOUNT="${PROVISIONING_SA_EMAIL}"
 ```
 
-Without impersonation configured, Terraform falls back to your user credentials,
-and resource operations fail with `403` permission errors even though
-`tf-provisioner` holds the required roles.
+Without impersonation configured, Terraform falls back to your user credentials
+and fails with `403` permission errors even though `tf-provisioner` holds the
+required roles.
 
 ### Manual Execution
 
-1. Create the Service Account:
+Create `tf-provisioner`, bind its project roles, and grant your user account
+Token Creator access:
+
+1. Create the service account:
    ```bash
    gcloud iam service-accounts create "tf-provisioner" \
      --display-name="Terraform Provisioning SA for GEM" \
      --project="${PROJECT_ID}"
    ```
-2. Bind Project-Level Permissions:
+2. Bind the project-level IAM roles:
    ```bash
    PROVISIONING_SA_EMAIL="tf-provisioner@${PROJECT_ID}.iam.gserviceaccount.com"
    ROLES=(
@@ -189,7 +178,7 @@ and resource operations fail with `403` permission errors even though
        --condition=None
    done
    ```
-3. Grant Impersonation Binding to Your GCP User Account:
+3. Grant your GCP user account permission to impersonate `tf-provisioner`:
    ```bash
    USER_EMAIL=$(gcloud config get-value account)
    gcloud iam service-accounts add-iam-policy-binding "${PROVISIONING_SA_EMAIL}" \
@@ -200,9 +189,9 @@ and resource operations fail with `403` permission errors even though
 
 ### Verification
 
-- **GCP Console**: Go to **IAM and Admin $\\rightarrow$ Service Accounts**.
-- Verify `tf-provisioner` exists and shows your user account authorized under
-  its *Permissions* tab as a Token Creator.
+Confirm in the GCP Console under **IAM & Admin > Service Accounts** that
+`tf-provisioner` exists and lists your user account as a **Service Account Token
+Creator** under its **Permissions** tab.
 
 ## Local State Configuration (`backend.tf` and `terraform.tfvars`)
 
@@ -290,78 +279,44 @@ in the README.
 
 ## Foundation VPC Network Reference (`terraform/foundation`)
 
-GEM emulates GDC Connected by establishing a fully isolated Virtual Private
-Cloud (VPC) network (`gem-clusters-vpc`).
+[`terraform/foundation`](../terraform/foundation/main.tf) creates an isolated
+VPC network (`gem-clusters-vpc`) so all GEM VMs run without public IP addresses.
 
-```
-                    GEM FOUNDATION NETWORKING ARCHITECTURE
-
-         [ GCP VPC: gem-clusters-vpc | Subnet: gem-clusters-subnet (10.10.0.0/24) ]
-
-                     +------------------+      +------------------+
-                     |   Admin WS VM    |      |  Cluster Node 1  |
-                     |  (10.10.0.2/24)  |      | (10.10.0.213/24) |
-                     +--------+---------+      +--------+---------+
-                              |                         |
-  ============================+=========================+============================
-                                           |
-                             +-------------v-------------+
-                             |   Cloud NAT Egress Gate   |
-                             |    (Internet Egress Only) |
-                             +-------------+-------------+
-                                           |
-                                    [ PUBLIC INTERNET ]
+```mermaid
+flowchart TD
+    subgraph VPC["GCP VPC: gem-clusters-vpc / gem-clusters-subnet (10.10.0.0/24)"]
+        WS["Admin Workstation VM<br>10.10.0.2/24"]
+        NODE["Cluster Nodes & Edge Router<br>10.10.0.x/24"]
+    end
+    WS --> NAT["Cloud NAT Gateway<br>(Outbound Egress Only)"]
+    NODE --> NAT
+    NAT --> INET["Public Internet"]
 ```
 
-### Required Network Resources
+### Network Resources
 
-#### VPC Network (`gem-clusters-vpc`)
+`terraform/foundation` provisions the following network resources:
 
-A custom VPC network with automatic subnetwork creation **disabled**
-(`auto-create-subnetworks=false`). This guarantees strict subnet boundary
-isolation.
-
-#### Subnetwork (`gem-clusters-subnet`)
-
-A dedicated private subnet residing in `${GEM_GCP_REGION}` using the CIDR IP
-block `10.10.0.0/24`. This subnet houses the admin workstation and cluster
-worker nodes.
-
-#### Cloud NAT and Cloud Router
-
-Cluster worker nodes and the admin workstation reside in a private network with
-no public IP addresses assigned to prevent internet-facing attacks. However,
-these machines must be able to reach the internet to:
-
-- Fetch operating system security updates (`apt`).
-- Download versioned Anthos Bare Metal binaries (`bmctl`).
-- Download the software required for the GEM platform.
-
-We provision a Cloud Router (`gem-clusters-vpc-router`) and map a Cloud NAT
-gateway (`gem-clusters-vpc-nat`) to it. Cloud NAT dynamically translates private
-IP addresses to public Google egress IPs for outbound traffic, allowing nodes
-internet egress without ever exposing them to inbound internet access.
-
-#### Firewall: Allow Internal VPC Traffic (`gem-clusters-allow-internal`)
-
-Anthos Bare Metal nodes communicate heavily over internal control planes (etcd,
-Kubelet API, VXLAN overlay routing, MetalLB GARP flooding). We create a firewall
-rule allowing all TCP, UDP, and ICMP traffic internally within the
-`10.10.0.0/24` block for instances matching the target tags
-`["http-server", "https-server"]`.
-
-#### Firewall: Allow Secure GCP IAP SSH Tunneling (`gem-clusters-allow-iap-ssh`)
-
-Because instances do not have public IP addresses, you cannot SSH into them
-directly over the internet.
-
-Instead, you use Google Cloud's Identity-Aware Proxy (IAP). IAP acts as an
-encrypted SSH proxy. We create a firewall rule allowing TCP port 22 ingress
-**strictly** from the official Google IAP Proxy IP range **`35.235.240.0/20`**
-matching target tags `["http-server", "https-server"]`. Any inbound packet
-originating from outside this range is instantly dropped by GCP.
+- **VPC network (`gem-clusters-vpc`)**: A custom-mode VPC with
+  `auto_create_subnetworks = false` so only explicitly declared subnets exist.
+- **Subnetwork (`gem-clusters-subnet`)**: A regional `10.10.0.0/24` subnet in
+  `${GEM_GCP_REGION}` that hosts the Admin Workstation, the Edge Router, and all
+  cluster nodes.
+- **Cloud Router (`gem-clusters-vpc-router`) and Cloud NAT
+  (`gem-clusters-vpc-nat`)**: Provide outbound internet access so private VMs
+  can download OS packages, `bmctl`, and container images without holding public
+  IP addresses.
+- **Internal firewall rule (`gem-clusters-allow-internal`)**: Allows all `tcp`,
+  `udp`, and `icmp` traffic within `10.10.0.0/24` for instances carrying the
+  `http-server` and `https-server` network tags, covering etcd, the Kubelet API,
+  and UDP port `4789` VXLAN traffic.
+- **IAP SSH firewall rule (`gem-clusters-allow-iap-ssh`)**: Allows TCP port `22`
+  ingress from Google Cloud's Identity-Aware Proxy (IAP) range
+  (`35.235.240.0/20`) to instances tagged `http-server` and `https-server`.
 
 ### Manual Execution (Only When Bypassing `terraform/foundation`)
+
+Create the VPC, subnet, firewall rules, Cloud Router, and Cloud NAT gateway:
 
 1. **Create the VPC Network**:
    ```bash
@@ -414,58 +369,36 @@ originating from outside this range is instantly dropped by GCP.
 
 ### Verification
 
-- **GCP Console**: Go to **VPC network $\\rightarrow$ VPC networks**.
-- Verify `gem-clusters-vpc` exists, contains subnet `gem-clusters-subnet` with
-  IP range `10.10.0.0/24`, shows the two firewall rules active, and has
-  `gem-clusters-vpc-nat` listed as active under **Network services
-  $\\rightarrow$ Cloud NAT**.
+Confirm in the GCP Console under **VPC network > VPC networks** that
+`gem-clusters-vpc` contains `gem-clusters-subnet` (`10.10.0.0/24`), both
+firewall rules are active, and `gem-clusters-vpc-nat` appears under **Network
+services > Cloud NAT**.
 
 ## Fleet Registry and GCR Service Accounts Reference (`terraform/foundation`)
 
-Running GEM requires two additional dedicated service accounts to manage image
-registries and register control plane gateway endpoints. These are also created
-by `terraform/foundation`.
+[`terraform/foundation`](../terraform/foundation/main.tf) also creates two
+project-wide service accounts used by Anthos Bare Metal clusters:
 
-### Required SAs
-
-#### 1. Anthos Bare Metal Pull/Push SA (`baremetal-gcr`)
-
-- This SA runs inside the cluster nodes. It is responsible for pulling official
-  Google Anthos images from the GCR container registry, exporting cluster
-  telemetry, and establishing fleet membership connection gates.
-- Required Roles:
-  - `roles/gkehub.connect`: Allows GKE Connect agents running inside the cluster
-    nodes to register fleet membership.
-  - `roles/gkehub.admin`: Grants admin permissions to establish memberships in
-    the fleet registry.
-  - `roles/logging.logWriter` and `roles/monitoring.metricWriter`: Enables
-    log/metric streaming.
-  - `roles/compute.viewer`: Allows node agents to inspect VM resources.
-
-#### 2. Cluster Administrator SA (`gem-cluster-admin`)
-
-- This service account is used to administer the active GEM cluster remotely via
-  GKE Connect Gateway. It is bound to the Kubernetes `cluster-admin`
-  ClusterRole, granting unrestricted administrative control over cluster
-  resources. Routing remote connections through this service account ensures
-  that any developer authorized to impersonate this service account can securely
-  connect to and manage the cluster directly from their local workstation.
-
-- Required Roles:
-
-  - `roles/gkehub.gatewayAdmin`: Allows the service account to dynamically
-    authenticate through GKE Connect Gateway.
-  - `roles/gkehub.admin`: Required to manage GKE Hub memberships.
+- **`baremetal-gcr`**: Runs on the cluster nodes and the Admin Workstation to
+  pull Anthos Bare Metal container images, register GKE Hub fleet memberships,
+  and export logs and metrics to Cloud Logging and Cloud Monitoring.
+- **`gem-cluster-admin`**: Authenticates remote `kubectl` sessions through GKE
+  Connect Gateway. During cluster creation, Ansible binds this service account
+  to the Kubernetes `cluster-admin` `ClusterRole` so authorized users can
+  administer private clusters through Connect Gateway.
 
 ### Manual Execution (Only When Bypassing `terraform/foundation`)
 
-1. Create the `baremetal-gcr` Service Account:
+Create both service accounts and bind the IAM roles declared in
+[`terraform/foundation/main.tf`](../terraform/foundation/main.tf):
+
+1. Create the `baremetal-gcr` service account:
    ```bash
    gcloud iam service-accounts create "baremetal-gcr" \
      --display-name="Service Account for Anthos Bare Metal" \
      --project="${PROJECT_ID}"
    ```
-2. Bind `baremetal-gcr` Project Permissions:
+2. Bind the `baremetal-gcr` project IAM roles:
    ```bash
    BAREMETAL_SA_EMAIL="baremetal-gcr@${PROJECT_ID}.iam.gserviceaccount.com"
    BAREMETAL_ROLES=(
@@ -488,13 +421,13 @@ by `terraform/foundation`.
        --condition=None
    done
    ```
-3. Create the `gem-cluster-admin` Service Account:
+3. Create the `gem-cluster-admin` service account:
    ```bash
    gcloud iam service-accounts create "gem-cluster-admin" \
      --display-name="GEM Cluster Admin" \
      --project="${PROJECT_ID}"
    ```
-4. Bind `gem-cluster-admin` Project Permissions:
+4. Bind the `gem-cluster-admin` project IAM roles:
    ```bash
    ADMIN_SA_EMAIL="gem-cluster-admin@${PROJECT_ID}.iam.gserviceaccount.com"
    ADMIN_ROLES=(
@@ -512,7 +445,6 @@ by `terraform/foundation`.
 
 ### Verification
 
-- GCP Console: Go to **IAM and Admin $\\rightarrow$ Service Accounts**.
-- Verify both `baremetal-gcr` and `gem-cluster-admin` exist and are assigned
-  their respective project IAM role bindings under **IAM and Admin
-  $\\rightarrow$ IAM**.
+Confirm in the GCP Console under **IAM & Admin > Service Accounts** that both
+`baremetal-gcr` and `gem-cluster-admin` exist and hold their project IAM role
+bindings under **IAM & Admin > IAM**.

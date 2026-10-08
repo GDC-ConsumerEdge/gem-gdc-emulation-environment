@@ -2,7 +2,7 @@
 
 The GEM project consists of five languages: Terraform, Ansible, Python, Go and
 Bash, plus a large amount of YAML and Markdown. Each of those has its own
-community or language-standard conventions, and the GEM mostly follows those
+community or language-standard conventions, and GEM mostly follows those
 conventions.
 
 What this document records is the set of places where GEM departs from those
@@ -11,8 +11,8 @@ question is not answered here, the answer is the language's usual practice, and
 the authority is the config file named in
 [Where the rules live](#where-the-rules-live).
 
-Where there is no clear style guidance, or conflicting information the
-[Google Style Guides](https://google.github.io/styleguide/) is the overarching
+Where there is no clear style guidance, or conflicting information, the
+[Google Style Guides](https://google.github.io/styleguide/) are the overarching
 reference.
 
 ## Automated Style Formatting
@@ -62,10 +62,9 @@ There is no single number, because each formatter owns its own:
 
 ### Suppress a lint at the line, never globally
 
-Every configured linter runs with its full rule set. If a rule must be disabled,
-do so at the source with a comment explaining why the rule was disabled.
-Ideally, the linter violation would be resolved, but understanding there are
-some situations where that's not practical.
+Every configured linter runs with its full rule set. Fix the underlying
+violation when you can. If a rule must be disabled, suppress it at the source
+with a comment explaining why:
 
 - Terraform uses a `# tflint-ignore: <rule>` comment on the line above, with a
   plain comment above that explaining why.
@@ -160,7 +159,7 @@ Indentation is two spaces in most of the tree, but nothing enforces it. This
 project endeavors to follow the
 [Google Shell Style Guide](https://google.github.io/styleguide/shellguide.html),
 which should be used as a reference for any Bash style questions. `shellcheck`
-is used to validate script correctness rather than formatting
+is used to validate script correctness rather than formatting.
 
 `shellcheck` runs from your `PATH` rather than from a container, which is a
 deliberate choice to avoid a Docker dependency for a single binary. You need it

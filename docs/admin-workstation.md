@@ -134,9 +134,8 @@ cd ansible
 CLUSTER_NAME=none ansible-playbook admin-workstation.yaml
 ```
 
-> [!NOTE]
-> `CLUSTER_NAME=none` is required only because `ansible/inventory.sh` expects it
-> and will error without it.
+`CLUSTER_NAME=none` is required only because `ansible/inventory.sh` expects the
+variable to be set and exits with an error without it.
 
 > [!WARNING]
 > Every run of this playbook performs a full `apt dist-upgrade` and reboots the

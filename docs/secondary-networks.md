@@ -12,11 +12,11 @@ Enterprise and edge workloads frequently require network segmentation for
 regulatory, security, or multi-tenant isolation reasons. A GDC cluster therefore
 operates on two tiers:
 
-1. **The primary network.** An L3 network configured at cluster provisioning
-   time, used for control plane traffic, pod-to-pod overlay routing, and
-   Kubernetes API egress.
-2. **Secondary networks.** Additional isolated L2 segments that nodes and pods
-   bind to directly for data-plane traffic, edge device communication, or
+1. **The primary network** is an L3 network configured at cluster provisioning
+   time for control plane traffic, pod-to-pod overlay routing, and Kubernetes
+   API egress.
+2. **Secondary networks** are additional isolated L2 segments that nodes and
+   pods bind to directly for data-plane traffic, edge device communication, or
    compliance isolation.
 
 A pod on a secondary network gets an `eth1` interface on the secondary network
@@ -209,7 +209,7 @@ restored. See [Edge Router](edge-router.md) and
 
 ### The `Network` resource
 
-Rendered by Ansible, one per entry:
+Ansible renders one `Network` resource per entry in `secondary_networks`:
 
 ```yaml
 apiVersion: networking.gke.io/v1
@@ -235,7 +235,7 @@ spec:
       - 8.8.8.8
 ```
 
-What the operator actually reads: `gateway4`, `l2NetworkConfig.prefixLength4`,
+The operator reads `gateway4`, `l2NetworkConfig.prefixLength4`,
 `nodeInterfaceMatcher.interfaceName`, `gdce-vlan-id`, `gdce-vlan-mtu`,
 `gdce-lb-service-vip-cidrs`, and `gdce-allowed-namespaces` when present.
 
@@ -355,7 +355,7 @@ intercepts pod creation and rewrites this into something Multus understands:
    interfaces, so Cilium configures `eth0` and leaves `eth1` alone.
 4. It sets `networking.gke.io/default-interface: eth0` if absent.
 
-Constraints worth knowing:
+Keep these webhook constraints in mind:
 
 - The webhook fires on pod **CREATE** only. Adding the annotation to an existing
   pod has no effect.
@@ -618,6 +618,8 @@ provisioned.
 | `intra-node/`  | `podAffinity` on the client pins it to the server's node           | Passes, including with synthetic VLAN IDs | Passes |
 | `cross-node/`  | `podAntiAffinity` on the client forces it onto a different node    | Passes only on a physically trunked VLAN  | Passes |
 | `pod-mutator/` | Asserts the injected `ips` and the sanitized interfaces annotation | Not applicable                            | Passes |
+
+Run a suite from the repository root:
 
 ```bash
 chainsaw test --config tests/e2e/chainsaw-configuration.yaml \

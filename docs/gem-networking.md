@@ -1,42 +1,30 @@
 # GEM Networking Design
 
-This document provides a deep-dive engineering reference for the networking
-architecture, emulation strategies, design decisions, and persistence mechanisms
-of the GDC EMulation Environment (GEM).
-
-## Networking Overview
-
 GEM emulates a physical, multi-node Google Distributed Cloud (GDC) Connected
-cluster entirely within Google Compute Engine (GCE) instances. In a physical GDC
-Connected environment, nodes participate in physical Layer 2 (L2) secondary
-networks (Multus VLANs) for VM and workload connectivity.
+cluster inside Google Compute Engine (GCE) instances. On physical hardware, GDC
+Connected nodes attach to Layer 2 (L2) VLAN trunks for control-plane VIPs and
+secondary workload networks.
 
-GCP VPC networks are strictly Layer 3 (L3) and do not natively support L2
-broadcast, multicast, or custom tagging. GEM solves this by running an
-Island-Mode VXLAN Overlay Fabric on top of the GCP VPC L3 underlay. This
-emulates an isolated, virtual L2 network mesh across all GEM nodes, Admin
-Workstations, and Edge Routers.
+GCP VPC networks are strictly Layer 3 (L3) and do not support L2 broadcast,
+multicast, or 802.1Q VLAN tagging. GEM bridges that gap by running an
+island-mode VXLAN overlay fabric on top of the GCP VPC underlay, creating
+isolated virtual L2 networks across cluster nodes, the Admin Workstation, and
+the Edge Router.
 
 ## Network Topology
 
-The GEM networking architecture consists of three distinct logical layers:
+Three layers stack on top of each other:
 
-1. **GCP VPC Underlay**: The physical routing layer managed by GCP.
-2. **VXLAN Overlay Fabric (Primary Network)**: The virtual L2 control plane mesh
-   where cluster nodes communicate and advertise MetalLB service VIPs.
-3. **Multus Secondary Networks (Secondary Overlay)**: Virtual L2 networks
-   (VLANs) where workload pods and VMRuntime virtual machines bind secondary
-   interfaces. Provisioning of these networks (VLANs, IPAM, MetalLB pools) and
-   their Gateway API integration is managed at the Kubernetes level by
-   `gem-network-operator`; see
-   [docs/secondary-networks.md](secondary-networks.md) for the full design and
-   implementation detail.
-
-### Network Architecture
-
-Three layers stack on top of each other: the GCP VPC underlay that carries the
-encapsulated traffic, the primary VXLAN overlay the cluster runs on, and the
-secondary overlays that emulate VLAN-tagged networks.
+1. **GCP VPC Underlay**: The L3 routing layer managed by GCP (`10.10.0.0/24`),
+   which carries encapsulated VXLAN traffic on UDP port `4789`.
+2. **Primary VXLAN Overlay**: The virtual L2 mesh (`10.200.X.0/24`) where
+   cluster nodes communicate and advertise MetalLB service VIPs.
+3. **Secondary VXLAN Overlays**: Additional virtual L2 networks that emulate
+   VLAN-tagged trunks for workload pods and VMRuntime virtual machines.
+   [`gem-network-operator`](secondary-networks.md) reconciles GDC `Network` and
+   Gateway API resources against these interfaces; see
+   [Secondary Networks](secondary-networks.md) for the Kubernetes control plane
+   and pod IPAM design.
 
 ```mermaid
 graph TB
@@ -84,109 +72,54 @@ graph TB
 
 ## The GCP VPC Underlay
 
-The core GCP network layer is provisioned by `terraform/foundation`.
+The [`terraform/foundation`](../terraform/foundation) module provisions the
+shared GCP network resources:
 
-- **VPC Name**: `gem-clusters-vpc`
-- **Subnet Range**: `10.10.0.0/24` (e.g., `gem-clusters-subnet` in
-  `us-central1`)
-- **NAT Gateway**: A Cloud NAT is deployed to provide egress internet access for
-  packages and dependencies without assigning public IP addresses to cluster
-  nodes.
-- **Dynamic Routing and GCP Firewalls**: Allows all internal communication
-  (`icmp,udp,tcp`) within the private `10.10.0.0/24` subnet. UDP Port **`4789`**
-  is kept open globally inside the VPC to allow VXLAN transport.
+- **VPC network**: `gem-clusters-vpc` is a custom-mode VPC with automatic subnet
+  creation disabled.
+- **Subnet**: `gem-clusters-subnet` allocates `10.10.0.0/24` in the configured
+  GCP region for the Admin Workstation, the Edge Router, and all cluster nodes.
+- **Cloud NAT**: `gem-clusters-vpc-nat` and `gem-clusters-vpc-router` provide
+  outbound internet access for package and image downloads without assigning
+  external IP addresses to any VM.
+- **Firewall rules**: `gem-clusters-allow-internal` allows all `tcp`, `udp`, and
+  `icmp` traffic inside `10.10.0.0/24` (including VXLAN over UDP port `4789`),
+  and `gem-clusters-allow-iap-ssh` allows TCP port `22` from the IAP forwarding
+  range (`35.235.240.0/20`).
 
 ## VXLAN Overlay Fabric
 
-A VXLAN overlay is created dynamically via `systemd-networkd` configurations
-(`.netdev` and `.network` profiles) on the Admin Workstation, Edge Router, and
-cluster nodes.
+The [`vxlan`](../ansible/roles/vxlan) Ansible role configures the overlay via
+`systemd-networkd` `.netdev` and `.network` units on the Admin Workstation, the
+Edge Router, and every cluster node.
 
 ### Deterministic Hashing for VNI and IPAM Isolation
 
-To allow for multiple isolated GEM clusters within the same GCP project and
-sharing the same VPC private subnets (`10.10.0.0/24`), GEM implements a
-deterministic IPAM and VNI allocation scheme.
-
-Rather than relying on an external database or a centralized state, the dynamic
-inventory script ([ansible/inventory.sh](../ansible/inventory.sh)) calculates
-unique, isolated overlay parameters directly from the user-supplied
-`CLUSTER_NAME`.
-
-#### 1. The CRC32 Hash Seed
-
-First, the cluster name is passed to `cksum`. This produces a highly distributed
-32-bit unsigned integer representation of the cluster name:
-
-```math
-\text{Hash} = \text{CRC32}(\text{CLUSTER\_NAME})
-```
-
-<br>
-
-In bash, this is extracted using:
+Multiple GEM clusters can coexist in the same GCP project and share the
+`10.10.0.0/24` underlay subnet. Rather than tracking allocations in an external
+database, [`ansible/inventory.sh`](../ansible/inventory.sh) derives each
+cluster's VXLAN Network Identifier (VNI) and overlay subnet deterministically
+from `CLUSTER_NAME`:
 
 ```bash
 HASH=$(echo -n "$CLUSTER_NAME" | cksum | awk '{print $1}')
-```
-
-#### 2. VXLAN VNI Calculation ($VNI$ or $VXLAN_ID$)
-
-The valid range for a VXLAN Network Identifier (VNI) is a 24-bit space (1 to
-16,777,215). GEM maps the `HASH` value into a safe sub-range starting at `100`
-and capping at `16,000,100`. This avoids system-reserved or low-value ranges
-while keeping the identifier safely within the 24-bit boundary:
-
-```math
-\text{VNI} = (\text{Hash} \pmod{16,000,000}) + 100
-```
-
-<br>
-
-```bash
 VXLAN_ID=$(( HASH % 16000000 + 100 ))
-```
-
-This unique `VXLAN_ID` serves two critical purposes:
-
-- It acts as the core VNI identifier in the encapsulation header of all L2 UDP
-  VXLAN traffic on the underlay.
-- It is used as part of the virtual interface names on the Admin Workstation and
-  Edge Router (for example `vx-gemclu-1338`, built from the first six
-  alphanumeric characters of the cluster name and the first four digits of the
-  VNI) to prevent kernel naming collisions.
-
-#### 3. Third Octet IPAM Calculation ($\\text{Octet}\_{3}$)
-
-To create a fully isolated private IP network for the cluster's primary overlay,
-GEM reserves the `10.200.X.0/24` private IP space. The third octet ($X$ or
-$\\text{Octet}\_{3}$) is calculated by applying a modulo 254 operation, ensuring
-the value stays in the safe IP range of 1 to 254 (avoiding network address 0 and
-broadcast address 255):
-
-```math
-\text{Octet}_{3} = (\text{Hash} \pmod{254}) + 1
-```
-
-<br>
-
-```bash
 OCTET3=$(( HASH % 254 + 1 ))
 ```
 
-The base overlay network is then established as:
+1. **CRC32 seed (`HASH`)**: `cksum` hashes `CLUSTER_NAME` into a 32-bit unsigned
+   integer.
+2. **Primary VNI (`VXLAN_ID`)**: Reducing `HASH` modulo `16,000,000` and adding
+   `100` maps the VNI into the 24-bit VXLAN identifier space (`100` to
+   `16,000,099`) while avoiding low system-reserved numbers. Each secondary
+   network in `secondary_networks` increments from this base VNI
+   (`vxlan_id + loop.index`).
+3. **Overlay `/24` subnet (`OCTET3`)**: Reducing `HASH` modulo `254` and adding
+   `1` selects a third octet between `1` and `254`, placing the cluster's
+   primary overlay at `10.200.<OCTET3>.0/24`.
 
-```math
-\text{Overlay Network} = 10.200.\text{Octet}_{3}.0/24
-```
-
-<br>
-
-#### 4. Host IP Assignments within the Overlay Subnet
-
-Once the overlay base network is established, host IPs are assigned
-deterministically based on their logical function or node index using fixed host
-octets:
+Within `10.200.<OCTET3>.0/24`, [`ansible/inventory.sh`](../ansible/inventory.sh)
+assigns each host a fixed fourth octet (`host_octet`):
 
 | Host Role          | Octet Pattern | Example IP     |
 | :----------------- | :------------ | :------------- |
@@ -196,47 +129,48 @@ octets:
 | Admin Workstation  | `.100`        | `10.200.8.100` |
 | Edge Router        | `.254`        | `10.200.8.254` |
 
-### Naming Conventions
+### Interface Naming Conventions
 
-To ensure physical parity, interface names are strictly mapped:
+Interface names differ between dedicated cluster nodes and shared hosts:
 
-- **Emulated Nodes**: Node interfaces are named **`vxlan0`** and
-  **`gdcenet0.<vlan_id>`**. This matches the naming pattern of physical GDC
-  nodes, allowing unmodified GDC `Network` Custom Resources (CRs) utilizing
-  `nodeInterfaceMatcher: interfaceName` to seamlessly discover and bind to them.
-- **Shared Infrastructure (Workstation / Edge Router)**: Tunnels on shared nodes
-  must participate in multiple clusters. They are named uniquely using the first
-  6 letters of the cluster name and the sliced VNI:
-  - Primary VXLAN: `vx-<truncated_cluster>-<short_vni>` (e.g., `vx-gemclu-9355`)
-  - Secondary Multus Interfaces: `sec-<truncated_cluster>-<vlan_id>` (e.g.,
-    `sec-gemclu-123`)
+- **Cluster nodes**: Every node names its primary overlay interface `vxlan0` and
+  its secondary overlay interfaces `gdcenet0.<vlan_id>`. This matches physical
+  GDC Connected hosts, so unmodified GDC `Network` manifests using
+  `nodeInterfaceMatcher: interfaceName` discover the interfaces without changes.
+- **Admin Workstation and Edge Router**: Because the shared hosts attach to
+  every active cluster at once, their interface names include the first six
+  alphanumeric characters of the cluster name:
+  `vx-<truncated_cluster>-<short_vni>` for the primary overlay (using the first
+  four digits of `VXLAN_ID`, such as `vx-gemclu-9355`) and
+  `sec-<truncated_cluster>-<vlan_id>` for each secondary overlay (such as
+  `sec-gemclu-123`).
 
 ### MTU Constraints and TCP MSS Clamping
 
 Because GCP VPC enforces an MTU limit of 1460 bytes and VXLAN encapsulation adds
-50 bytes of outer header overhead, the virtual VXLAN interface must use an MTU
-of `1410`.
+50 bytes of outer header overhead, every overlay interface must use an MTU of
+`1410`.
 
-If a workload sends a packet larger than `1410` with the Don't Fragment (DF)
-flag set, the packet is silently dropped, resulting in mysterious TLS handshake
-freezes. GEM solves this by configuring a systemd service
-(`vxlan-tcpmss-<cluster>.service`) on all hosts which clamps the TCP Maximum
-Segment Size (MSS):
+If a workload sends a packet larger than `1410` bytes with the Don't Fragment
+(DF) flag set, the underlay drops the packet and TLS handshakes or large payload
+transfers stall. To prevent this, the `vxlan` role installs a systemd unit
+(`vxlan-tcpmss-<cluster>.service`) on every host that clamps the TCP Maximum
+Segment Size (MSS) to the path MTU:
 
 ```bash
 iptables -t mangle -A POSTROUTING -p tcp --tcp-flags SYN,RST SYN \
   -o <iface> -j TCPMSS --clamp-mss-to-pmtu
 ```
 
-The service creates one such rule per overlay interface on the host, naming each
-interface explicitly. On a cluster node that means `vxlan0` and every
-`gdcenet0.<vlan_id>`; on the workstation and edge router it means that cluster's
-`vx-*` and `sec-*` interfaces.
+The service adds one rule per overlay interface on the host (`vxlan0` and each
+`gdcenet0.<vlan_id>` on cluster nodes; the cluster's `vx-*` and `sec-*`
+interfaces on the Admin Workstation and Edge Router).
 
 ## Ingress Routing (The Edge Router)
 
-The **GEM Edge Router** sits on both the GCP VPC underlay, through its single
-GCE network interface, and the virtual VXLAN overlay networks (`vx-*`, `sec-*`).
+The [Edge Router](edge-router.md) attaches to both the GCP VPC underlay and each
+cluster's `vx-*` and `sec-*` overlay interfaces, acting as an SSH jump gateway
+into the private overlays.
 
 ```mermaid
 sequenceDiagram
@@ -257,14 +191,15 @@ sequenceDiagram
     Node->>VIP: Hand off packet to MetalLB interface
 ```
 
-1. **SSH port forwarding**: `scripts/gem-tunnel.sh` opens an IAP-brokered SSH
-   session to the Edge Router and requests a local forward (`ssh -L`) per
-   target. The Edge Router's `sshd` opens the connection to the overlay address
-   from the VM itself, so the forwarding is done by the kernel TCP stack.
-2. **Island-mode bridging**: because the Edge Router holds an address on every
-   overlay, a locally originated connection to a MetalLB VIP resolves to the
-   correct `vx-*` or `sec-*` interface and is encapsulated there.
-3. **IP forwarding**: IP forwarding is globally enabled
-   (`net.ipv4.ip_forward = 1`) on the Edge Router, letting it act as an L3
-   router between separate VLAN overlays if required. The SSH forwarding path
-   does not depend on it.
+1. **SSH port forwarding**: [`scripts/gem-tunnel.sh`](../scripts/gem-tunnel.sh)
+   opens an IAP-brokered SSH session to the Edge Router and sets up a local port
+   forward (`ssh -L`) for each target. The Edge Router's `sshd` opens the
+   outbound TCP connection to the overlay VIP from the VM itself.
+2. **Island-mode bridging**: Because the Edge Router holds an IP address on
+   every overlay subnet, connections to a MetalLB VIP route directly out the
+   matching `vx-*` or `sec-*` interface and are encapsulated over UDP port
+   `4789`.
+3. **IP forwarding**: IPv4 forwarding (`net.ipv4.ip_forward = 1`) is enabled on
+   the Edge Router so it can route between separate VLAN overlays when needed,
+   though the `ssh -L` path terminates and re-originates TCP connections in user
+   space and does not depend on L3 forwarding.

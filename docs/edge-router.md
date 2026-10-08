@@ -94,9 +94,9 @@ mirrored to `gs://gem-${PROJECT_ID}-overlay-sync/edge_router_host/` when the
 `vxlan` role runs, and a root cron entry named `GEM VXLAN Overlay Synchronizer`
 pulls them back once a minute.
 
-Packages, the `gem` user, the `ip_forward` sysctl, MSS clamping units are not
-synced, so rebuilding the VM means re-running both the `edge-router.yaml` and
-`restore-vxlan.yaml` Ansible playbooks.
+Packages, the `gem` user, the `ip_forward` sysctl, and the MSS clamping units
+are not synced, so rebuilding the VM means re-running both the
+`edge-router.yaml` and `restore-vxlan.yaml` Ansible playbooks.
 
 ## Installing the edge router
 
@@ -143,8 +143,7 @@ and log in as `gem`.
 It runs as the default Compute Engine service account with the `cloud-platform`
 scope, which is what lets the overlay synchronizer read the GCS bucket, and it
 carries the `http-server` and `https-server` network tags, which is what the
-foundation's firewall rules target. Neither is cosmetic: see the warning under
-[Files on disk](#files-on-disk).
+foundation's firewall rules target.
 
 ### 2. Configure with Ansible
 
