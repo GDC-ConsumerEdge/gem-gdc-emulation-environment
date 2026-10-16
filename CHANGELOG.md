@@ -1,5 +1,43 @@
 # Changelog
 
+## [1.1.0](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/compare/gem-v1.0.0...gem-v1.1.0) (2026-10-16)
+
+
+### Features
+
+* **gem-tunnel:** show service names, warn on empty endpoints, and fail on port conflicts ([67ddaae](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/67ddaae10fa676a3ec3586ee393f2dcc453bdd7e))
+
+
+### Bug Fixes
+
+* **ansible:** harden inventory generation, VXLAN TCP MSS clamping, and role idempotency ([67ddaae](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/67ddaae10fa676a3ec3586ee393f2dcc453bdd7e))
+* **ansible:** isolate remote_tmp per user in /dev/shm ([67ddaae](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/67ddaae10fa676a3ec3586ee393f2dcc453bdd7e))
+* **api:** prevent async event-loop blocking, retain background tasks, and deduplicate routers ([67ddaae](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/67ddaae10fa676a3ec3586ee393f2dcc453bdd7e))
+* **api:** return only running fleet clusters and rewrite API documentation ([67ddaae](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/67ddaae10fa676a3ec3586ee393f2dcc453bdd7e))
+* **ci:** fix PR validation targets, Cloud Build backend flag, and failure teardown ([67ddaae](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/67ddaae10fa676a3ec3586ee393f2dcc453bdd7e))
+* **cloud-build:** check for missing env variable and fail with useful error message ([67ddaae](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/67ddaae10fa676a3ec3586ee393f2dcc453bdd7e))
+* **cloudbuild:** restore workstation SSH key on rebuild and fix ansible collection path ([67ddaae](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/67ddaae10fa676a3ec3586ee393f2dcc453bdd7e))
+* **docs:** various documentation updates ([67ddaae](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/67ddaae10fa676a3ec3586ee393f2dcc453bdd7e))
+* **e2e:** move ClusterDNS reset patch from cleanup into a try step ([67ddaae](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/67ddaae10fa676a3ec3586ee393f2dcc453bdd7e))
+* **operator:** allocate distinct Gateway VIPs and refactor secondary network IPAM ([67ddaae](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/67ddaae10fa676a3ec3586ee393f2dcc453bdd7e))
+* **policies:** enforce privileged container check on init and ephemeral containers ([67ddaae](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/67ddaae10fa676a3ec3586ee393f2dcc453bdd7e))
+* **scripts:** restore gem-tunnel --print flag and expand unit test runner ([67ddaae](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/67ddaae10fa676a3ec3586ee393f2dcc453bdd7e))
+* strengthen cluster provisioning, networking, and API reliability ([67ddaae](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/67ddaae10fa676a3ec3586ee393f2dcc453bdd7e))
+* **terraform:** enforce 63-character Kubernetes node FQDN limit in cluster module ([67ddaae](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/67ddaae10fa676a3ec3586ee393f2dcc453bdd7e))
+
+
+### Documentation
+
+* **cloud-build:** update to add async to cluster build command ([67ddaae](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/67ddaae10fa676a3ec3586ee393f2dcc453bdd7e))
+* replace hardcoded GCP region with variables and fix typos ([67ddaae](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/67ddaae10fa676a3ec3586ee393f2dcc453bdd7e))
+* update agent guide and skills for resolved issues and expanded test suites ([67ddaae](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/67ddaae10fa676a3ec3586ee393f2dcc453bdd7e))
+* update documentation to reflect new features and fix typos ([67ddaae](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/67ddaae10fa676a3ec3586ee393f2dcc453bdd7e))
+
+
+### Tests
+
+* refine tests for newly added functionality ([67ddaae](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/67ddaae10fa676a3ec3586ee393f2dcc453bdd7e))
+
 ## [1.0.0](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/compare/gem-v0.1.12...gem-v1.0.0) (2026-10-02)
 
 
