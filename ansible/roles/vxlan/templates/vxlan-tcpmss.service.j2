@@ -21,7 +21,7 @@ Wants=network-online.target
 Type=oneshot
 RemainAfterExit=yes
 {% for item in vxlan_interfaces %}
-ExecStart=-/sbin/iptables -t mangle -A POSTROUTING -p tcp --tcp-flags SYN,RST SYN -o {{ item.iface }} -j TCPMSS --clamp-mss-to-pmtu
+ExecStart=/bin/sh -c '/sbin/iptables -t mangle -C POSTROUTING -p tcp --tcp-flags SYN,RST SYN -o {{ item.iface }} -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || /sbin/iptables -t mangle -A POSTROUTING -p tcp --tcp-flags SYN,RST SYN -o {{ item.iface }} -j TCPMSS --clamp-mss-to-pmtu'
 ExecStop=-/sbin/iptables -t mangle -D POSTROUTING -p tcp --tcp-flags SYN,RST SYN -o {{ item.iface }} -j TCPMSS --clamp-mss-to-pmtu
 {% endfor %}
 

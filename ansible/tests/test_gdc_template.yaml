@@ -13,6 +13,7 @@
 # limitations under the License.
 - name: Test GDC Template Rendering Setup
   hosts: localhost
+  connection: local
   gather_facts: false
   tasks:
     - name: Add mock node1
@@ -29,7 +30,10 @@
         vxlan_ip: 10.200.0.4
 - name: Test GDC Template Rendering Execution (Default Version)
   hosts: localhost
+  connection: local
   gather_facts: false
+  vars_files:
+    - "../group_vars/all.yaml"
   vars:
     cluster_name: test-cluster
     gcp_project_id: "test-project"
@@ -72,7 +76,10 @@
         state: absent
 - name: Test GDC Template Rendering with Version Override
   hosts: localhost
+  connection: local
   gather_facts: false
+  vars_files:
+    - "../group_vars/all.yaml"
   vars:
     cluster_name: test-cluster-v2
     emulate_gdc_version: "1.11.1"
@@ -95,6 +102,8 @@
         src: "../roles/gdc_deploy/templates/cluster.yaml.j2"
         dest: "/tmp/gdc_test_v2/cluster.yaml"
         mode: "0644"
+      vars:
+        emulate_gdc_version: "1.11.1"
     - name: Slurp rendered template
       ansible.builtin.slurp:
         src: "/tmp/gdc_test_v2/cluster.yaml"

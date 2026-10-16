@@ -23,6 +23,49 @@
     name: "{{ gem_user }}"
     state: present
     shell: /bin/bash
+- name: Read workstation SSH public key from instance metadata
+  delegate_to: localhost
+  become: false
+  ansible.builtin.command:
+    argv:
+      - gcloud
+      - compute
+      - instances
+      - describe
+      - gem-admin-ws
+      - "--zone={{ gcp_zone }}"
+      - "--project={{ gcp_project_id }}"
+      - "--impersonate-service-account=tf-provisioner@{{ gcp_project_id }}.iam.gserviceaccount.com"
+      - "--format=value(metadata.items.filter(key:workstation_pubkey).extract(value).flatten())"
+  register: edge_router_ws_pubkey
+  failed_when: false
+  changed_when: false
+- name: Authorize workstation SSH key for platform user on edge router
+  ansible.posix.authorized_key:
+    user: "{{ gem_user }}"
+    key: "{{ edge_router_ws_pubkey.stdout | trim }}"
+    state: present
+  when:
+    - edge_router_ws_pubkey.rc == 0
+    - (edge_router_ws_pubkey.stdout | trim | length) > 0
+- name: Publish workstation SSH key to edge router instance metadata
+  delegate_to: localhost
+  become: false
+  ansible.builtin.command:
+    argv:
+      - gcloud
+      - compute
+      - instances
+      - add-metadata
+      - "{{ ansible_host }}"
+      - "--zone={{ gcp_zone }}"
+      - "--project={{ gcp_project_id }}"
+      - "--impersonate-service-account=tf-provisioner@{{ gcp_project_id }}.iam.gserviceaccount.com"
+      - "--metadata=ssh-keys=gem:{{ edge_router_ws_pubkey.stdout | trim }}"
+  changed_when: true
+  when:
+    - edge_router_ws_pubkey.rc == 0
+    - (edge_router_ws_pubkey.stdout | trim | length) > 0
 - name: Install Traefik
   ansible.builtin.import_role:
     name: workstation

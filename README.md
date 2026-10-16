@@ -1,5 +1,4 @@
 <h1 align=center>GEM - GDC EMulation Environment</h1>
-</p>
 <p align=center>
 <img src="docs/img/gem-logo.png" height="250"/>
 </p>
@@ -10,7 +9,7 @@ physical GDC Connected environment using isolated virtual resources in GCP,
 allowing for rapid prototyping, architecture and development testing, and robust
 end-to-end validation of GDC workloads. GEM is **not** a
 [Google Distributed Cloud Connected](https://cloud.google.com/distributed-cloud-connected)
-variant, rather it uses a opinionated build of
+variant, rather it uses an opinionated build of
 [Google Distributed Cloud (software only) for bare metal](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/concepts/about-bare-metal)
 to accurately emulate GDC Connected Servers.
 
@@ -41,20 +40,22 @@ infrastructure from ephemeral GEM workload clusters:
 
 ### Prerequisites
 
-- [Google Cloud SDK](https://cloud.google.com/sdk) (`gcloud`) installed,
-  authenticated and configured.
+- Install, authenticate, and configure the
+  [Google Cloud SDK](https://cloud.google.com/sdk) (`gcloud`).
   - Ensure your Google Cloud SDK
     [Application Default Credentials](https://docs.cloud.google.com/docs/authentication/application-default-credentials)
-    are also configured
-- [HashiCorp Terraform CLI](https://developer.hashicorp.com/terraform/install)
-  (`terraform`) installed.
-- [Ansible](https://docs.ansible.com/projects/ansible/latest/installation_guide/intro_installation.html)
-  (`ansible-playbook`) installed.
-- [jq](https://jqlang.org/download/) installed.
-- This
+    are also configured.
+- Install the
+  [HashiCorp Terraform CLI](https://developer.hashicorp.com/terraform/install)
+  (`terraform`).
+- Install
+  [Ansible](https://docs.ansible.com/projects/ansible/latest/installation_guide/intro_installation.html)
+  (`ansible-playbook`).
+- Install [jq](https://jqlang.org/download/).
+- Clone this
   [GEM repo](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment)
-  cloned to a machine used to provision a GEM environment. To get started, this
-  can be your local workstation.
+  to a machine used to provision a GEM environment. To get started, this can be
+  your local workstation.
 
 ### Environment Setup
 
@@ -88,11 +89,11 @@ export IMPERSONATE_SA_EMAIL="gem-cluster-admin@${PROJECT_ID}.iam.gserviceaccount
 ### Configure your GCP Project
 
 Initial setup of a GCP project needs to be completed before you can provision
-GEM resources. This includes:
+GEM resources. This setup performs the following steps:
 
-- Enable initial required GCP APIs
-- Creation of a dedicated Google Cloud Storage bucket to manage Terraform state
-- Creation of a provisioner GCP Service account, which is used to create the
+- It enables the initial required GCP APIs.
+- It creates a dedicated Google Cloud Storage bucket to manage Terraform state.
+- It creates a provisioner GCP service account, which is used to create the
   various compute resources throughout the project.
 
 A helper script is provided to automate this work:
@@ -109,10 +110,10 @@ the `project-setup.sh` script is doing, refer to the
 
 ### Deploy Foundation and Admin Workstation
 
-*This should only be required once per GCP project.*
+Provision the foundational VPC resources and the shared admin workstation once
+per GCP project:
 
 ```bash
-
 # Build and deploy the GEM foundation
 cd ${REPO_ROOT}/terraform/foundation
 
@@ -170,11 +171,11 @@ ansible-playbook edge-router.yaml
 You can deploy as many isolated GEM clusters as your GCP quota allows by
 changing the `CLUSTER_NAME`.
 
-GEM provides emulation for the two most recent major versions of GDC. This can
-be specified at build time through the `emulate_gdc_version` variable. If the
-`emulate_gdc_version` is not specified, the most recent GDC version will be
-emulated. Available options can be found in
-[ansible/group_vars/all.yaml](ansible/group_vars/all.yaml)
+GEM provides emulation for multiple versions of GDC. This can be specified at
+build time through the `emulate_gdc_version` variable. If `emulate_gdc_version`
+is not specified, the most recent GDC version will be emulated. Available
+options are defined in
+[`ansible/group_vars/all.yaml`](ansible/group_vars/all.yaml).
 
 The cluster build process takes approximately 30 minutes to complete.
 
@@ -219,8 +220,8 @@ tail -f ~/bmctl-workspace/${CLUSTER_NAME}/log/create-cluster-*/create-cluster.lo
 
 The commands above are great to get started with GEM. GEM ships with both Cloud
 Build pipelines and a REST API that do the same work in GCP instead. This helps
-with scaled deployments, and to ensure ensure that GEM cluster builds are
-repeatable and efficient.
+with scaled deployments, and to ensure that GEM cluster builds are repeatable
+and efficient.
 
 - **Cloud Build**: on-demand build and teardown pipelines that need no local
   toolchain. See [Cloud Build](docs/cloud-build.md).
@@ -276,7 +277,7 @@ Gateway by impersonating the `gem-cluster-admin` service account:
 export GEM_CLUSTER_ADMIN_SA_EMAIL="gem-cluster-admin@${PROJECT_ID}.iam.gserviceaccount.com"
 
 gcloud config set auth/impersonate_service_account ${GEM_CLUSTER_ADMIN_SA_EMAIL}
-gcloud container fleet memberships get-credentials ${CLUSTER_NAME}
+gcloud container fleet memberships get-credentials ${CLUSTER_NAME} --project=${PROJECT_ID}
 
 kubectl get nodes
 ```
@@ -317,7 +318,7 @@ Once you have a Service with an External IP, you can pass that to
 resolves with your local `kubectl`:
 
 ```
-./gem-tunnel.sh --http applications/application-webserver
+./scripts/gem-tunnel.sh --http applications/application-webserver
 
 
               \ \        💎       \ \
@@ -345,8 +346,8 @@ Content-Type: text/html; charset=utf-8
 Date: Wed, 06 May 2026 19:55:46 GMT
 Last-Modified: Tue, 10 Sep 2024 01:50:27 GMT
 Accept-Ranges: bytes
-Connection: close
 Content-Length: 25416
+Connection: close
 ```
 
 GEM Tunnel has convenience flags for typical protocols like HTTP, RDP and VNC,
@@ -379,18 +380,17 @@ terraform destroy -var="cluster_name=${CLUSTER_NAME}"
 
 ## Documentation
 
-| Document                                                                       | What it covers                                                                   |
-| :----------------------------------------------------------------------------- | :------------------------------------------------------------------------------- |
-| [Project Setup](docs/project-setup.md)                                         | Configuring a GCP project by hand, and what `project-setup.sh` automates         |
-| [Admin Workstation](docs/admin-workstation.md)                                 | What runs on `gem-admin-ws`, how to connect, and the multi-version `bmctl` setup |
-| [Edge Router](docs/edge-router.md)                                             | Reaching cluster Services, and the full `gem-tunnel.sh` reference                |
-| [GEM Networking](docs/gem-networking.md)                                       | GEM networking overview, the GCP VPC layout and VXLAN overlay                    |
-| [Secondary Networks](docs/secondary-networks.md)                               | Emulating GDC secondary networks and the Multi-Network Gateway API               |
-| [Network Operator Implementation](docs/gem-network-operator-implementation.md) | How `gem-network-operator` reconciles those resources                            |
-| [Storage](docs/storage.md)                                                     | TopoLVM, and the Gatekeeper mutations that emulate Robin SDS                     |
-| [Cloud Build](docs/cloud-build.md)                                             | Building and tearing down clusters in CI                                         |
-| [GEM REST API](docs/gem-api.md)                                                | The FastAPI-powered GEM REST API service                                         |
-| [Code Style](docs/style.md)                                                    | Where GEM departs from each language's usual conventions                         |
+| Document                                         | What it covers                                                                              |
+| :----------------------------------------------- | :------------------------------------------------------------------------------------------ |
+| [Project Setup](docs/project-setup.md)           | Configuring a GCP project by hand, and what `project-setup.sh` automates                    |
+| [Admin Workstation](docs/admin-workstation.md)   | What runs on `gem-admin-ws`, how to connect, and the multi-version `bmctl` setup            |
+| [Edge Router](docs/edge-router.md)               | Reaching cluster Services, and the full `gem-tunnel.sh` reference                           |
+| [GEM Networking](docs/gem-networking.md)         | GEM networking overview, the GCP VPC layout and VXLAN overlay                               |
+| [Secondary Networks](docs/secondary-networks.md) | Emulating GDC secondary networks, the Multi-Network Gateway API, and `gem-network-operator` |
+| [Storage](docs/storage.md)                       | TopoLVM, and the Gatekeeper mutations that emulate Robin SDS                                |
+| [Cloud Build](docs/cloud-build.md)               | Building and tearing down clusters in CI                                                    |
+| [GEM REST API](docs/gem-api.md)                  | The FastAPI-powered GEM REST API service                                                    |
+| [Code Style](docs/style.md)                      | Where GEM departs from each language's usual conventions                                    |
 
 To contribute to the GEM project, see [CONTRIBUTING.md](CONTRIBUTING.md).
 

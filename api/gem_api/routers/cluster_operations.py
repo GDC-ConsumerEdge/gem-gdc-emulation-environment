@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import logging
-
 from fastapi import APIRouter, Depends, Query, status
 
 from gem_api.models.configsync import RootSyncListResponse
@@ -34,8 +32,6 @@ from gem_api.models.vms import (
     VirtualMachinePowerResponse,
 )
 from gem_api.services.k8s_client import K8sService, get_k8s_service
-
-logger = logging.getLogger("gem_api.routers.cluster_operations")
 
 router = APIRouter(prefix="/clusters", tags=["Workloads & Telemetry"])
 

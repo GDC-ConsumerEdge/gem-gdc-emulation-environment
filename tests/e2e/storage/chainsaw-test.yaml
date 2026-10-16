@@ -24,16 +24,10 @@ spec:
         - assert:
             file: pvc-rwx-assert.yaml
         # Positive Test: Allowed ReadWriteOnce PVC
-        - command:
-            entrypoint: kubectl
-            args: ["apply", "-f", "pvc-rwo-allowed.yaml"]
-            check:
-              ($stderr == ''): true
+        - apply:
+            file: pvc-rwo-allowed.yaml
         # Positive Test: OPA Gatekeeper Robin Storage Mutation
-        - command:
-            entrypoint: kubectl
-            args: ["apply", "-f", "sc-robin-emulation.yaml"]
-            check:
-              ($stderr == ''): true
+        - apply:
+            file: sc-robin-emulation.yaml
         - assert:
             file: sc-robin-assert.yaml

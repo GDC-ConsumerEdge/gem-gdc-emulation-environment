@@ -80,16 +80,5 @@ locals {
     }
   }
 
-  selected_hardware_variant = contains(keys(local.hardware_variants), var.hardware_variant) ? var.hardware_variant : "g2-small-64gb"
-  hardware_config           = local.hardware_variants[local.selected_hardware_variant]
-}
-
-
-resource "terraform_data" "hardware_variant_validation" {
-  lifecycle {
-    precondition {
-      condition     = contains(keys(local.hardware_variants), var.hardware_variant)
-      error_message = "🚫 ERROR: The hardware_variant value '${var.hardware_variant}' must be one of: ${join(", ", keys(local.hardware_variants))}."
-    }
-  }
+  hardware_config = local.hardware_variants[var.hardware_variant]
 }

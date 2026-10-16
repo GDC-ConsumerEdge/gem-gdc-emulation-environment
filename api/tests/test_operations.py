@@ -14,7 +14,6 @@
 
 import asyncio
 
-import pytest
 from fastapi.testclient import TestClient
 from httpx2 import AsyncClient
 
@@ -95,7 +94,6 @@ def test_cancel_operation(client: TestClient):
     assert cancel_again.json()["success"] is False
 
 
-@pytest.mark.asyncio
 async def test_operation_sse_log_streaming():
     op_mgr = get_operation_manager()
     op_id = "sse-test-op"
@@ -119,7 +117,6 @@ async def test_operation_sse_log_streaming():
     assert any("SSE line 2" in line for line in streamed_lines)
 
 
-@pytest.mark.asyncio
 async def test_operation_sse_endpoint(async_client: AsyncClient):
     op_mgr = get_operation_manager()
     op_id = "sse-http-op"
@@ -140,3 +137,8 @@ async def test_operation_sse_endpoint(async_client: AsyncClient):
         assert "text/event-stream" in response.headers.get("content-type", "")
         lines = [line async for line in response.aiter_lines() if line]
         assert any("HTTP SSE Line" in line for line in lines)
+
+    r_missing = await async_client.get(
+        "/api/v1/operations/unknown-sse-op/logs?stream=true"
+    )
+    assert r_missing.status_code == 404

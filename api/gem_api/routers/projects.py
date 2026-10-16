@@ -12,14 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import logging
-
 from fastapi import APIRouter, Depends, Query, status
 
 from gem_api.models.projects import ProjectListResponse
 from gem_api.services.gcp_client import GcpService, get_gcp_service
-
-logger = logging.getLogger("gem_api.routers.projects")
 
 router = APIRouter(prefix="/projects", tags=["Projects"])
 

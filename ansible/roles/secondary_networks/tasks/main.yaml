@@ -59,6 +59,12 @@
     owner: "{{ gem_user }}"
     group: "{{ gem_user }}"
     mode: "0755"
+  register: secondary_networks_operator_src
+
+- name: Check if gem-network-operator binary exists
+  ansible.builtin.stat:
+    path: /usr/local/bin/gem-network-operator
+  register: secondary_networks_operator_bin
 
 - name: Build and install gem-network-operator binary on Admin Workstation
   ansible.builtin.command:
@@ -68,7 +74,9 @@
     GOPATH: "{{ gem_home }}/go"
     GOCACHE: "{{ gem_home }}/.cache/go-build"
   become: true
+  when: secondary_networks_operator_src is changed or not secondary_networks_operator_bin.stat.exists
   changed_when: true
+  register: secondary_networks_operator_build
 
 - name: Template systemd service unit for gem-network-operator workstation daemon
   ansible.builtin.template:
@@ -78,12 +86,13 @@
     group: root
     mode: "0644"
   become: true
+  register: secondary_networks_operator_unit
 
 - name: Enable and start gem-network-operator workstation daemon
   ansible.builtin.systemd:
     name: "gem-network-operator-{{ cluster_name }}.service"
     enabled: true
-    state: restarted
+    state: "{{ 'restarted' if (secondary_networks_operator_build is changed or secondary_networks_operator_unit is changed) else 'started' }}"
     daemon_reload: true
   become: true
 

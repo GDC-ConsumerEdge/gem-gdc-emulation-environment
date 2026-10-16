@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"net"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -43,7 +44,7 @@ const (
 	NetworkFinalizer = "networking.gke.io/network-finalizer"
 
 	// Annotation keys for GEM network configuration.
-	AnnotationNetworkTarget = "networking.gke.io/network"
+	AnnotationNetworkTarget = AnnotationNetwork
 	AnnotationVLANID        = "networking.gke.io/gdce-vlan-id"
 	AnnotationVLANMTU       = "networking.gke.io/gdce-vlan-mtu"
 	AnnotationLBServiceVIPs = "networking.gke.io/gdce-lb-service-vip-cidrs"
@@ -86,6 +87,22 @@ var (
 		Kind:    "L2Advertisement",
 	}
 )
+
+type cniIPAMConfig struct {
+	Type    string `json:"type"`
+	Subnet  string `json:"subnet"`
+	Gateway string `json:"gateway,omitempty"`
+}
+
+type cniNetworkConfig struct {
+	CNIVersion   string          `json:"cniVersion"`
+	Type         string          `json:"type"`
+	Master       string          `json:"master"`
+	Mode         string          `json:"mode"`
+	MTU          int             `json:"mtu"`
+	Capabilities map[string]bool `json:"capabilities"`
+	IPAM         cniIPAMConfig   `json:"ipam"`
+}
 
 // NetworkReconciler reconciles networking.gke.io Network custom resources by dynamically provisioning
 // corresponding Multus NetworkAttachmentDefinitions and MetalLB IPAddressPools/L2Advertisements.
@@ -141,7 +158,7 @@ func (r *NetworkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	spec, _, _ := unstructured.NestedMap(netObj.Object, "spec")
 	if spec == nil {
-		spec = make(map[string]interface{})
+		spec = make(map[string]any)
 	}
 
 	ifaceName, _, _ := unstructured.NestedString(spec, "nodeInterfaceMatcher", "interfaceName")
@@ -196,13 +213,11 @@ func (r *NetworkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	// Update status conditions to reflect actual readiness.
-	now := metav1.Now().Rfc3339Copy().Format(time.RFC3339)
-	readyCond := map[string]interface{}{
-		"type":               "Ready",
-		"status":             "True",
-		"reason":             "NetworkReady",
-		"message":            "Network interface and IPAM ready",
-		"lastTransitionTime": now,
+	readyCond := map[string]any{
+		"type":    "Ready",
+		"status":  "True",
+		"reason":  "NetworkReady",
+		"message": "Network interface and IPAM ready",
 	}
 	switch {
 	case !provisioned:
@@ -218,12 +233,11 @@ func (r *NetworkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	// CoreDNSReady reflects whether the .gkegw.cluster.local rewrite rule is actually active in
 	// CoreDNS — the condition unmodified GDC consumers and the e2e suites assert on.
-	coreDNSCond := map[string]interface{}{
-		"type":               "CoreDNSReady",
-		"status":             "True",
-		"reason":             "CoreDNSServiceReady",
-		"message":            "CoreDNS service is ready for the network",
-		"lastTransitionTime": now,
+	coreDNSCond := map[string]any{
+		"type":    "CoreDNSReady",
+		"status":  "True",
+		"reason":  "CoreDNSServiceReady",
+		"message": "CoreDNS service is ready for the network",
 	}
 	if !r.isCoreDNSGatewayRuleActive(ctx) {
 		coreDNSCond["status"] = "False"
@@ -231,19 +245,7 @@ func (r *NetworkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		coreDNSCond["message"] = "CoreDNS is not configured with the .gkegw.cluster.local rewrite rule"
 	}
 
-	conditions := []interface{}{readyCond, coreDNSCond}
-
-	statusMap := map[string]interface{}{
-		"conditions": conditions,
-	}
-
-	if err := unstructured.SetNestedField(netObj.Object, statusMap, "status"); err != nil {
-		return ctrl.Result{}, err
-	}
-
-	if err := r.Status().Update(ctx, netObj); err != nil {
-		_ = r.Update(ctx, netObj)
-	}
+	_ = updateUnstructuredStatusIfChanged(ctx, r.Client, netObj, nil, []map[string]any{readyCond, coreDNSCond})
 
 	return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 }
@@ -345,41 +347,45 @@ func isPrimaryNetwork(netObj *unstructured.Unstructured, vlanID, ifaceName strin
 // reconcileNetAttachDef generates a NetworkAttachmentDefinition in every active namespace,
 // configuring the macvlan CNI and host-local IPAM using the Network spec's gateway and prefix.
 func (r *NetworkReconciler) reconcileNetAttachDef(ctx context.Context, owner *unstructured.Unstructured, ifaceName, mtu string) error {
+	mtuInt, err := strconv.Atoi(strings.TrimSpace(mtu))
+	if err != nil || mtuInt <= 0 {
+		return fmt.Errorf("invalid VLAN MTU %q: must be a positive integer", mtu)
+	}
+
 	gateway4, _, _ := unstructured.NestedString(owner.Object, "spec", "gateway4")
 	prefixLen, found, _ := unstructured.NestedInt64(owner.Object, "spec", "l2NetworkConfig", "prefixLength4")
 	if !found || prefixLen <= 0 || prefixLen > 32 {
 		prefixLen = DefaultPrefixLength
 	}
 
-	var ipamConfig string
+	ipam := cniIPAMConfig{
+		Type:   "host-local",
+		Subnet: "usePodCidr",
+	}
 	if gateway4 != "" {
 		ip := net.ParseIP(gateway4)
 		if ip != nil && ip.To4() != nil {
 			mask := net.CIDRMask(int(prefixLen), 32)
 			netIP := ip.To4().Mask(mask)
-			subnetCIDR := fmt.Sprintf("%s/%d", netIP.String(), prefixLen)
-			ipamConfig = fmt.Sprintf(`{
-    "type": "host-local",
-    "subnet": "%s",
-    "gateway": "%s"
-  }`, subnetCIDR, gateway4)
+			ipam.Subnet = fmt.Sprintf("%s/%d", netIP.String(), prefixLen)
+			ipam.Gateway = gateway4
 		}
 	}
-	if ipamConfig == "" {
-		ipamConfig = `{
-    "type": "host-local",
-    "subnet": "usePodCidr"
-  }`
-	}
 
-	cniConfig := fmt.Sprintf(`{
-  "cniVersion": "0.3.1",
-  "type": "macvlan",
-  "master": "%s",
-  "mode": "bridge",
-  "mtu": %s,
-  "ipam": %s
-}`, ifaceName, mtu, ipamConfig)
+	cfg := cniNetworkConfig{
+		CNIVersion:   "0.3.1",
+		Type:         "macvlan",
+		Master:       ifaceName,
+		Mode:         "bridge",
+		MTU:          mtuInt,
+		Capabilities: map[string]bool{"ips": true},
+		IPAM:         ipam,
+	}
+	cniBytes, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	cniConfig := string(cniBytes)
 
 	nsList := &corev1.NamespaceList{}
 	if err := r.List(ctx, nsList); err != nil {
@@ -396,7 +402,7 @@ func (r *NetworkReconciler) reconcileNetAttachDef(ctx context.Context, owner *un
 		nad.SetName(owner.GetName())
 		nad.SetNamespace(ns.GetName())
 		nad.SetOwnerReferences([]metav1.OwnerReference{networkOwnerReference(owner)})
-		nad.Object["spec"] = map[string]interface{}{
+		nad.Object["spec"] = map[string]any{
 			"config": cniConfig,
 		}
 		if err := r.applyOrUpdate(ctx, nad); err != nil {
@@ -415,12 +421,12 @@ func (r *NetworkReconciler) reconcileMetalLB(ctx context.Context, owner *unstruc
 	pool.SetNamespace("kube-system")
 	pool.SetOwnerReferences([]metav1.OwnerReference{networkOwnerReference(owner)})
 
-	var addresses []interface{}
+	var addresses []any
 	for _, vip := range vipPool {
 		addresses = append(addresses, vip)
 	}
 
-	pool.Object["spec"] = map[string]interface{}{
+	pool.Object["spec"] = map[string]any{
 		"addresses":  addresses,
 		"autoAssign": false,
 	}
@@ -435,9 +441,9 @@ func (r *NetworkReconciler) reconcileMetalLB(ctx context.Context, owner *unstruc
 	l2Adv.SetNamespace("kube-system")
 	l2Adv.SetOwnerReferences([]metav1.OwnerReference{networkOwnerReference(owner)})
 
-	l2Adv.Object["spec"] = map[string]interface{}{
-		"ipAddressPools": []interface{}{pool.GetName()},
-		"interfaces":     []interface{}{ifaceName},
+	l2Adv.Object["spec"] = map[string]any{
+		"ipAddressPools": []any{pool.GetName()},
+		"interfaces":     []any{ifaceName},
 	}
 
 	return r.applyOrUpdate(ctx, l2Adv)
@@ -470,6 +476,7 @@ func (r *NetworkReconciler) reconcileServices(ctx context.Context, netObj *unstr
 
 	networkName := netObj.GetName()
 	targetPool := fmt.Sprintf("%s-pool", networkName)
+	var updateErrors []error
 	for _, svc := range svcList.Items {
 		if netName, ok := svc.Annotations[AnnotationNetworkTarget]; ok && netName == networkName {
 			if !namespaceAllowedForNetwork(netObj, svc.Namespace) {
@@ -489,11 +496,12 @@ func (r *NetworkReconciler) reconcileServices(ctx context.Context, netObj *unstr
 				svc.Annotations["metallb.universe.tf/address-pool"] = targetPool
 				if err := r.Update(ctx, &svc); err != nil {
 					r.Log.Error(err, "Failed to bind Service to MetalLB address pool", "service", svc.Name, "namespace", svc.Namespace)
+					updateErrors = append(updateErrors, fmt.Errorf("service %s/%s: %w", svc.Namespace, svc.Name, err))
 				}
 			}
 		}
 	}
-	return nil
+	return errors.Join(updateErrors...)
 }
 
 // applyOrUpdate creates or updates an unstructured resource idempotently, skipping the write

@@ -26,6 +26,27 @@ from gem_api.services.process import communicate_or_kill
 logger = logging.getLogger("gem_api.gcp")
 
 
+_FLEET_STATUS_MAP: dict[str, str] = {
+    "READY": "RUNNING",
+    "OK": "RUNNING",
+    "RUNNING": "RUNNING",
+    "CREATING": "PROVISIONING",
+    "UPDATING": "PROVISIONING",
+    "RECONCILING": "PROVISIONING",
+    "PROVISIONING": "PROVISIONING",
+    "DEGRADED": "DEGRADED",
+    "SERVICE_DEGRADED": "DEGRADED",
+    "DELETING": "STOPPED",
+    "STOPPING": "STOPPED",
+    "STOPPED": "STOPPED",
+}
+
+
+def _map_fleet_status(state_code: str) -> str:
+    """Translate a GKE Hub membership state code into a ClusterInfo status literal."""
+    return _FLEET_STATUS_MAP.get(state_code.upper(), "ERROR")
+
+
 class GcpService:
     """Service for interacting with GCP resources, project listings, and fleet cluster discovery."""
 
@@ -102,10 +123,10 @@ class GcpService:
                             "kubernetesApiServerVersion", "1.34.100-gke.97"
                         )
                         node_count = k8s_meta.get("nodeCount", 3)
-                        state_code = m.get("state", {}).get("code", "READY")
-                        status = (
-                            "RUNNING" if state_code in ("READY", "OK") else state_code
-                        )
+                        state_code = str(m.get("state", {}).get("code", "READY"))
+                        status = _map_fleet_status(state_code)
+                        if status != "RUNNING":
+                            continue
 
                         clusters_map[raw_name] = ClusterInfo(
                             name=raw_name,
@@ -127,38 +148,6 @@ class GcpService:
                 KeyError,
             ) as e:
                 logger.debug("gcloud fleet memberships list failed: %s", e)
-
-            # Discover via GCS Terraform State bucket (gs://gem-${pid}-tfstate/clusters/*)
-            try:
-                state_bucket = settings.get_tf_state_bucket(pid)
-                proc = await asyncio.create_subprocess_exec(
-                    "gcloud",
-                    "storage",
-                    "ls",
-                    f"{state_bucket}/clusters/",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                stdout, _ = await communicate_or_kill(proc, timeout=5.0)
-                if proc.returncode == 0 and stdout:
-                    for line in stdout.decode("utf-8").splitlines():
-                        line = line.strip().rstrip("/")
-                        if line:
-                            cluster_name = line.split("/")[-1]
-                            if cluster_name and cluster_name not in clusters_map:
-                                clusters_map[cluster_name] = ClusterInfo(
-                                    name=cluster_name,
-                                    location=zone,
-                                    master_version="1.34.100-gke.97",
-                                    emulate_gdc_version=default_gdc,
-                                    status="RUNNING",
-                                    node_count=3,
-                                    endpoint=None,
-                                    hardware_variant=default_hw,
-                                    project_id=pid,
-                                )
-            except (TimeoutError, OSError, ValueError, KeyError) as e:
-                logger.debug("gcloud storage ls for state bucket failed: %s", e)
 
         cluster_list = list(clusters_map.values())
         return ClusterListResponse(clusters=cluster_list, total=len(cluster_list))

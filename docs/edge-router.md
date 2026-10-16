@@ -63,10 +63,8 @@ Two naming details are important to understand:
 - On a secondary network the edge router takes the network's `gateway` address
   rather than a host address, because it is emulating the top-of-rack switch
   that would be the default gateway on real hardware. Every other host on that
-  segment takes `<subnet>.<host_octet>`. The edge router is also the only host
-  that uses the subnet's real prefix length; everywhere else it is hardcoded to
-  `/24`. That is invisible today because every shipped secondary network is a
-  `/24`, but it means a narrower subnet would be misconfigured on the nodes.
+  segment takes `<subnet>.<host_octet>` using the first three octets of the
+  subnet and the subnet's CIDR prefix length.
 
 ### MTU and MSS
 
@@ -96,9 +94,9 @@ mirrored to `gs://gem-${PROJECT_ID}-overlay-sync/edge_router_host/` when the
 `vxlan` role runs, and a root cron entry named `GEM VXLAN Overlay Synchronizer`
 pulls them back once a minute.
 
-Packages, the `gem` user, the `ip_forward` sysctl, MSS clamping units are not
-synced, so rebuilding the VM means re-running both the `edge-router.yaml` and
-`restore-vxlan.yaml` Ansible playbooks.
+Packages, the `gem` user, the `ip_forward` sysctl, and the MSS clamping units
+are not synced, so rebuilding the VM means re-running both the
+`edge-router.yaml` and `restore-vxlan.yaml` Ansible playbooks.
 
 ## Installing the edge router
 
@@ -127,7 +125,7 @@ Point the edge router module at the shared Terraform state bucket and apply it:
 ```bash
 cd terraform/edge-router
 
-terraform init \
+terraform init -upgrade \
   -backend-config="bucket=${TF_STATE_BUCKET}" \
   -backend-config="prefix=edge-router/state" \
   -backend-config="impersonate_service_account=${PROVISIONING_SA_EMAIL}"
@@ -145,8 +143,7 @@ and log in as `gem`.
 It runs as the default Compute Engine service account with the `cloud-platform`
 scope, which is what lets the overlay synchronizer read the GCS bucket, and it
 carries the `http-server` and `https-server` network tags, which is what the
-foundation's firewall rules target. Neither is cosmetic: see the warning under
-[Files on disk](#files-on-disk).
+foundation's firewall rules target.
 
 ### 2. Configure with Ansible
 

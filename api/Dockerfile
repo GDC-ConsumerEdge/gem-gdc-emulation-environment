@@ -64,4 +64,4 @@ USER gemapi
 
 EXPOSE 8080
 
-CMD ["sh", "-c", "uvicorn gem_api.main:app --host $HOST --port $PORT"]
+ENTRYPOINT ["python", "-m", "gem_api.main"]

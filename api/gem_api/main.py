@@ -13,10 +13,12 @@
 # limitations under the License.
 
 import logging
+import os
+import sys
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-import uvicorn
+import uvicorn.main
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -125,11 +127,19 @@ async def api_health():
     }
 
 
-if __name__ == "__main__":
+def run_cli(argv: list[str] | None = None) -> None:
+    """Launch the Uvicorn CLI with defaults seeded from application settings."""
     settings = get_settings()
-    uvicorn.run(
-        "gem_api.main:app",
-        host=settings.host,
-        port=settings.port,
-        reload=settings.debug,
+    os.environ.setdefault("UVICORN_HOST", settings.host)
+    os.environ.setdefault("UVICORN_PORT", str(settings.port))
+    if settings.debug:
+        os.environ.setdefault("UVICORN_RELOAD", "true")
+    extra_args = sys.argv[1:] if argv is None else argv
+    uvicorn.main.main(
+        args=["gem_api.main:app", *extra_args],
+        auto_envvar_prefix="UVICORN",
     )
+
+
+if __name__ == "__main__":
+    run_cli()

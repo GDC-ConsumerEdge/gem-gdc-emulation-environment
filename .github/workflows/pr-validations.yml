@@ -75,7 +75,7 @@ jobs:
 
       - name: Run Linters and Validators
         env:
-          SKIP: terraform_fmt,terraform_tflint,terraform_validate,ansible-lint,golangci-lint
+          SKIP: terraform_fmt,terraform_tflint,terraform_validate,ansible-lint,golangci-lint,ruff,ruff-format
         uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
 
       - name: Run Python Ruff Validations
@@ -97,7 +97,7 @@ jobs:
       - name: Terraform Init Mocks
         if: steps.changes.outputs.terraform == 'true'
         run: |
-          for dir in terraform/foundation terraform/admin-workstation terraform/cluster terraform/edge-router; do
+          for dir in terraform/foundation terraform/admin-workstation terraform/cluster terraform/edge-router terraform/cloudbuild; do
             if [ -d "$dir" ]; then
               echo "Initializing $dir..."
               backend_file="$dir/backend.tf"
@@ -112,25 +112,25 @@ jobs:
         if: steps.changes.outputs.terraform == 'true'
         uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
         with:
-          extra_args: terraform_fmt
+          extra_args: --all-files terraform_fmt
 
       - name: Run Terraform Linter
         if: steps.changes.outputs.terraform == 'true'
         uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
         with:
-          extra_args: terraform_tflint
+          extra_args: --all-files terraform_tflint
 
       - name: Run Terraform Validater
         if: steps.changes.outputs.terraform == 'true'
         uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
         with:
-          extra_args: terraform_validate
+          extra_args: --all-files terraform_validate
 
       - name: Run Ansible Linter
         if: steps.changes.outputs.ansible == 'true'
         uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
         with:
-          extra_args: ansible-lint
+          extra_args: --all-files ansible-lint
 
   unit-tests:
     name: Run Unit Tests

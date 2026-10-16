@@ -18,6 +18,9 @@ override_data {
   target = data.google_compute_instance.gem_admin_ws
   values = {
     name = "mocked-gem-admin-ws"
+    metadata = {
+      workstation_pubkey = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ test@ws"
+    }
     network_interface = [
       {
         network_ip = "10.0.0.100"
@@ -55,6 +58,31 @@ run "validate_default_hardware_variant_g2_small_64gb" {
   assert {
     condition     = google_compute_instance.gdc_vms["node1"].advanced_machine_features[0].enable_nested_virtualization == true
     error_message = "Nested virtualization should be enabled."
+  }
+
+  assert {
+    condition     = google_compute_instance.gdc_vms["node1"].shielded_instance_config[0].enable_secure_boot == false
+    error_message = "Secure boot must be disabled on cluster nodes."
+  }
+
+  assert {
+    condition     = google_compute_instance.gdc_vms["node1"].can_ip_forward == true
+    error_message = "IP forwarding must be enabled on cluster nodes."
+  }
+
+  assert {
+    condition     = google_compute_instance.gdc_vms["node1"].metadata["ssh-keys"] == "gem:ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ test@ws"
+    error_message = "Cluster nodes should inherit workstation_pubkey from gem-admin-ws metadata."
+  }
+
+  assert {
+    condition     = strcontains(google_compute_instance.gdc_vms["node1"].metadata["user-data"], "mkpart node_storage ext4 0% 100GB")
+    error_message = "Cloud-init user-data should partition node_storage using default 100GB."
+  }
+
+  assert {
+    condition     = output.cluster_name == "test-cluster" && output.node_storage_size == "100GB" && output.cluster_nodes_names["node1"] == "test-cluster-1"
+    error_message = "Outputs should match input variables and node names."
   }
 }
 
@@ -148,6 +176,35 @@ run "validate_g2_large_hardware_variant" {
   }
 }
 
+run "validate_dev_and_test_hardware_variant_and_custom_storage" {
+  command = plan
+
+  variables {
+    hardware_variant  = "dev-and-test"
+    node_storage_size = "200GB"
+  }
+
+  assert {
+    condition     = google_compute_instance.gdc_vms["node1"].machine_type == "n4-standard-8"
+    error_message = "dev-and-test should map to n4-standard-8 machine type."
+  }
+
+  assert {
+    condition     = google_compute_disk.gdc_data_disks["node1"].size == 150
+    error_message = "dev-and-test should map to a 150 GB data disk."
+  }
+
+  assert {
+    condition     = strcontains(google_compute_instance.gdc_vms["node1"].metadata["user-data"], "mkpart node_storage ext4 0% 200GB")
+    error_message = "Cloud-init user-data should use custom node_storage_size 200GB."
+  }
+
+  assert {
+    condition     = output.node_storage_size == "200GB"
+    error_message = "Output node_storage_size should reflect custom 200GB."
+  }
+}
+
 run "validate_hardware_variant_validation_fail" {
   command = plan
 
@@ -156,7 +213,7 @@ run "validate_hardware_variant_validation_fail" {
   }
 
   expect_failures = [
-    terraform_data.hardware_variant_validation
+    var.hardware_variant
   ]
 }
 
@@ -165,6 +222,20 @@ run "validate_cluster_name_length_fail" {
 
   variables {
     cluster_name = "my-extremely-long-gem-cluster-name-which-fails-validation"
+  }
+
+  expect_failures = [
+    var.cluster_name
+  ]
+}
+
+run "validate_cluster_fqdn_length_fail" {
+  command = plan
+
+  variables {
+    cluster_name = "gem-cluster-long-name-24"
+    zone         = "australia-southeast1-a"
+    project_id   = "very-long-enterprise-project-id-12345"
   }
 
   expect_failures = [

@@ -2,7 +2,7 @@
 
 Workloads on a GEM cluster request storage exactly as they would on GDC
 Connected: through a `robin` StorageClass. The storage volumes are really
-provided by [TopoLVM](https://github.com/topolvm/topolvm), which provision LVM
+provided by [TopoLVM](https://github.com/topolvm/topolvm), which provisions LVM
 logical volumes out of a data disk on each node. OPA Gatekeeper mutations
 rewrite the GDC requests into a form TopoLVM accepts, so the manifests
 themselves never change.
@@ -18,7 +18,7 @@ GDC Connected ships Symcloud Storage (formerly Robin) as its software-defined
 storage. It exposes `robin` StorageClasses, and has the ability to replicate
 data between cluster nodes if requested.
 
-A core tenant of GEM is that unmodified GDC manifests apply cleanly and behave
+A core tenet of GEM is that unmodified GDC manifests apply cleanly and behave
 the same way as they would on a GDC cluster. Editing manifests to name a
 different provisioner would break that requirement, so the translation happens
 at admission time instead. Workloads keep asking for Robin, and Gatekeeper
@@ -165,9 +165,10 @@ gap or an overlap on the disk.
 
 The value only affects nodes when they are first built. Both partitioning steps
 skip a disk that is already partitioned, so changing it on an existing cluster
-does nothing until the cluster is rebuilt. Neither the
-[Cloud Build pipelines](cloud-build.md) nor the [GEM REST API](gem-api.md) pass
-this variable, so clusters built through them always use the default.
+does nothing until the cluster is rebuilt. The [GEM REST API](gem-api.md)
+accepts `node_storage_size` on `POST /api/v1/clusters/create` and passes it to
+Terraform, whereas the [Cloud Build pipelines](cloud-build.md) always use the
+module default.
 
 ## Related documentation
 

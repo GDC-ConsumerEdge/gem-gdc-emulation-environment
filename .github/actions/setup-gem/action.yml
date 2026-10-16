@@ -22,7 +22,7 @@ inputs:
   terraform-version:
     description: 'Version of Terraform to install'
     required: false
-    default: '1.15.3'
+    default: '1.16.6'
 runs:
   using: "composite"
   steps:

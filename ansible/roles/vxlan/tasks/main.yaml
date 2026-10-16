@@ -132,6 +132,7 @@
     owner: root
     group: root
   loop: "{{ vxlan_defs_list }}"
+  register: vxlan_netdev_copied
 
 - name: Apply declarative systemd network profiles (.network) to networkd
   ansible.builtin.copy:
@@ -142,6 +143,7 @@
     owner: root
     group: root
   loop: "{{ vxlan_defs_list }}"
+  register: vxlan_network_copied
 
 - name: Clean up VXLAN staging directory
   ansible.builtin.file:
@@ -153,6 +155,7 @@
     name: systemd-networkd
     state: restarted
   become: true
+  when: vxlan_netdev_copied is changed or vxlan_network_copied is changed
 
 - name: Template firewall TCP MSS clamping oneshot service
   ansible.builtin.template:
@@ -163,10 +166,11 @@
     group: root
   vars:
     vxlan_interfaces: "{{ vxlan_defs_list }}"
+  register: vxlan_tcpmss_service_tpl
 
 - name: Enable and start TCP MSS clamping firewall service
   ansible.builtin.systemd:
     name: "vxlan-tcpmss-{{ cluster_name }}.service"
     enabled: true
-    state: started
+    state: "{{ 'restarted' if vxlan_tcpmss_service_tpl is changed else 'started' }}"
     daemon_reload: true

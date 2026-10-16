@@ -25,7 +25,6 @@ REQUIRED_ENV_VARS=(
   "TF_STATE_BUCKET"
   "REPO_ROOT"
   "PROVISIONING_SA_EMAIL"
-  "IMPERSONATE_SA_EMAIL"
   "GEM_GCP_ZONE"
 )
 
@@ -54,9 +53,11 @@ sleep 10
 PROVISIONING_SA_NAME=$(echo "${PROVISIONING_SA_EMAIL}" | cut -d@ -f1)
 
 echo "🔄 Creating provisioning Service Account: ${PROVISIONING_SA_NAME}..."
-gcloud iam service-accounts create "${PROVISIONING_SA_NAME}" \
-  --display-name="Terraform Provisioning SA for GDCSO" \
-  --project="${PROJECT_ID}" || true
+if ! gcloud iam service-accounts describe "${PROVISIONING_SA_EMAIL}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+  gcloud iam service-accounts create "${PROVISIONING_SA_NAME}" \
+    --display-name="Terraform Provisioning SA for GDCSO" \
+    --project="${PROJECT_ID}"
+fi
 
 echo "🔄 Granting roles to the provisioning Service Account..."
 # Required roles for Terraform to manage infrastructure
@@ -127,40 +128,11 @@ ar_location           = "${GEM_AR_LOCATION}"
 EOF
 echo "✅ terraform.tfvars created successfully."
 
-echo "🔄 Creating Terraform state bucket..."
-gcloud storage buckets create "gs://${TF_STATE_BUCKET}" --project="${PROJECT_ID}" --location="${GEM_TF_STATE_LOCATION}" || true
-gcloud storage buckets update "gs://${TF_STATE_BUCKET}" --versioning || true
-
-echo "🔄 Generating backend.tf files..."
-cat <<EOF > "${REPO_ROOT}/terraform/foundation/backend.tf"
-terraform {
-  backend "gcs" {}
-}
-EOF
-
-cat <<EOF > "${REPO_ROOT}/terraform/admin-workstation/backend.tf"
-terraform {
-  backend "gcs" {}
-}
-EOF
-
-cat <<EOF > "${REPO_ROOT}/terraform/edge-router/backend.tf"
-terraform {
-  backend "gcs" {}
-}
-EOF
-
-cat <<EOF > "${REPO_ROOT}/terraform/cluster/backend.tf"
-terraform {
-  backend "gcs" {}
-}
-EOF
-
-cat <<EOF > "${REPO_ROOT}/terraform/cloudbuild/backend.tf"
-terraform {
-  backend "gcs" {}
-}
-EOF
-echo "✅ backend.tf created successfully. Terraform will now use GCS for remote state"
+echo "🔄 Ensuring Terraform state bucket gs://${TF_STATE_BUCKET} exists..."
+if ! gcloud storage buckets describe "gs://${TF_STATE_BUCKET}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+  gcloud storage buckets create "gs://${TF_STATE_BUCKET}" --project="${PROJECT_ID}" --location="${GEM_TF_STATE_LOCATION}"
+fi
+gcloud storage buckets update "gs://${TF_STATE_BUCKET}" --versioning
+echo "✅ Terraform state bucket ready."
 
 echo "🚀 Bootstrap complete"

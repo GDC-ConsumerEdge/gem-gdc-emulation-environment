@@ -18,6 +18,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from gem_api.config import get_settings
 from gem_api.manifest import (
     get_default_gdc_version,
     get_default_hardware_variant,
@@ -25,11 +26,11 @@ from gem_api.manifest import (
     get_valid_hardware_variants,
 )
 from gem_api.models.validators import (
+    GcpTargetRequest,
     sanitize_optional_str,
     validate_email_or_sa,
-    validate_project_id,
+    validate_gce_resource_name,
     validate_storage_size,
-    validate_zone_and_region,
 )
 
 
@@ -79,7 +80,7 @@ class SecondaryNetworkConfig(BaseModel):
     def validate_cidr(cls, v: str) -> str:
         v = v.strip()
         try:
-            ipaddress.ip_network(v, strict=False)
+            ipaddress.IPv4Network(v, strict=False)
         except ValueError:
             raise ValueError(f"'{v}' is not a valid IPv4 CIDR block.")
         return v
@@ -89,31 +90,19 @@ class SecondaryNetworkConfig(BaseModel):
     def validate_gateway(cls, v: str) -> str:
         v = v.strip()
         try:
-            ipaddress.ip_address(v)
+            ipaddress.IPv4Address(v)
         except ValueError:
             raise ValueError(f"'{v}' is not a valid IPv4 address.")
         return v
 
 
-class ClusterCreateRequest(BaseModel):
+class ClusterCreateRequest(GcpTargetRequest):
     """Request payload for building a new GEM cluster."""
 
     cluster_name: str = Field(
         default="gem-cluster-1",
         description="Unique identifier for the cluster (maximum 26 characters)",
         examples=["gem-cluster-1"],
-    )
-    project_id: str | None = Field(
-        default=None,
-        description="Target GCP Project ID. Defaults to configured environment project.",
-    )
-    zone: str | None = Field(
-        default=None,
-        description="Target GCP Zone (e.g., 'us-central1-a'). Defaults to configured zone.",
-    )
-    region: str | None = Field(
-        default=None,
-        description="Target GCP Region. Defaults to derived zone region.",
     )
     hardware_variant: str = Field(
         default_factory=get_default_hardware_variant,
@@ -124,10 +113,6 @@ class ClusterCreateRequest(BaseModel):
         default_factory=get_default_gdc_version,
         description="GDC Connected version to emulate.",
         examples=["1.13.0"],
-    )
-    provisioning_sa_email: str | None = Field(
-        default=None,
-        description="Service account email to impersonate for Terraform provisioning.",
     )
     gcp_cluster_admin_sa: str | None = Field(
         default=None,
@@ -167,25 +152,14 @@ class ClusterCreateRequest(BaseModel):
     @field_validator("cluster_name")
     @classmethod
     def validate_cluster_name(cls, v: str) -> str:
-        v = v.strip()
-        if not v:
-            raise ValueError("cluster_name cannot be empty.")
-        if len(v) > 26:
-            raise ValueError(
-                f"cluster_name '{v}' exceeds the maximum allowed length of 26 characters."
-            )
-        if not re.match(r"^[a-z][a-z0-9-]*[a-z0-9]$", v) and len(v) > 1:
-            raise ValueError(
-                f"cluster_name '{v}' must be lowercase alphanumeric with hyphens, starting with a letter."
-            )
-        return v
+        return validate_gce_resource_name(v, "cluster_name", max_len=26)
 
     @field_validator("pod_cidr_blocks", "services_cidr_blocks")
     @classmethod
     def validate_network_cidr(cls, v: str) -> str:
         v = v.strip()
         try:
-            ipaddress.ip_network(v, strict=False)
+            ipaddress.IPv4Network(v, strict=False)
         except ValueError:
             raise ValueError(f"'{v}' is not a valid IPv4 CIDR block.")
         return v
@@ -210,32 +184,15 @@ class ClusterCreateRequest(BaseModel):
             )
         return v
 
-    @field_validator(
-        "project_id",
-        "zone",
-        "region",
-        "provisioning_sa_email",
-        "gcp_cluster_admin_sa",
-        mode="before",
-    )
+    @field_validator("gcp_cluster_admin_sa", mode="before")
     @classmethod
-    def sanitize_optional_fields(cls, v: Any) -> Any:
+    def sanitize_admin_sa(cls, v: Any) -> Any:
         return sanitize_optional_str(v)
-
-    @field_validator("provisioning_sa_email")
-    @classmethod
-    def validate_provisioning_sa(cls, v: str | None) -> str | None:
-        return validate_email_or_sa(v, "provisioning_sa_email")
 
     @field_validator("gcp_cluster_admin_sa")
     @classmethod
     def validate_admin_sa(cls, v: str | None) -> str | None:
         return validate_email_or_sa(v, "gcp_cluster_admin_sa")
-
-    @field_validator("project_id")
-    @classmethod
-    def validate_project(cls, v: str | None) -> str | None:
-        return validate_project_id(v)
 
     @field_validator("node_storage_size")
     @classmethod
@@ -244,11 +201,9 @@ class ClusterCreateRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_cluster_parameters(self) -> "ClusterCreateRequest":
-        # Validate zone and region syntax, consistency, and auto-derivation
-        self.zone, self.region = validate_zone_and_region(self.zone, self.region)
-
-        pid = self.project_id or "gem-default-project"
-        z = self.zone or "us-central1-a"
+        settings = get_settings()
+        pid = self.project_id or settings.default_project_id
+        z = self.zone or settings.default_zone
         cname = self.cluster_name
         # Kubernetes node registration FQDN limit check: len(cluster_name) + len(zone) + len(project_id) + 15 <= 63
         if len(cname) + len(z) + len(pid) + 15 > 63:
@@ -261,29 +216,13 @@ class ClusterCreateRequest(BaseModel):
         return self
 
 
-class ClusterDeleteRequest(BaseModel):
+class ClusterDeleteRequest(GcpTargetRequest):
     """Request payload for tearing down an existing GEM cluster."""
 
     cluster_name: str = Field(
         ...,
         description="Exact identifier of the cluster to tear down.",
         examples=["gem-cluster-1"],
-    )
-    project_id: str | None = Field(
-        default=None,
-        description="Target GCP Project ID hosting the cluster. Defaults to environment project.",
-    )
-    zone: str | None = Field(
-        default=None,
-        description="GCP Zone where cluster node VMs reside. Defaults to environment zone.",
-    )
-    region: str | None = Field(
-        default=None,
-        description="GCP Region. Defaults to derived zone region.",
-    )
-    provisioning_sa_email: str | None = Field(
-        default=None,
-        description="Email of the Terraform provisioning SA to impersonate.",
     )
     tf_state_bucket: str | None = Field(
         default=None,
@@ -293,45 +232,12 @@ class ClusterDeleteRequest(BaseModel):
     @field_validator("cluster_name")
     @classmethod
     def validate_cluster_name(cls, v: str) -> str:
-        v = v.strip()
-        if not v:
-            raise ValueError("cluster_name is required for teardown.")
-        if len(v) > 26:
-            raise ValueError(
-                f"cluster_name '{v}' exceeds the maximum allowed length of 26 characters."
-            )
-        if not re.match(r"^[a-z][a-z0-9-]*[a-z0-9]$", v) and len(v) > 1:
-            raise ValueError(
-                f"cluster_name '{v}' must be lowercase alphanumeric with hyphens, starting with a letter."
-            )
-        return v
+        return validate_gce_resource_name(v, "cluster_name", max_len=26)
 
-    @field_validator(
-        "project_id",
-        "zone",
-        "region",
-        "provisioning_sa_email",
-        "tf_state_bucket",
-        mode="before",
-    )
+    @field_validator("tf_state_bucket", mode="before")
     @classmethod
-    def sanitize_optional_fields(cls, v: Any) -> Any:
+    def sanitize_tf_state_bucket(cls, v: Any) -> Any:
         return sanitize_optional_str(v)
-
-    @field_validator("provisioning_sa_email")
-    @classmethod
-    def validate_provisioning_sa(cls, v: str | None) -> str | None:
-        return validate_email_or_sa(v, "provisioning_sa_email")
-
-    @field_validator("project_id")
-    @classmethod
-    def validate_project(cls, v: str | None) -> str | None:
-        return validate_project_id(v)
-
-    @model_validator(mode="after")
-    def validate_delete_parameters(self) -> "ClusterDeleteRequest":
-        self.zone, self.region = validate_zone_and_region(self.zone, self.region)
-        return self
 
 
 class ClusterInfo(BaseModel):

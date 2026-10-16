@@ -14,6 +14,7 @@
 
 - name: Test VXLAN Hashing Setup
   hosts: localhost
+  connection: local
   gather_facts: false
   tasks:
     - name: Set mock inventory variables
@@ -28,6 +29,7 @@
 
 - name: Test VXLAN Configuration Rendering for Administrative Workstation
   hosts: localhost
+  connection: local
   gather_facts: false
   vars:
     inventory_hostname: "gem_admin_ws"
@@ -112,6 +114,7 @@
 
 - name: Test VXLAN Configuration Rendering for Cluster worker Nodes
   hosts: localhost
+  connection: local
   gather_facts: false
   vars:
     inventory_hostname: "node1"
@@ -204,4 +207,77 @@
     - name: Clean up Node test directory
       ansible.builtin.file:
         path: "/tmp/vxlan_node_test"
+        state: absent
+
+- name: Test VXLAN Configuration and TCPMSS Rendering for Edge Router
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    inventory_hostname: "edge_router_host"
+    cluster_name: "rack-q8cui"
+    vxlan_id: "2959013"
+    internal_ip: "10.10.0.5"
+    host_octet: "254"
+    secondary_networks:
+      - {vlan_id: 123, subnet: "172.16.12.0/24", gateway: "172.16.12.1"}
+      - {vlan_id: 456, subnet: "192.168.45.0/24", gateway: "192.168.45.1"}
+  tasks:
+    - name: Ensure Edge Router test directory exists
+      ansible.builtin.file:
+        path: "/tmp/vxlan_er_test"
+        state: directory
+        mode: "0755"
+
+    - name: Compile dynamic VXLAN definitions list (Edge Router)
+      ansible.builtin.set_fact:
+        er_vxlan_definitions: >-
+          {% set defs = [{'iface': 'vx-rackq8-2959', 'vni': '2959013', 'ip_cidr': '10.200.13.254/24'}] %}
+          {% for net in secondary_networks %}
+          {% set sec_if = 'sec-' ~ (cluster_name | replace('-', '') | truncate(6, True, '', 0)) ~ '-' ~ net.vlan_id %}
+          {% set sec_vni = (vxlan_id | int) + loop.index %}
+          {% set sec_ip = net.gateway ~ '/' ~ (net.subnet | split('/') | last) %}
+          {% set _ = defs.append({'iface': sec_if, 'vni': sec_vni, 'ip_cidr': sec_ip}) %}
+          {% endfor %}
+          {{ defs }}
+
+    - name: Parse Edge Router VXLAN definitions
+      ansible.builtin.set_fact:
+        er_vxlan_defs_list: "{{ er_vxlan_definitions | from_yaml }}"
+
+    - name: Assert Edge Router secondary interfaces use gateway IP and obey IFNAMSIZ
+      ansible.builtin.assert:
+        that:
+          - "(er_vxlan_defs_list[1].iface | length) <= 15"
+          - "er_vxlan_defs_list[1].iface == 'sec-rackq8-123'"
+          - "er_vxlan_defs_list[1].ip_cidr == '172.16.12.1/24'"
+          - "er_vxlan_defs_list[2].iface == 'sec-rackq8-456'"
+          - "er_vxlan_defs_list[2].ip_cidr == '192.168.45.1/24'"
+        fail_msg: "Edge Router secondary interface gateway IP or name assertion failed!"
+
+    - name: Render TCP MSS clamping systemd service template
+      ansible.builtin.template:
+        src: "../roles/vxlan/templates/vxlan-tcpmss.service.j2"
+        dest: "/tmp/vxlan_er_test/vxlan-tcpmss-rack-q8cui.service"
+        mode: "0644"
+      vars:
+        vxlan_interfaces: "{{ er_vxlan_defs_list }}"
+
+    - name: Slurp rendered TCP MSS clamping service
+      ansible.builtin.slurp:
+        src: "/tmp/vxlan_er_test/vxlan-tcpmss-rack-q8cui.service"
+      register: tcpmss_rendered
+
+    - name: Verify TCP MSS clamping rules for all VXLAN interfaces
+      ansible.builtin.assert:
+        that:
+          - "'Description=GEM VXLAN TCP MSS Clamping (rack-q8cui)' in (tcpmss_rendered.content | b64decode)"
+          - "'-o vx-rackq8-2959 -j TCPMSS --clamp-mss-to-pmtu' in (tcpmss_rendered.content | b64decode)"
+          - "'-o sec-rackq8-123 -j TCPMSS --clamp-mss-to-pmtu' in (tcpmss_rendered.content | b64decode)"
+          - "'-o sec-rackq8-456 -j TCPMSS --clamp-mss-to-pmtu' in (tcpmss_rendered.content | b64decode)"
+        fail_msg: "TCP MSS clamping systemd unit failed assertions!"
+
+    - name: Clean up Edge Router test directory
+      ansible.builtin.file:
+        path: "/tmp/vxlan_er_test"
         state: absent

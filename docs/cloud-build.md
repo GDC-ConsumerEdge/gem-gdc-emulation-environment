@@ -19,7 +19,7 @@ your first build. The edge router is optional, and a build works without one.
 
 You'll need `project-setup.sh` to have run successfully, the foundation and
 admin workstation deployed (see [Project Setup](project-setup.md) and
-[Admin Workstation](admin-workstation.md)), Terraform 1.12.2 or later and
+[Admin Workstation](admin-workstation.md)), Terraform 1.16.6 or later and
 Ansible installed locally, and a `gcloud` login that can impersonate
 `${PROVISIONING_SA_EMAIL}`. The impersonation is managed through
 `project-setup.sh`, which grants your account
@@ -123,14 +123,17 @@ won't find the image.
 
 ## Building a cluster
 
-With setup out of the way, a cluster build is one command. `GEM_GCP_ZONE` comes
-from your [project setup](project-setup.md) environment; if it is unset the
-build fails in its `setup` step on an empty zone.
+Submit a cluster build with `gcloud builds submit`. `GEM_GCP_ZONE` comes from
+your [project setup](project-setup.md) environment; if it is unset the build
+fails in its `setup` step. `--async` is provided in the example below, so
+control is returned to your terminal after the build has been submitted
+successfully, without waiting for the operation in progress to complete:
 
 ```bash
 gcloud builds submit \
   --config=${REPO_ROOT}/cloudbuild/cluster-build.cloudbuild.yaml \
-  --substitutions=_CLUSTER_NAME=gem-cluster-1,_AR_LOCATION=${AR_LOCATION},_GEM_GCP_ZONE=${GEM_GCP_ZONE} \
+  --substitutions=_CLUSTER_NAME=gem-cluster-1,_AR_LOCATION=${GEM_AR_LOCATION:-${GEM_GCP_ZONE%-*}},_GEM_GCP_ZONE=${GEM_GCP_ZONE} \
+  --async \
   ${REPO_ROOT}
 ```
 
@@ -149,7 +152,7 @@ A cluster teardown is similar, pointed at the other Cloud Build pipeline:
 ```bash
 gcloud builds submit \
   --config=${REPO_ROOT}/cloudbuild/cluster-teardown.cloudbuild.yaml \
-  --substitutions=_CLUSTER_NAME=gem-cluster-1,_AR_LOCATION=${AR_LOCATION},_GEM_GCP_ZONE=${GEM_GCP_ZONE} \
+  --substitutions=_CLUSTER_NAME=gem-cluster-1,_AR_LOCATION=${GEM_AR_LOCATION:-${GEM_GCP_ZONE%-*}},_GEM_GCP_ZONE=${GEM_GCP_ZONE} \
   ${REPO_ROOT}
 ```
 
@@ -169,12 +172,12 @@ set:
 | `_SSH_SECRET_VERSION`                        | `latest`                     | Pin to a numeric version to roll back a rotated key                                                           |
 | `_TF_STATE_BUCKET`, `_PROVISIONING_SA_EMAIL` | Derived from `${PROJECT_ID}` | Resolved at runtime to `gem-${PROJECT_ID}-tfstate` and `tf-provisioner@${PROJECT_ID}.iam.gserviceaccount.com` |
 
-> [!WARNING]
-> Overriding `_TF_STATE_BUCKET` will break the build. The Terraform steps honour
-> it, but `ansible/inventory.sh` hardcodes `gem-${PROJECT_ID}-tfstate`, so the
-> `ansible-create-cluster` step would build its inventory from a different
-> bucket and find no hosts. A non-default state bucket is not supported end to
-> end.
+> [!NOTE]
+> Both the Terraform steps and `ansible/inventory.sh` read `TF_STATE_BUCKET`
+> (defaulting to `gem-${PROJECT_ID}-tfstate`), and the pipeline forwards that
+> variable to the admin workstation over SSH. If you override
+> `_TF_STATE_BUCKET`, pass the same value on teardown and when running
+> `ansible/inventory.sh` manually.
 
 Teardown accepts the same substitutions, minus the three that only mean
 something when you're creating a cluster: `_HARDWARE_VARIANT`,
@@ -252,8 +255,8 @@ the following reasons:
 
 | Symptom                                   | Cause                                                                   | Resolution                                                                                                                            |
 | :---------------------------------------- | :---------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------ |
-| Fails at `setup` with a zone error        | `_GEM_GCP_ZONE` empty or malformed                                      | Pass a valid zone                                                                                                                     |
-| Fails pulling the step image              | `_AR_LOCATION` empty, `_BUILDER_TAG` mismatched, or no image            | Check the Artifact Registry location and rebuild the image                                                                            |
+| Fails at `setup` with a validation error  | `_CLUSTER_NAME`, `_GEM_GCP_ZONE`, or `_AR_LOCATION` empty or malformed  | Pass valid `_CLUSTER_NAME`, `_GEM_GCP_ZONE`, and `_AR_LOCATION` substitutions                                                         |
+| Fails pulling the step image              | `_AR_LOCATION` mismatched, `_BUILDER_TAG` mismatched, or no image       | Check the Artifact Registry location and rebuild the image                                                                            |
 | Fails before `setup` on secret resolution | The SSH secret has no versions                                          | Re-run `admin-workstation.yaml`                                                                                                       |
 | Preflight rejects the build               | Leftover VMs, leftover fleet membership, or a long cluster name         | Run the printed cleanup commands, or shorten the cluster name                                                                         |
 | `failed-stage=tf-init`                    | Backend permissions, a bad state bucket, or a provider download failure | Check the bucket name and the impersonation grant                                                                                     |
@@ -280,7 +283,7 @@ CLUSTER_NAME=${CLUSTER_NAME} ansible-playbook ansible/cleanup.yaml \
   -e cluster_name=${CLUSTER_NAME}
 
 # terraform/cluster/backend.tf is an empty gcs block, so init has to supply it
-terraform -chdir=terraform/cluster init -reconfigure \
+terraform -chdir=terraform/cluster init -upgrade -reconfigure \
   -backend-config="bucket=${TF_STATE_BUCKET}" \
   -backend-config="prefix=clusters/${CLUSTER_NAME}/state" \
   -backend-config="impersonate_service_account=${PROVISIONING_SA_EMAIL}"
