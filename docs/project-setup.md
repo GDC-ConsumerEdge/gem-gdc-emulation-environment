@@ -279,8 +279,9 @@ in the README.
 
 ## Foundation VPC Network Reference (`terraform/foundation`)
 
-[`terraform/foundation`](../terraform/foundation/main.tf) creates an isolated
-VPC network (`gem-clusters-vpc`) so all GEM VMs run without public IP addresses.
+[`terraform/foundation/network.tf`](../terraform/foundation/network.tf) creates
+an isolated VPC network (`gem-clusters-vpc`) so all GEM VMs run without public
+IP addresses.
 
 ```mermaid
 flowchart TD
@@ -376,7 +377,7 @@ services > Cloud NAT**.
 
 ## Fleet Registry and GCR Service Accounts Reference (`terraform/foundation`)
 
-[`terraform/foundation`](../terraform/foundation/main.tf) also creates two
+[`terraform/foundation/iam.tf`](../terraform/foundation/iam.tf) also creates two
 project-wide service accounts used by Anthos Bare Metal clusters:
 
 - **`baremetal-gcr`**: Runs on the cluster nodes and the Admin Workstation to
@@ -390,7 +391,7 @@ project-wide service accounts used by Anthos Bare Metal clusters:
 ### Manual Execution (Only When Bypassing `terraform/foundation`)
 
 Create both service accounts and bind the IAM roles declared in
-[`terraform/foundation/main.tf`](../terraform/foundation/main.tf):
+[`terraform/foundation/iam.tf`](../terraform/foundation/iam.tf):
 
 1. Create the `baremetal-gcr` service account:
    ```bash
