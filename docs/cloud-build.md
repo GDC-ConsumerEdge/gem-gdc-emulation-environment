@@ -19,7 +19,7 @@ your first build. The edge router is optional, and a build works without one.
 
 You'll need `project-setup.sh` to have run successfully, the foundation and
 admin workstation deployed (see [Project Setup](project-setup.md) and
-[Admin Workstation](admin-workstation.md)), Terraform 1.12.2 or later and
+[Admin Workstation](admin-workstation.md)), Terraform 1.16.6 or later and
 Ansible installed locally, and a `gcloud` login that can impersonate
 `${PROVISIONING_SA_EMAIL}`. The impersonation is managed through
 `project-setup.sh`, which grants your account
