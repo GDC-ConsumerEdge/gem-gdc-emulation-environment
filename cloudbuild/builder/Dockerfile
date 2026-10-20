@@ -16,7 +16,7 @@
 #
 # Bundles every tool an end-to-end cluster build needs into a single image so
 # each pipeline step can use the same entrypoint. The Google Cloud SDK base
-# image already includes `gcloud`, `gsutil`, and the IAP-tunneling component
+# image already includes `gcloud`, and the IAP-tunneling component
 # the dynamic Ansible inventory shells out to.
 ARG CLOUD_SDK_VERSION=584.0.0
 FROM gcr.io/google.com/cloudsdktool/google-cloud-cli:${CLOUD_SDK_VERSION}-slim
