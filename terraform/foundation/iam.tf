@@ -17,6 +17,7 @@ resource "google_service_account" "baremetal_gcr" {
   account_id   = "baremetal-gcr"
   display_name = "Service Account for Anthos Bare Metal"
   project      = var.project_id
+  depends_on   = [google_project_service.apis]
 }
 
 resource "google_project_iam_member" "baremetal_gcr_roles" {
@@ -42,6 +43,7 @@ resource "google_service_account" "gem_cluster_admin" {
   account_id   = "gem-cluster-admin"
   display_name = "GEM Cluster Admin"
   project      = var.project_id
+  depends_on   = [google_project_service.apis]
 }
 
 resource "google_project_iam_member" "gem_cluster_admin_roles" {
