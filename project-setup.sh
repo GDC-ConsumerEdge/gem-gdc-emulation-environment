@@ -44,22 +44,22 @@ GEM_TF_STATE_LOCATION="${GEM_TF_STATE_LOCATION:-$GEM_GCP_REGION}"
 GEM_AR_LOCATION="${GEM_AR_LOCATION:-$GEM_GCP_REGION}"
 
 echo "🔄 Enabling essential APIs..."
-gcloud services enable cloudresourcemanager.googleapis.com serviceusage.googleapis.com iamcredentials.googleapis.com --project="${PROJECT_ID}"
+gcloud services enable cloudresourcemanager.googleapis.com serviceusage.googleapis.com iam.googleapis.com iamcredentials.googleapis.com --project="${PROJECT_ID}"
 
 # GCP APIs can sometimes take a moment to propagate globally after being enabled.
-echo "⏳ Waiting for APIs to fully activate (10s)..."
+echo -e "\n⏳ Waiting for APIs to fully activate (10s)..."
 sleep 10
 
 PROVISIONING_SA_NAME=$(echo "${PROVISIONING_SA_EMAIL}" | cut -d@ -f1)
 
-echo "🔄 Creating provisioning Service Account: ${PROVISIONING_SA_NAME}..."
+echo -e "\n🔄 Creating provisioning Service Account: ${PROVISIONING_SA_NAME}..."
 if ! gcloud iam service-accounts describe "${PROVISIONING_SA_EMAIL}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
   gcloud iam service-accounts create "${PROVISIONING_SA_NAME}" \
     --display-name="Terraform Provisioning SA for GDCSO" \
     --project="${PROJECT_ID}"
 fi
 
-echo "🔄 Granting roles to the provisioning Service Account..."
+echo -e "\n🔄 Granting roles to the provisioning Service Account..."
 # Required roles for Terraform to manage infrastructure
 ROLES=(
   "roles/editor"
@@ -80,7 +80,7 @@ done
 
 # Allow your user account to impersonate this service account
 USER_EMAIL=$(gcloud config get-value account)
-echo "🔄 Allowing user ${USER_EMAIL} to impersonate ${PROVISIONING_SA_EMAIL}..."
+echo -e "\n🔄 Allowing user ${USER_EMAIL} to impersonate ${PROVISIONING_SA_EMAIL}..."
 gcloud iam service-accounts add-iam-policy-binding "${PROVISIONING_SA_EMAIL}" \
   --member="user:${USER_EMAIL}" \
   --role="roles/iam.serviceAccountTokenCreator" \
@@ -89,7 +89,7 @@ gcloud iam service-accounts add-iam-policy-binding "${PROVISIONING_SA_EMAIL}" \
 
 echo "✅ Provisioning Service Account setup complete."
 
-echo "🔄 Generating terraform.tfvars files..."
+echo -e "\n🔄 Generating terraform.tfvars files..."
 cat <<EOF > "${REPO_ROOT}/terraform/foundation/terraform.tfvars"
 project_id            = "${PROJECT_ID}"
 provisioning_sa_email = "${PROVISIONING_SA_EMAIL}"
@@ -128,11 +128,11 @@ ar_location           = "${GEM_AR_LOCATION}"
 EOF
 echo "✅ terraform.tfvars created successfully."
 
-echo "🔄 Ensuring Terraform state bucket gs://${TF_STATE_BUCKET} exists..."
+echo -e "\n🔄 Ensuring Terraform state bucket gs://${TF_STATE_BUCKET} exists..."
 if ! gcloud storage buckets describe "gs://${TF_STATE_BUCKET}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
   gcloud storage buckets create "gs://${TF_STATE_BUCKET}" --project="${PROJECT_ID}" --location="${GEM_TF_STATE_LOCATION}"
 fi
 gcloud storage buckets update "gs://${TF_STATE_BUCKET}" --versioning
 echo "✅ Terraform state bucket ready."
 
-echo "🚀 Bootstrap complete"
+echo -e "\n💎 Bootstrap complete"
