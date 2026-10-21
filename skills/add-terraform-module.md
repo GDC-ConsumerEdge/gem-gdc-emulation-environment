@@ -58,7 +58,7 @@ The module is initialized against the shared Terraform state bucket with an
 impersonated provisioning service account and a module-specific state prefix:
 
 ```bash
-terraform -chdir=terraform/<name> init -upgrade \
+terraform -chdir=terraform/<name> init -upgrade -reconfigure \
   -backend-config="bucket=${TF_STATE_BUCKET}" \
   -backend-config="prefix=<name>/state" \
   -backend-config="impersonate_service_account=${PROVISIONING_SA_EMAIL}"
