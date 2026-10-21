@@ -111,8 +111,8 @@
     - name: Verify template contents for version 1.13.1
       ansible.builtin.assert:
         that:
-          - "'anthosBareMetalVersion: 1.32.700-gke.64' in (rendered_template_v2['content'] | b64decode)"
-        fail_msg: "Template rendering failed to map 1.13.1 to 1.32.700-gke.64"
+          - "'anthosBareMetalVersion: 1.34.500-gke.108' in (rendered_template_v2['content'] | b64decode)"
+        fail_msg: "Template rendering failed to map 1.13.1 to 1.34.500-gke.108"
     - name: Clean up test directory
       ansible.builtin.file:
         path: "/tmp/gdc_test_v2"
