@@ -36,9 +36,9 @@ def test_load_group_vars_success():
 
 def test_valid_gdc_versions():
     versions = get_valid_gdc_versions()
-    assert "1.13.0" in versions
+    assert "1.13.1" in versions
     assert "1.12.1" in versions
-    assert get_default_gdc_version() == "1.13.0"
+    assert get_default_gdc_version() == "1.13.1"
 
 
 def test_valid_hardware_variants():
