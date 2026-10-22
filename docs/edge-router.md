@@ -125,7 +125,7 @@ Point the edge router module at the shared Terraform state bucket and apply it:
 ```bash
 cd terraform/edge-router
 
-terraform init -upgrade \
+terraform init -upgrade -reconfigure \
   -backend-config="bucket=${TF_STATE_BUCKET}" \
   -backend-config="prefix=edge-router/state" \
   -backend-config="impersonate_service_account=${PROVISIONING_SA_EMAIL}"

@@ -43,7 +43,7 @@ variable "cluster_name" {
 
 variable "bmctl_version" {
   type    = string
-  default = "1.34.100-gke.97"
+  default = "1.34.500-gke.108"
 }
 
 variable "hardware_variant" {

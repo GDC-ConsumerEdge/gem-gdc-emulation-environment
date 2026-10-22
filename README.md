@@ -117,7 +117,7 @@ per GCP project:
 # Build and deploy the GEM foundation
 cd ${REPO_ROOT}/terraform/foundation
 
-terraform init \
+terraform init -upgrade -reconfigure \
   -backend-config="bucket=${TF_STATE_BUCKET}" \
   -backend-config="prefix=foundation/state" \
   -backend-config="impersonate_service_account=${PROVISIONING_SA_EMAIL}"
@@ -127,7 +127,7 @@ terraform apply
 # Deploy the Admin Workstation
 cd ${REPO_ROOT}/terraform/admin-workstation
 
-terraform init \
+terraform init -upgrade -reconfigure \
   -backend-config="bucket=${TF_STATE_BUCKET}" \
   -backend-config="prefix=admin-workstation/state" \
   -backend-config="impersonate_service_account=${PROVISIONING_SA_EMAIL}"
@@ -155,7 +155,7 @@ its connectivity into reachability from your local workstation.
 ```bash
 cd ${REPO_ROOT}/terraform/edge-router
 
-terraform init \
+terraform init -upgrade -reconfigure \
   -backend-config="bucket=${TF_STATE_BUCKET}" \
   -backend-config="prefix=edge-router/state" \
   -backend-config="impersonate_service_account=${PROVISIONING_SA_EMAIL}"
@@ -183,7 +183,7 @@ The cluster build process takes approximately 30 minutes to complete.
 # Provision the 3 Compute Engine nodes
 cd ${REPO_ROOT}/terraform/cluster
 
-terraform init \
+terraform init -upgrade -reconfigure \
   -backend-config="bucket=${TF_STATE_BUCKET}" \
   -backend-config="prefix=clusters/${CLUSTER_NAME}/state" \
   -backend-config="impersonate_service_account=${PROVISIONING_SA_EMAIL}"
@@ -370,7 +370,7 @@ ansible-playbook cleanup.yaml -e "cluster_name=${CLUSTER_NAME}"
 # Destroy the cluster VM infrastructure
 cd ${REPO_ROOT}/terraform/cluster
 
-terraform init \
+terraform init -upgrade -reconfigure \
   -backend-config="bucket=${TF_STATE_BUCKET}" \
   -backend-config="prefix=clusters/${CLUSTER_NAME}/state" \
   -backend-config="impersonate_service_account=${PROVISIONING_SA_EMAIL}"

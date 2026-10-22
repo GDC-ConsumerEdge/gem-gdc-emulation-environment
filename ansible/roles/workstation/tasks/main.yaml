@@ -23,6 +23,11 @@
     name: "{{ gem_user }}"
     state: present
     shell: /bin/bash
+- name: Grant passwordless sudo to platform user
+  ansible.builtin.copy:
+    dest: "/etc/sudoers.d/{{ gem_user }}"
+    content: "{{ gem_user }} ALL=(ALL) NOPASSWD: ALL\n"
+    mode: "0440"
 - name: Suppress default login messages for platform user
   ansible.builtin.file:
     path: "{{ gem_home }}/.hushlogin"

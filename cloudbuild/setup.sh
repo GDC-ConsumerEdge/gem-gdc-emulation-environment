@@ -45,7 +45,7 @@ GEM_AR_LOCATION="${GEM_AR_LOCATION:-$GEM_GCP_REGION}"
 REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
 echo -e "\n🔄 Initializing terraform/cloudbuild..."
-terraform -chdir="${REPO_ROOT}/terraform/cloudbuild" init -upgrade \
+terraform -chdir="${REPO_ROOT}/terraform/cloudbuild" init -upgrade -reconfigure \
   -backend-config="bucket=${TF_STATE_BUCKET}" \
   -backend-config="prefix=cloudbuild/state" \
   -backend-config="impersonate_service_account=${PROVISIONING_SA_EMAIL}"
