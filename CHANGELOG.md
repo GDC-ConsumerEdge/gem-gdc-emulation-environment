@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.2.0](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/compare/gem-v1.1.0...gem-v1.2.0) (2026-10-22)
+
+
+### Features
+
+* **gem:** add support for GDC 1.13.1 and retire GDC 1.11.1 ([18ef5d1](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/18ef5d1755067c3f60525c6ece435e67298695dc))
+
+
+### Bug Fixes
+
+* **terraform:** add -reconfigure to update local tfstate pointer to use the newly provided backend-config ([18ef5d1](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/18ef5d1755067c3f60525c6ece435e67298695dc))
+
+
+### Tests
+
+* **ansible:** update ansible test to reflect new GDC version ([18ef5d1](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/18ef5d1755067c3f60525c6ece435e67298695dc))
+* **api:** update tests to reflect new GDC version ([18ef5d1](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/18ef5d1755067c3f60525c6ece435e67298695dc))
+
 ## [1.1.0](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/compare/gem-v1.0.0...gem-v1.1.0) (2026-10-16)
 
 
