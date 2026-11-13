@@ -57,6 +57,28 @@ infrastructure from ephemeral GEM workload clusters:
   to a machine used to provision a GEM environment. To get started, this can be
   your local workstation.
 
+#### Optional: Run the Toolchain in Docker
+
+If you prefer not to install `gcloud`, `terraform`, `ansible-playbook`, and `jq`
+locally, build the root [`Dockerfile`](Dockerfile) and mount your GEM checkout
+and host `~/.config/gcloud` directory into the container instead:
+
+```bash
+# Build the local toolbox image from the repository root
+docker build -t gem-toolbox .
+
+# Start an interactive shell with your repo and gcloud config mounted
+docker run --rm -it \
+  -v "${PWD}:/gem" \
+  -v "${HOME}/.config/gcloud:/root/.config/gcloud" \
+  gem-toolbox
+```
+
+Inside the container, `REPO_ROOT` is already set to `/gem`, and shell history
+persists across sessions in `gem_toolbox_bash_history`. If you have not
+authenticated with GCP on your host yet, run `gcloud auth login` and
+`gcloud auth application-default login` inside the container first.
+
 ### Environment Setup
 
 Some initial setup needs to be completed before you can begin to provision GEM
