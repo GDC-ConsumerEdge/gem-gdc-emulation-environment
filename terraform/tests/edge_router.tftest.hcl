@@ -78,3 +78,68 @@ run "validate_edge_router_overrides" {
     error_message = "Edge router should honor deletion_protection override."
   }
 }
+
+run "validate_edge_router_different_zone_same_region" {
+  command = plan
+
+  variables {
+    region           = "us-central1"
+    zone             = "us-central1-b"
+    workstation_zone = "us-central1-a"
+  }
+
+  assert {
+    condition     = google_compute_instance.edge_router.zone == "us-central1-b"
+    error_message = "Edge router should be provisioned in var.zone (us-central1-b)."
+  }
+
+  assert {
+    condition     = data.google_compute_instance.gem_admin_ws.zone == "us-central1-a"
+    error_message = "Admin workstation lookup should target var.workstation_zone (us-central1-a)."
+  }
+
+  assert {
+    condition     = output.zone == "us-central1-b" && output.region == "us-central1"
+    error_message = "Outputs should expose edge router zone and region."
+  }
+}
+
+run "validate_edge_router_workstation_zone_cross_region_fail" {
+  command = plan
+
+  variables {
+    region           = "us-central1"
+    zone             = "us-central1-b"
+    workstation_zone = "us-east4-b"
+  }
+
+  expect_failures = [
+    var.workstation_zone
+  ]
+}
+
+run "validate_edge_router_auto_discover_workstation_zone_from_state" {
+  command = plan
+
+  variables {
+    region = "us-central1"
+    zone   = "us-central1-b"
+  }
+
+  override_data {
+    target = data.google_storage_bucket_object_content.admin_ws_state[0]
+    values = {
+      content = "{\"outputs\":{\"zone\":{\"value\":\"us-central1-a\"}}}"
+    }
+  }
+
+  assert {
+    condition     = data.google_compute_instance.gem_admin_ws.zone == "us-central1-a"
+    error_message = "Should auto-discover workstation zone (us-central1-a) from remote state when workstation_zone is omitted."
+  }
+
+  assert {
+    condition     = google_compute_instance.edge_router.zone == "us-central1-b"
+    error_message = "Edge router should still be provisioned in var.zone (us-central1-b)."
+  }
+}

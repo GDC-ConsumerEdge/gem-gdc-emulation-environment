@@ -227,6 +227,7 @@ project_id            = "${PROJECT_ID}"
 provisioning_sa_email = "${PROVISIONING_SA_EMAIL}"
 zone                  = "${GEM_GCP_ZONE}"
 region                = "${GEM_GCP_REGION}"
+tf_state_bucket       = "${TF_STATE_BUCKET}"
 EOF
 
 # Cluster Var File
@@ -236,6 +237,7 @@ provisioning_sa_email = "${PROVISIONING_SA_EMAIL}"
 cluster_name          = "${CLUSTER_NAME}"
 zone                  = "${GEM_GCP_ZONE}"
 region                = "${GEM_GCP_REGION}"
+tf_state_bucket       = "${TF_STATE_BUCKET}"
 hardware_variant      = "g2-small-64gb" # Options: g1-medium, g1-large, g2-small-64gb, g2-small-128gb, g2-medium, g2-large, dev-and-test
 EOF
 

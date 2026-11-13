@@ -242,3 +242,68 @@ run "validate_cluster_fqdn_length_fail" {
     var.cluster_name
   ]
 }
+
+run "validate_different_zone_same_region" {
+  command = plan
+
+  variables {
+    region           = "us-central1"
+    zone             = "us-central1-c"
+    workstation_zone = "us-central1-a"
+  }
+
+  assert {
+    condition     = google_compute_instance.gdc_vms["node1"].zone == "us-central1-c" && google_compute_disk.gdc_data_disks["node1"].zone == "us-central1-c"
+    error_message = "Cluster VMs and data disks should be provisioned in var.zone (us-central1-c)."
+  }
+
+  assert {
+    condition     = data.google_compute_instance.gem_admin_ws.zone == "us-central1-a"
+    error_message = "Admin workstation data lookup should target var.workstation_zone (us-central1-a)."
+  }
+
+  assert {
+    condition     = output.zone == "us-central1-c" && output.region == "us-central1"
+    error_message = "Outputs should expose the cluster zone and region."
+  }
+}
+
+run "validate_workstation_zone_cross_region_fail" {
+  command = plan
+
+  variables {
+    region           = "us-central1"
+    zone             = "us-central1-c"
+    workstation_zone = "us-east4-b"
+  }
+
+  expect_failures = [
+    var.workstation_zone
+  ]
+}
+
+run "validate_auto_discover_workstation_zone_from_state" {
+  command = plan
+
+  variables {
+    region = "us-central1"
+    zone   = "us-central1-c"
+  }
+
+  override_data {
+    target = data.google_storage_bucket_object_content.admin_ws_state[0]
+    values = {
+      content = "{\"resources\":[{\"type\":\"google_compute_instance\",\"instances\":[{\"attributes\":{\"zone\":\"us-central1-b\"}}]}]}"
+    }
+  }
+
+  assert {
+    condition     = data.google_compute_instance.gem_admin_ws.zone == "us-central1-b"
+    error_message = "Should auto-discover workstation zone (us-central1-b) from remote state when workstation_zone is omitted."
+  }
+
+  assert {
+    condition     = google_compute_instance.gdc_vms["node1"].zone == "us-central1-c"
+    error_message = "Cluster VMs should still be provisioned in var.zone (us-central1-c)."
+  }
+}

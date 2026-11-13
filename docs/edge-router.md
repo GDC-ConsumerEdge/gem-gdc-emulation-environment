@@ -114,9 +114,11 @@ You also need the environment variables from the
 [README](../README.md#environment-setup) exported, including `PROJECT_ID`,
 `TF_STATE_BUCKET`, `GEM_GCP_ZONE` and `PROVISIONING_SA_EMAIL`, and
 `project-setup.sh` must have run: it writes the
-`terraform/edge-router/terraform.tfvars` that supplies `project_id`, `region`
-and `zone`. Those variables have no defaults, so without that file
-`terraform apply` stops and prompts for them.
+`terraform/edge-router/terraform.tfvars` that supplies `project_id`, `region`,
+`zone` and `tf_state_bucket`. Those first three variables have no defaults, so
+without that file `terraform apply` stops and prompts for them. Pass
+`-var="zone=<other-zone>"` if you want the edge router in another zone of the
+same region as `gem-admin-ws`.
 
 ### 1. Provision with Terraform
 
@@ -199,9 +201,10 @@ default ports:
 
 Connection details default to your environment: the project from `$PROJECT_ID`
 or `gcloud config`, the instance from `$GEM_EDGE_ROUTER_NAME` or
-`gem-edge-router`, the zone from `$CLOUDSDK_COMPUTE_ZONE` or `gcloud config`,
-and the user `gem`. `--project-id`, `--edge-router`, `--zone` and `--user`
-override each of those. Run `gem-tunnel.sh --help` for the full usage.
+`gem-edge-router`, the zone by looking up the instance in GCP before falling
+back to `$GEM_GCP_ZONE`, `$CLOUDSDK_COMPUTE_ZONE` or `gcloud config`, and the
+user `gem`. `--project-id`, `--edge-router`, `--zone` and `--user` override each
+of those. Run `gem-tunnel.sh --help` for the full usage.
 
 > [!WARNING]
 > When you give `gem-tunnel.sh` a `namespace/service` target it prefers the

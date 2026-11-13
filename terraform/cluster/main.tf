@@ -41,9 +41,36 @@ data "google_compute_subnetwork" "gdc_subnet" {
   project = var.project_id
 }
 
+data "google_storage_bucket_object_content" "admin_ws_state" {
+  count  = var.workstation_zone == "" ? 1 : 0
+  bucket = var.tf_state_bucket != "" ? var.tf_state_bucket : "gem-${var.project_id}-tfstate"
+  name   = "admin-workstation/state/default.tfstate"
+}
+
+locals {
+  admin_ws_state_raw = var.workstation_zone == "" ? try(jsondecode(data.google_storage_bucket_object_content.admin_ws_state[0].content), {}) : {}
+  admin_ws_state_zone = coalesce(
+    try(local.admin_ws_state_raw.outputs.zone.value, null),
+    try([
+      for r in local.admin_ws_state_raw.resources :
+      r.instances[0].attributes.zone
+      if r.type == "google_compute_instance" && length(r.instances) > 0
+    ][0], null),
+    var.zone
+  )
+  resolved_workstation_zone = var.workstation_zone != "" ? var.workstation_zone : local.admin_ws_state_zone
+}
+
 # Read the shared Admin Workstation
 data "google_compute_instance" "gem_admin_ws" {
   name    = "gem-admin-ws"
-  zone    = var.zone
+  zone    = local.resolved_workstation_zone
   project = var.project_id
+
+  lifecycle {
+    postcondition {
+      condition     = local.resolved_workstation_zone == var.zone || startswith(local.resolved_workstation_zone, "${var.region}-")
+      error_message = "🚫 ERROR: gem-admin-ws is in zone '${local.resolved_workstation_zone}', which is outside target region '${var.region}'. Clusters must be deployed in the same GCP region as gem-admin-ws."
+    }
+  }
 }
