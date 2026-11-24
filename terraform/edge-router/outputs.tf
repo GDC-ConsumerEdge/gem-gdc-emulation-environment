@@ -19,3 +19,11 @@ output "edge_router_ip" {
 output "edge_router_name" {
   value = google_compute_instance.edge_router.name
 }
+
+output "zone" {
+  value = var.zone
+}
+
+output "region" {
+  value = var.region
+}
