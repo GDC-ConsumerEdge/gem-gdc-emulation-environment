@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.3.0](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/compare/gem-v1.2.0...gem-v1.3.0) (2026-11-24)
+
+
+### Features
+
+* **gem:** add helper container for GEM environment management ([12eeff8](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/12eeff845efcec2de12ac15c29e95e378b4f42b8))
+
+
+### Bug Fixes
+
+* **gem:** auto-discover admin workstation zone instead of assuming GEM_GCP_ZONE ([12eeff8](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/commit/12eeff845efcec2de12ac15c29e95e378b4f42b8))
+
 ## [1.2.0](https://github.com/GDC-ConsumerEdge/gem-gdc-emulation-environment/compare/gem-v1.1.0...gem-v1.2.0) (2026-10-22)
 
 
