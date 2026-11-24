@@ -24,4 +24,5 @@ output "cluster_name" { value = var.cluster_name }
 output "bmctl_version" { value = var.bmctl_version }
 output "project_id" { value = var.project_id }
 output "zone" { value = var.zone }
+output "region" { value = var.region }
 output "node_storage_size" { value = var.node_storage_size }

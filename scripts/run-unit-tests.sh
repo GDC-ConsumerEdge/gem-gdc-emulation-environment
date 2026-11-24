@@ -122,7 +122,7 @@ if [ "$RUN_TERRAFORM" = true ]; then
             mod_dir="$TEMP_TF_ROOT/$module"
             mkdir -p "$mod_dir/tests"
             cp -r "$GEM_ROOT/terraform/$module"/* "$mod_dir"/
-            rm -f "$mod_dir/backend.tf"
+            rm -f "$mod_dir/backend.tf" "$mod_dir"/*.tfvars "$mod_dir"/*.tfvars.json
             cp "$GEM_ROOT/terraform/tests/$test_file" "$mod_dir/tests/"
 
             echo "Testing Terraform module: $module ($test_file)..."

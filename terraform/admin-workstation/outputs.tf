@@ -27,3 +27,7 @@ output "project_id" {
 output "zone" {
   value = var.zone
 }
+
+output "region" {
+  value = var.region
+}

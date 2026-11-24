@@ -104,12 +104,18 @@ zone                  = "${GEM_GCP_ZONE}"
 region                = "${GEM_GCP_REGION}"
 EOF
 
+EXISTING_WS_ZONE=$(gcloud compute instances list --project="${PROJECT_ID}" --filter="name=gem-admin-ws" --format="value(zone.basename())" 2>/dev/null | head -n 1 || true)
+
 cat <<EOF > "${REPO_ROOT}/terraform/edge-router/terraform.tfvars"
 project_id            = "${PROJECT_ID}"
 provisioning_sa_email = "${PROVISIONING_SA_EMAIL}"
 zone                  = "${GEM_GCP_ZONE}"
 region                = "${GEM_GCP_REGION}"
+tf_state_bucket       = "${TF_STATE_BUCKET}"
 EOF
+if [[ -n "${EXISTING_WS_ZONE}" && "${EXISTING_WS_ZONE%-*}" == "${GEM_GCP_REGION}" ]]; then
+  echo "workstation_zone      = \"${EXISTING_WS_ZONE}\"" >> "${REPO_ROOT}/terraform/edge-router/terraform.tfvars"
+fi
 
 cat <<EOF > "${REPO_ROOT}/terraform/cluster/terraform.tfvars"
 project_id            = "${PROJECT_ID}"
@@ -117,7 +123,11 @@ provisioning_sa_email = "${PROVISIONING_SA_EMAIL}"
 cluster_name          = "${CLUSTER_NAME}"
 zone                  = "${GEM_GCP_ZONE}"
 region                = "${GEM_GCP_REGION}"
+tf_state_bucket       = "${TF_STATE_BUCKET}"
 EOF
+if [[ -n "${EXISTING_WS_ZONE}" && "${EXISTING_WS_ZONE%-*}" == "${GEM_GCP_REGION}" ]]; then
+  echo "workstation_zone      = \"${EXISTING_WS_ZONE}\"" >> "${REPO_ROOT}/terraform/cluster/terraform.tfvars"
+fi
 
 cat <<EOF > "${REPO_ROOT}/terraform/cloudbuild/terraform.tfvars"
 project_id            = "${PROJECT_ID}"

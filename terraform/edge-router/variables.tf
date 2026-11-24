@@ -33,6 +33,22 @@ variable "zone" {
 
 }
 
+variable "workstation_zone" {
+  type        = string
+  description = "GCP zone hosting gem-admin-ws. Auto-discovered from remote Terraform state when empty."
+  default     = ""
+  validation {
+    condition     = var.workstation_zone == "" || (can(regex("^[a-z]+-[a-z0-9]+-[a-z]$", var.workstation_zone)) && startswith(var.workstation_zone, "${var.region}-"))
+    error_message = "🚫 ERROR: The workstation_zone value must be a valid GCP zone within region '${var.region}' (e.g., '${var.region}-b'), or empty to auto-discover from state."
+  }
+}
+
+variable "tf_state_bucket" {
+  type        = string
+  description = "GCS bucket holding GEM Terraform state. Defaults to gem-<project_id>-tfstate when empty."
+  default     = ""
+}
+
 variable "machine_type" {
   type    = string
   default = "e2-small"
